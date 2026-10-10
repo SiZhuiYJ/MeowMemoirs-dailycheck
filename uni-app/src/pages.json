@@ -1,0 +1,146 @@
+{
+	"pages": [
+        {
+            "path": "pages/main/index",
+            "style": {
+                "navigationBarTitleText": "喵咪记事簿",
+                "navigationBarBackgroundColor": "#F1F1EB",
+                "navigationBarTextStyle": "black",
+                "navigationStyle": "custom"
+            }
+        },
+        {
+            "path": "pages/auth/index",
+            "style": {
+                "navigationBarTitleText": "登录/注册",
+                "navigationBarBackgroundColor": "#F1F1EB",
+                "navigationBarTextStyle": "black"
+            }
+        },
+        {
+            "path": "pages/plan/create",
+            "style": {
+                "navigationBarTitleText": "新建计划",
+                "navigationBarBackgroundColor": "#F1F1EB",
+                "navigationBarTextStyle": "black"
+            }
+        },
+        {
+            "path": "pages/plan/detail",
+            "style": {
+                "navigationBarTitleText": "计划详情",
+                "navigationBarBackgroundColor": "#F1F1EB",
+                "navigationBarTextStyle": "black"
+            }
+        },
+        {
+            "path": "pages/checkin/form",
+            "style": {
+                "navigationBarTitleText": "打卡/补签",
+                "navigationBarBackgroundColor": "#F1F1EB",
+                "navigationBarTextStyle": "black"
+            }
+        },
+        {
+            "path": "pages/checkin/detail",
+            "style": {
+                "navigationBarTitleText": "打卡详情",
+                "navigationBarBackgroundColor": "#F1F1EB",
+                "navigationBarTextStyle": "black"
+            }
+        },
+        {
+            "path": "pages/profile/index",
+            "style": {
+                "navigationBarTitleText": "个人信息",
+                "navigationBarBackgroundColor": "#F1F1EB",
+                "navigationBarTextStyle": "black"
+            }
+        },
+        {
+            "path": "pages/profile/update-account",
+            "style": {
+                "navigationBarTitleText": "修改账号名",
+                "navigationBarBackgroundColor": "#F1F1EB",
+                "navigationBarTextStyle": "black"
+            }
+        },
+        {
+            "path": "pages/profile/update-nickname",
+            "style": {
+                "navigationBarTitleText": "修改昵称",
+                "navigationBarBackgroundColor": "#F1F1EB",
+                "navigationBarTextStyle": "black"
+            }
+        },
+        {
+            "path": "pages/profile/deactivate",
+            "style": {
+                "navigationBarTitleText": "注销账号",
+                "navigationBarBackgroundColor": "#F1F1EB",
+                "navigationBarTextStyle": "black"
+            }
+        },
+        {
+            "path": "pages/profile/update-password",
+            "style": {
+                "navigationBarTitleText": "修改密码",
+                "navigationBarBackgroundColor": "#F1F1EB",
+                "navigationBarTextStyle": "black"
+            }
+        },
+        {
+            "path": "pages/profile/third-party-binds",
+            "style": {
+                "navigationBarTitleText": "第三方账号绑定",
+                "navigationBarBackgroundColor": "#F1F1EB",
+                "navigationBarTextStyle": "black"
+            }
+        },
+        {
+            "path": "pages/common/cropper",
+            "style": {
+                "navigationBarTitleText": "裁剪头像",
+                "navigationBarBackgroundColor": "#000000",
+                "navigationBarTextStyle": "white",
+                "navigationStyle": "custom"
+            }
+        },
+        {
+            "path": "pages/settings/changelog",
+            "style": {
+                "navigationBarTitleText": "更新日志"
+            }
+        },
+        {
+            "path": "pages/settings/reminders",
+            "style": {
+                "navigationBarTitleText": "重要提醒"
+            }
+        },
+        {
+            "path": "pages/settings/feedback",
+            "style": {
+                "navigationBarTitleText": "意见反馈"
+            }
+        },
+        {
+            "path": "pages/settings/privacy",
+            "style": {
+                "navigationBarTitleText": "数据隐私"
+            }
+        },
+        {
+            "path": "pages/settings/login-records",
+            "style": {
+                "navigationBarTitleText": "登录记录"
+            }
+        }
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "black",
+		"navigationBarTitleText": "喵咪记事簿",
+		"navigationBarBackgroundColor": "#F1F1EB",
+		"backgroundColor": "#ECE7DA"
+	}
+}

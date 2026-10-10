@@ -1,0 +1,110 @@
+<template>
+  <div class="kaomoji-wrapper">
+      <div class="kaomoji-container" ref="containerRef">
+            <span 
+                    v-for="(char, index) in chars" 
+                            :key="index" 
+                                    class="char"
+                                            /* 1. 缩小颜色跨度：偏移量乘数从 20 降到 6，让相邻字符颜色更接近 */
+                                                    :style="{ '--hue-offset': index * 6 }"
+                                                          >
+                                                                  {{ char }}
+                                                                        </span>
+                                                                            </div>
+                                                                              </div>
+                                                                              </template>
+
+                                                                              <script setup lang="ts">
+                                                                              import { ref, computed, onMounted } from 'vue';
+                                                                              import gsap from 'gsap';
+
+                                                                              const props = defineProps({
+                                                                                  text: {
+                                                                                        type: String,
+                                                                                            default: '!!!(づ￣ 3￣)づ╭❤～'
+                                                                                  }
+                                                                              });
+
+                                                                              const chars = computed(() => props.text.split(''));
+                                                                              const containerRef = ref<HTMLElement | null>(null);
+
+                                                                              onMounted(() => {
+                                                                                  if (!containerRef.value) return;
+
+                                                                                    const charElements = containerRef.value.querySelectorAll('.char');
+
+                                                                                      // 1. 颜色缓慢渐变动画
+                                                                                        const colorAnim = { baseHue: 0 };
+                                                                                          gsap.to(colorAnim, {
+                                                                                                baseHue: -360,       
+                                                                                                    duration: 12,        // 2. 减慢速度：从 3 秒延长到 12 秒流转一圈
+                                                                                                        repeat: -1,          
+                                                                                                            ease: "none",        
+                                                                                                                onUpdate: () => {
+                                                                                                                          containerRef.value?.style.setProperty('--base-hue', String(colorAnim.baseHue));
+                                                                                                                }
+                                                                                          });
+
+                                                                                            // 3. 从左至右的起跳与回落动画
+                                                                                              // 使用 Timeline 确保整体波浪的节奏一致，不会随时间推移而错乱
+                                                                                                const tl = gsap.timeline({ repeat: -1, repeatDelay: 0.5 }); // repeatDelay 控制每波跳动之间的停顿
+
+                                                                                                  tl.to(charElements, {
+                                                                                                        keyframes: [
+                                                                                                                  // 阶段一：起跳（包含轻微旋转）
+                                                                                                                        { y: -18, rotation: 5, duration: 0.35, ease: "power2.out" }, 
+                                                                                                                              // 阶段二：回落（归位）
+                                                                                                                                    { y: 0, rotation: 0, duration: 0.35, ease: "power2.inOut" }   
+                                                                                                        ],
+                                                                                                            stagger: {
+                                                                                                                      each: 0.08,        // 每个字符依次执行上面的一整套 keyframes 动作
+                                                                                                                            from: "start"      // 严格保证从左向右（起跳从左到右，回落自然也从左到右）
+                                                                                                            }
+                                                                                                  });
+                                                                              });
+                                                                              </script>
+
+                                                                              <style scoped>
+                                                                              .kaomoji-wrapper {
+                                                                                  background: #1e2530; 
+                                                                                    padding: 40px 60px;
+                                                                                      border-radius: 16px;
+                                                                                        display: inline-flex;
+                                                                                          justify-content: center;
+                                                                                            align-items: center;
+                                                                                              overflow: hidden;
+                                                                              }
+
+                                                                              .kaomoji-container {
+                                                                                  display: inline-flex;
+                                                                                    --base-hue: 0;
+                                                                              }
+
+                                                                              .char {
+                                                                                  display: inline-block;
+                                                                                    font-size: 3.5rem;
+                                                                                      font-weight: 900;
+                                                                                        font-family: "Comic Sans MS", "PingFang SC", "Arial Rounded MT Bold", sans-serif;
+                                                                                          
+                                                                                            /* 调整为更柔和的粉彩色调（降低饱和度至 85%，提高亮度至 78%）以贴合原图风格 */
+                                                                                              color: hsl(calc(var(--base-hue) + var(--hue-offset)), 85%, 78%);
+                                                                                                
+                                                                                                  -webkit-text-stroke: 4px white;
+                                                                                                    paint-order: stroke fill;
+                                                                                                      
+                                                                                                        filter: drop-shadow(0 4px 3px rgba(0, 0, 0, 0.3));
+                                                                                                          white-space: pre;
+                                                                                                            transform-origin: bottom center;
+                                                                              }
+                                                                              </style>
+                                                                              }
+                                                                              }
+                                                                              }
+                                                                                                            }
+                                                                                                        ]
+                                                                                                  })
+                                                                                                                }
+                                                                                          })
+                                                                              })
+                                                                                  }
+                                                                              })

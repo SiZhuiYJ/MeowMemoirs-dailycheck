@@ -1,0 +1,707 @@
+# 依赖项和构建输出
+node_modules/
+unlock-music/dist
+/dist
+/dist-ssr
+/build
+/coverage
+*.tgz
+*.zip
+/stats.html
+
+# 临时文件
+web/public/gsap/yunnan
+first-screen-scroll-animation/public/gsap/yunnan
+
+# 日志文件
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log.*
+
+# 编辑器和IDE相关文件
+# Visual Studio 相关目录
+*.vs/
+.vs/
+.vscode/
+!.vscode/extensions.json
+.vscode
+*.vscode/
+!.vscode/extensions.json
+.idea
+*.swp
+*.swo
+*~
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# 用户特定文件 (MonoDevelop/Xamarin Studio)
+*.userprefs
+
+# Mono 自动生成的文件
+mono_crash.*
+
+# Visual Studio 2017 自动生成的文件
+Generated\ Files/
+
+# 构建结果
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio 2015/2017 缓存/选项目录
+*/.vs/
+
+# MSTest 测试结果
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# NUnit
+*.VisualState.xml
+TestResult.xml
+nunit-*.xml
+
+# ATL 项目的构建结果
+[Dd]ebugPS/
+[Rr]eleasePS/
+dlldata.c
+
+# Benchmark 结果
+BenchmarkDotNet.Artifacts/
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# ASP.NET 脚手架
+ScaffoldingReadMe.txt
+
+# StyleCop
+StyleCopReport.xml
+
+# Visual Studio 生成的文件
+*_i.c
+*_p.c
+*_h.h
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.pdb
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*_wpftmp.csproj
+*.log
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# Chutzpah 测试文件
+_Chutzpah*
+
+# Visual C++ 缓存文件
+ipch/
+*.aps
+*.ncb
+*.opendb
+*.opensdf
+*.sdf
+*.cachefile
+*.VC.db
+*.VC.VC.opendb
+
+# Visual Studio 性能分析器
+*.psess
+*.vsp
+*.vspx
+*.sap
+
+# Visual Studio 跟踪文件
+*.e2e
+
+# TFS 2012 本地工作区
+$tf/
+
+# Guidance Automation Toolkit
+*.gpState
+
+# ReSharper 是 .NET 编码插件
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# TeamCity 是构建插件
+_TeamCity*
+
+# DotCover 是代码覆盖率工具
+*.dotCover
+
+# AxoCover 是代码覆盖率工具
+.axoCover/*
+!.axoCover/settings.json
+
+# Coverlet 是免费、跨平台的代码覆盖率工具
+coverage*.json
+coverage*.xml
+coverage*.info
+
+# Visual Studio 代码覆盖率结果
+*.coverage
+*.coveragexml
+
+# NCrunch
+_NCrunch_*
+.*crunch*.local.xml
+nCrunchTemp_*
+
+# MightyMoose
+*.mm.*
+AutoTest.Net/
+
+# Web 工作台 (sass)
+.sass-cache/
+
+# Installshield 输出文件夹
+[Ee]xpress/
+
+# DocProject 是文档生成插件
+DocProject/buildhelp/
+DocProject/Help/*.HxT
+DocProject/Help/*.HxC
+DocProject/Help/*.hhc
+DocProject/Help/*.hhk
+DocProject/Help/*.hhp
+DocProject/Help/Html2
+DocProject/Help/html
+
+# Click-Once 目录
+publish/
+
+# 发布 Web 输出
+*.[Pp]ublish.xml
+*.azurePubxml
+# 注意：如果您想提交 web 部署设置，请注释下一行，
+# 但数据库连接字符串（可能包含密码）将不会加密
+*.pubxml
+*.publishproj
+
+# Microsoft Azure Web 应用发布设置。如果您想提交 Azure Web 应用发布设置，请注释下一行，
+# 但这些脚本中包含的敏感信息将不会加密
+PublishScripts/
+
+# NuGet 包
+*.nupkg
+# NuGet 符号包
+*.snupkg
+# 包文件夹可以被忽略，因为有包还原功能
+**/[Pp]ackages/*
+# 除了 build/，它被用作 MSBuild 目标。
+!**/[Pp]ackages/build/
+# 如有必要请取消注释，但通常在需要时会重新生成
+#!**/[Pp]ackages/repositories.config
+# NuGet v3 的 project.json 文件产生更多可忽略的文件
+*.nuget.props
+*.nuget.targets
+
+# Microsoft Azure 构建输出
+csx/
+*.build.csdef
+
+# Microsoft Azure 模拟器
+ecf/
+rcf/
+
+# Windows Store 应用包目录和文件
+AppPackages/
+BundleArtifacts/
+Package.StoreAssociation.xml
+_pkginfo.txt
+*.appx
+*.appxbundle
+*.appxupload
+
+# Visual Studio 缓存文件
+# 以 .cache 结尾的文件可以被忽略
+*.[Cc]ache
+# 但是跟踪以 .cache 结尾的目录
+!?*.[Cc]ache/
+
+# 其他
+ClientBin/
+~$*
+*~
+*.dbmdl
+*.dbproj.schemaview
+*.jfm
+*.pfx
+*.publishsettings
+orleans.codegen.cs
+
+# 包含强名称文件可能会带来安全风险
+# (https://github.com/github/gitignore/pull/2483#issue-259490424)
+#*.snk
+
+# 由于有多种工作流程，请取消注释下一行以忽略 bower_components
+# (https://github.com/github/gitignore/pull/1529#issuecomment-104372622)
+#bower_components/
+
+# RIA/Silverlight 项目
+Generated_Code/
+
+# 转换旧项目文件到较新 Visual Studio 版本的备份和报告文件。备份文件不需要，
+# 因为我们有 git ;-)
+_UpgradeReport_Files/
+Backup*/
+UpgradeLog*.XML
+UpgradeLog*.htm
+ServiceFabricBackup/
+*.rptproj.bak
+
+# SQL Server 文件
+*.mdf
+*.ldf
+*.ndf
+
+# Business Intelligence 项目
+*.rdl.data
+*.bim.layout
+*.bim_*.settings
+*.rptproj.rsuser
+*- [Bb]ackup.rdl
+*- [Bb]ackup ([0-9]).rdl
+*- [Bb]ackup ([0-9][0-9]).rdl
+
+# Microsoft Fakes
+FakesAssemblies/
+
+# GhostDoc 插件设置文件
+*.GhostDoc.xml
+
+# Visual Studio 的 Node.js 工具
+.ntvs_analysis.dat
+node_modules/
+
+# Visual Studio 6 构建日志
+*.plg
+
+# Visual Studio 6 工作区选项文件
+*.opt
+
+# Visual Studio 6 自动生成的工作区文件（包含哪些文件被打开等）
+*.vbw
+
+# Visual Studio LightSwitch 构建输出
+**/*.HTMLClient/GeneratedArtifacts
+**/*.DesktopClient/GeneratedArtifacts
+**/*.DesktopClient/ModelManifest.xml
+**/*.Server/GeneratedArtifacts
+**/*.Server/ModelManifest.xml
+_Pvt_Extensions
+
+# Paket 依赖管理器
+.paket/paket.exe
+paket-files/
+
+# FAKE - F# Make
+.fake/
+
+# CodeRush 个人设置
+.cr/personal
+
+# Visual Studio 的 Python 工具 (PTVS)
+__pycache__/
+*.pyc
+
+# Cake - 如果使用请取消注释
+# tools/**
+# !tools/packages.config
+
+# Tabs Studio
+*.tss
+
+# Telerik's JustMock 配置文件
+*.jmconfig
+
+# BizTalk 构建输出
+*.btp.cs
+*.btm.cs
+*.odx.cs
+*.xsd.cs
+
+# OpenCover UI 分析结果
+OpenCover/
+
+# Azure Stream Analytics 本地运行输出
+ASALocalRun/
+
+# MSBuild 二进制和结构化日志
+*.binlog
+
+# NVidia Nsight GPU 调试器配置文件
+*.nvuser
+
+# MFractors (Xamarin 生产力工具) 工作文件夹
+.mfractor/
+
+# Visual Studio 的本地历史记录
+.localhistory/
+
+# BeatPulse 健康检查临时数据库
+healthchecksdb
+
+# Visual Studio 2017 中包引用转换工具的备份文件夹
+MigrationBackup/
+
+# Ionide (跨平台 F# VS Code 工具) 工作文件夹
+.ionide/
+
+# Fody - 自动生成的 XML 架构
+FodyWeavers.xsd
+
+# 操作系统生成的文件
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# 环境变量和本地配置
+.env.local
+.env.*.local
+config.local.json
+
+# 临时文件和缓存
+tmp/
+temp/
+.cache/
+*.tmp
+
+# 项目特定的忽略目录
+# 项目根级别的配置和构建目录
+.github/
+Notebook/api/obj_build/
+Notebook/api/obj_build_verify/
+Notebook/api/obj/
+Notebook/api/bin/
+Notebook/api/bin_verify/
+api/.vs/
+api/.config/
+Notebook/api/obj_restore/
+web/.vscode/
+web/.vite/
+Notebook/api.Release/
+.lingma/
+
+# Vite 依赖缓存目录
+web/.vite/deps/
+
+# .NET 编译输出目录
+api/bin/Debug/
+api/bin/Release/
+api/obj/Debug/
+api/obj/Release/
+api/obj_build/Debug/
+api/bin/Debug/net10.0/
+api/obj/Debug/net10.0/
+api/obj/Release/net10.0/
+api/obj_build/Debug/net10.0/
+
+# .NET 编译输出中的各种 DLL 文件和资源
+api/bin/Debug/net10.0/BouncyCastle.Cryptography.dll
+api/bin/Debug/net10.0/CoverletSourceRootsMapping_api.Tests
+api/bin/Debug/net10.0/Humanizer.dll
+api/bin/Debug/net10.0/MailKit.dll
+api/bin/Debug/net10.0/Microsoft.AspNetCore.Authentication.JwtBearer.dll
+api/bin/Debug/net10.0/Microsoft.Bcl.AsyncInterfaces.dll
+api/bin/Debug/net10.0/Microsoft.Bcl.TimeProvider.dll
+api/bin/Debug/net10.0/Microsoft.Build.Locator.dll
+api/bin/Debug/net10.0/Microsoft.CodeAnalysis.CSharp.Workspaces.dll
+api/bin/Debug/net10.0/Microsoft.CodeAnalysis.CSharp.dll
+api/bin/Debug/net10.0/Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.dll
+api/bin/Debug/net10.0/Microsoft.CodeAnalysis.Workspaces.MSBuild.dll
+api/bin/Debug/net10.0/Microsoft.CodeAnalysis.Workspaces.dll
+api/bin/Debug/net10.0/Microsoft.CodeAnalysis.dll
+api/bin/Debug/net10.0/Microsoft.EntityFrameworkCore.Abstractions.dll
+api/bin/Debug/net10.0/Microsoft.EntityFrameworkCore.Design.dll
+api/bin/Debug/net10.0/Microsoft.EntityFrameworkCore.Relational.dll
+api/bin/Debug/net10.0/Microsoft.EntityFrameworkCore.dll
+api/bin/Debug/net10.0/Microsoft.Extensions.DependencyModel.dll
+api/bin/Debug/net10.0/Microsoft.IdentityModel.Abstractions.dll
+api/bin/Debug/net10.0/Microsoft.IdentityModel.JsonWebTokens.dll
+api/bin/Debug/net10.0/Microsoft.IdentityModel.Logging.dll
+api/bin/Debug/net10.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
+api/bin/Debug/net10.0/Microsoft.IdentityModel.Protocols.dll
+api/bin/Debug/net10.0/Microsoft.IdentityModel.Tokens.dll
+api/bin/Debug/net10.0/Microsoft.OpenApi.dll
+api/bin/Debug/net10.0/MimeKit.dll
+api/bin/Debug/net10.0/MySqlConnector.dll
+api/bin/Debug/net10.0/Pipelines.Sockets.Unofficial.dll
+api/bin/Debug/net10.0/Pomelo.EntityFrameworkCore.MySql.dll
+api/bin/Debug/net10.0/Resources/EmailTemplates/verification_code.html
+api/bin/Debug/net10.0/SixLabors.ImageSharp.dll
+api/bin/Debug/net10.0/StackExchange.Redis.dll
+api/bin/Debug/net10.0/Swashbuckle.AspNetCore.Swagger.dll
+api/bin/Debug/net10.0/Swashbuckle.AspNetCore.SwaggerGen.dll
+api/bin/Debug/net10.0/Swashbuckle.AspNetCore.SwaggerUI.dll
+api/bin/Debug/net10.0/System.CodeDom.dll
+api/bin/Debug/net10.0/System.Composition.AttributedModel.dll
+api/bin/Debug/net10.0/System.Composition.Convention.dll
+api/bin/Debug/net10.0/System.Composition.Hosting.dll
+api/bin/Debug/net10.0/System.Composition.Runtime.dll
+api/bin/Debug/net10.0/System.Composition.TypedParts.dll
+api/bin/Debug/net10.0/System.IO.Hashing.dll
+api/bin/Debug/net10.0/System.IdentityModel.Tokens.Jwt.dll
+api/bin/Debug/net10.0/api.Tests.deps.json
+api/bin/Debug/net10.0/api.Tests.dll
+api/bin/Debug/net10.0/api.Tests.pdb
+api/bin/Debug/net10.0/api.Tests.runtimeconfig.json
+api/bin/Debug/net10.0/api.deps.json
+api/bin/Debug/net10.0/api.dll
+api/bin/Debug/net10.0/api.exe
+api/bin/Debug/net10.0/api.pdb
+api/bin/Debug/net10.0/api.runtimeconfig.json
+api/bin/Debug/net10.0/api.staticwebassets.endpoints.json
+api/bin/Debug/net10.0/api.staticwebassets.runtime.json
+api/bin/Debug/net10.0/api.xml
+api/bin/Debug/net10.0/appsettings.Development.json
+api/bin/Debug/net10.0/appsettings.json
+
+# .NET 本地化资源文件
+api/bin/Debug/net10.0/cs/
+api/bin/Debug/net10.0/de/
+api/bin/Debug/net10.0/es/
+api/bin/Debug/net10.0/fr/
+api/bin/Debug/net10.0/it/
+api/bin/Debug/net10.0/ja/
+api/bin/Debug/net10.0/ko/
+api/bin/Debug/net10.0/pl/
+api/bin/Debug/net10.0/pt-BR/
+api/bin/Debug/net10.0/ru/
+api/bin/Debug/net10.0/tr/
+api/bin/Debug/net10.0/zh-Hans/
+api/bin/Debug/net10.0/zh-Hant/
+
+# .NET 临时和对象文件
+api/bin/Debug/net10.0/obj_build/
+api/bin/Debug/net10.0/testhost.exe
+api/bin/Debug/net10.0/xunit.runner.reporters.netcoreapp10.dll
+api/bin/Debug/net10.0/xunit.runner.utility.netcoreapp10.dll
+api/bin/Debug/net10.0/xunit.runner.visualstudio.testadapter.dll
+
+# .NET vs配置文件
+api/.vs/
+
+# 错误日志
+api/errorLog/
+
+# 安全密钥和敏感配置文件
+# JWT 密钥和认证配置
+api/appsettings.Production.json
+api/appsettings.*.json
+api/secrets.json
+api/*.secrets
+
+# 环境变量文件
+.env.local
+.env.*.local
+
+# 数据库连接字符串配置
+api/ConnectionStrings.json
+api/connectionstrings.*
+
+# API 密钥和访问凭证
+api/keys/
+api/credentials/
+api/tokens/
+api/certs/
+api/private/
+
+# 第三方服务密钥
+api/config/google-api-key.json
+api/config/aws-credentials.json
+api/config/azure-key-vault.json
+
+# 加密证书和私钥
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+*.der
+
+# SSH 密钥
+.ssh/
+id_rsa
+id_rsa.pub
+id_dsa
+id_dsa.pub
+id_ecdsa
+id_ecdsa.pub
+id_ed25519
+id_ed25519.pub
+
+# 敏感配置模板文件
+*.example.secrets
+*.sample.secrets
+*.template.secrets
+
+# 本地开发密钥
+local.settings.json
+local.appsettings.json
+
+# Docker secrets
+.docker/secrets/
+docker-compose.*.override.yml
+
+# Kubernetes secrets
+*.secret.yaml
+*.secrets.yaml
+k8s/secrets/
+
+# 云服务配置密钥
+.aws/
+.azure/
+.gcp/
+gcloud/
+
+# OAuth 和认证令牌
+.oauth-tokens
+token-store/
+access_tokens.db
+refresh_tokens.json
+
+# 敏感日志文件
+secrets.log
+credentials.log
+keys.log
+
+# 临时密钥文件
+*.tmp.key
+*.temp.secret
+secrets.tmp
+
+# 配置管理工具密钥
+.vault-token
+.chef/
+.ansible/
+
+# CI/CD 密钥
+.github/secrets/
+.gitlab-ci.secrets.yml
+.circleci/secrets/
+.travis/secrets/
+
+# 数据库导出文件（可能包含敏感数据）
+# *.sql
+# !sql/*.sql
+*.dump
+*.backup
+
+# 敏感文档
+secrets.txt
+passwords.txt
+credentials.txt
+keys.txt
+
+# 私人配置
+private-config.json
+personal-settings.json
+
+# 敏感环境变量
+DATABASE_URL
+REDIS_URL
+MONGODB_URI
+API_KEY
+SECRET_KEY
+ACCESS_TOKEN
+REFRESH_TOKEN
+JWT_SECRET
+DB_PASSWORD
+
+# 邮件服务器配置（已包含密码）
+# 注意：api/appsettings.json 已改为「占位符模板」并入库，便于克隆后直接运行；
+# 本地/生产的真实密钥请写入 api/appsettings.Development.json（已在文件末尾忽略），
+# 或用环境变量覆盖（ConnectionStrings__Default、Redis__Configuration、
+# Jwt__Key、Smtp__Password、Wechat__AppSecret 等）。切勿把真实密钥写回本文件。
+
+# Redis 配置（已包含密码）
+
+# SMTP 配置（已包含密码）
+
+# Visual Studio 项目评估缓存文件
+api/.vs/ProjectEvaluation/
+api/.vs/api.slnx/DesignTimeBuild/
+api/.vs/api.slnx/v18/
+api/obj/project.nuget.cache
+api/obj/Debug/net10.0/api.AssemblyInfoInputs.cache
+api/obj/Debug/net10.0/rpswa.dswa.cache.json
+api/obj/Release/net10.0/api.AssemblyInfoInputs.cache
+api/obj/Release/net10.0/linux-x64/PubTmp/Out/
+api/obj/Release/net10.0/linux-x64/api.AssemblyInfoInputs.cache
+api/obj/Release/net10.0/linux-x64/rjsmcshtml.dswa.cache.json
+api/obj/Release/net10.0/linux-x64/rjsmrazor.dswa.cache.json
+api/obj/Release/net10.0/rjsmcshtml.dswa.cache.json
+api/obj/Release/net10.0/rjsmrazor.dswa.cache.json
+api/bin_verify/
+
+# 模型文件
+Study/vueThree/src/features/game/components/models
+Study/vueThree/public/models/mmd
+
+# ===== MeowMemoirs 项目专用 =====
+# .NET 构建产物
+api/bin/
+api/obj/
+api/bin_verify/
+api/obj_build/
+api/obj_build_verify/
+api/obj_restore/
+api/.vs/
+api/*.csproj.lscache
+
+# 已编译的发布目录（含 Windows 二进制，不入库）
+api.Release/
+
+# 运行期用户上传文件与日志（含个人数据，不入库）
+api/uploads/
+api/errorLog/
+
+# 本地开发配置（含真实密钥，勿提交）
+api/appsettings.Development.json
+
+# 前端依赖与日志
+uni-app/node_modules/
+web/dev-server.out.log
+web/dev-server.err.log

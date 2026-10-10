@@ -1,0 +1,1015 @@
+openapi: 3.0.3
+info:
+  title: DailyCheck API
+  description: |
+    DailyCheck 打卡管理系统API文档
+    
+    ## 系统概述
+    DailyCheck是一个完整的打卡管理系统，提供用户认证、打卡计划管理、打卡记录管理、文件上传等核心功能。
+    
+    ## 认证机制
+    系统采用JWT双Token机制：
+    - Access Token：短期令牌（默认30分钟）
+    - Refresh Token：长期令牌（默认7天）
+    
+    ## 基础配置
+    - 基础路径：`/mm/`
+    - 认证方式：Bearer Token
+    - 数据格式：JSON
+    - 字符编码：UTF-8
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@dailycheck.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:5000/mm
+    description: 开发环境
+  - url: https://api.dailycheck.com/mm
+    description: 生产环境
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Authentication
+    description: 用户认证相关接口
+  - name: Plans
+    description: 打卡计划管理接口
+  - name: Checkins
+    description: 打卡记录管理接口
+  - name: Files
+    description: 文件上传管理接口
+
+paths:
+  # 认证相关接口
+  /auth/register:
+    post:
+      tags: [Authentication]
+      summary: 用户注册
+      description: |
+        创建新用户账号并自动登录。
+        需要提供有效的邮箱验证码进行身份验证。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          description: 注册成功，返回用户信息和认证令牌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: 请求参数错误
+        '409':
+          description: 邮箱或账号名已被注册
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: 邮箱密码登录
+      description: 使用邮箱和密码登录系统
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: 认证失败
+
+  /auth/login-account:
+    post:
+      tags: [Authentication]
+      summary: 账号密码登录
+      description: 使用自定义账号名和密码登录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountLoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /auth/login-email-code:
+    post:
+      tags: [Authentication]
+      summary: 邮箱验证码登录
+      description: 通过邮箱验证码无密码登录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailCodeLoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: 刷新令牌
+      description: 使用Refresh Token获取新的双Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: 刷新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /auth/email-code:
+    post:
+      tags: [Authentication]
+      summary: 发送邮箱验证码
+      description: 向指定邮箱发送验证码
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendEmailCodeRequest'
+      responses:
+        '200':
+          description: 验证码发送成功
+        '429':
+          description: 请求过于频繁
+
+  /auth/me:
+    get:
+      tags: [Authentication]
+      summary: 获取当前用户信息
+      description: 获取当前登录用户的基本信息
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserBasicResponse'
+
+  /auth/change-password:
+    post:
+      tags: [Authentication]
+      summary: 修改密码
+      description: 修改用户登录密码
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: 密码修改成功
+        '401':
+          description: 认证失败
+
+  /auth/profile:
+    post:
+      tags: [Authentication]
+      summary: 更新个人资料
+      description: 更新用户昵称和头像
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserProfileRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /auth/account/status:
+    get:
+      tags: [Authentication]
+      summary: 检查账号名修改状态
+      description: 检查当前用户是否可以修改账号名
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 获取状态成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  canUpdate:
+                    type: boolean
+                    description: 是否允许修改
+                  nextUpdateAt:
+                    type: string
+                    format: date-time
+                    description: 下次可修改时间
+
+  /auth/account:
+    post:
+      tags: [Authentication]
+      summary: 更新账号名
+      description: 修改用户自定义账号名（每年限一次）
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserAccountRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '403':
+          description: 修改频率超限
+        '409':
+          description: 账号名已被占用
+
+  /auth/deactivate:
+    post:
+      tags: [Authentication]
+      summary: 账号注销
+      description: 永久删除用户账户
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeactivateAccountRequest'
+      responses:
+        '204':
+          description: 账号注销成功
+        '400':
+          description: 验证码无效
+
+  # 打卡计划相关接口
+  /plans:
+    get:
+      tags: [Plans]
+      summary: 获取计划列表
+      description: 获取当前用户的所有打卡计划
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlanSummary'
+    
+    post:
+      tags: [Plans]
+      summary: 创建打卡计划
+      description: 创建新的打卡计划
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePlanRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanSummary'
+
+  /plans/update:
+    post:
+      tags: [Plans]
+      summary: 更新打卡计划
+      description: 更新现有打卡计划信息
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePlanRequest'
+      responses:
+        '204':
+          description: 更新成功
+
+  /plans/delete:
+    post:
+      tags: [Plans]
+      summary: 删除打卡计划
+      description: 删除指定的打卡计划（软删除）
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                PlanId:
+                  type: integer
+                  format: int64
+                  description: 要删除的打卡计划ID
+      responses:
+        '204':
+          description: 删除成功
+
+  # 打卡记录相关接口
+  /checkins/daily:
+    post:
+      tags: [Checkins]
+      summary: 当日打卡
+      description: 记录用户当天的打卡行为
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DailyCheckinRequest'
+      responses:
+        '200':
+          description: 打卡成功
+        '400':
+          description: 参数错误或时间不在范围内
+        '409':
+          description: 当天已打卡
+
+  /checkins/retro:
+    post:
+      tags: [Checkins]
+      summary: 补打卡
+      description: 补录历史日期的打卡记录
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetroCheckinRequest'
+      responses:
+        '200':
+          description: 补打卡成功
+        '400':
+          description: 参数错误
+        '409':
+          description: 指定日期已存在打卡记录
+
+  /checkins/calendar:
+    get:
+      tags: [Checkins]
+      summary: 获取月度打卡日历
+      description: 获取指定计划的月度打卡状态
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: planId
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 打卡计划ID
+        - name: year
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: 年份
+        - name: month
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+          description: 月份
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CalendarStatusItem'
+
+  /checkins/detail:
+    get:
+      tags: [Checkins]
+      summary: 获取打卡详情
+      description: 获取指定日期的详细打卡记录
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: planId
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 打卡计划ID
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          description: 日期（格式：yyyy-MM-dd）
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CheckinDetailResponse'
+
+  # 文件管理相关接口
+  /files/avatar:
+    post:
+      tags: [Files]
+      summary: 上传头像
+      description: 上传用户头像图片
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 头像图片文件
+      responses:
+        '200':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    description: 头像文件Key
+
+  /files/users/{userId}/{key}:
+    get:
+      tags: [Files]
+      summary: 获取用户头像
+      description: 获取指定用户的头像图片（公开访问）
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 用户ID
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 图片文件Key
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: 头像文件不存在
+
+  /files/images:
+    post:
+      tags: [Files]
+      summary: 上传普通图片
+      description: 上传普通图片文件（需认证）
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 图片文件
+      responses:
+        '200':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    description: 图片访问URL
+
+  /files/images/{fileKey}:
+    get:
+      tags: [Files]
+      summary: 获取用户图片
+      description: 获取用户上传的图片文件（需认证）
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: fileKey
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 图片文件标识
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: 图片文件不存在或无访问权限
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT Bearer Token认证
+
+  schemas:
+    # 认证相关模型
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - password
+        - code
+      properties:
+        email:
+          type: string
+          format: email
+          description: 用户邮箱地址
+        password:
+          type: string
+          description: 登录密码
+        nickName:
+          type: string
+          description: 用户昵称
+        userAccount:
+          type: string
+          description: 自定义账号名
+        code:
+          type: string
+          description: 邮箱验证码
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: 用户邮箱地址
+        password:
+          type: string
+          description: 登录密码
+
+    AccountLoginRequest:
+      type: object
+      required:
+        - userAccount
+        - password
+      properties:
+        userAccount:
+          type: string
+          description: 用户账号名
+        password:
+          type: string
+          description: 登录密码
+
+    EmailCodeLoginRequest:
+      type: object
+      required:
+        - email
+        - code
+      properties:
+        email:
+          type: string
+          format: email
+          description: 用户邮箱地址
+        code:
+          type: string
+          description: 邮箱验证码
+
+    AuthResponse:
+      type: object
+      properties:
+        userId:
+          type: integer
+          format: int64
+          description: 用户ID
+        email:
+          type: string
+          format: email
+          description: 邮箱地址
+        nickName:
+          type: string
+          description: 用户昵称
+        userAccount:
+          type: string
+          description: 自定义账号名
+        avatarKey:
+          type: string
+          description: 头像文件Key
+        token:
+          type: string
+          description: Access Token
+        refreshToken:
+          type: string
+          description: Refresh Token
+        accessTokenExpiresAt:
+          type: string
+          format: date-time
+          description: Access Token过期时间
+        refreshTokenExpiresAt:
+          type: string
+          format: date-time
+          description: Refresh Token过期时间
+
+    UserBasicResponse:
+      type: object
+      properties:
+        userId:
+          type: integer
+          format: int64
+        email:
+          type: string
+          format: email
+        nickName:
+          type: string
+        userAccount:
+          type: string
+        avatarKey:
+          type: string
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          description: 刷新令牌
+
+    SendEmailCodeRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          description: 接收验证码的邮箱地址
+        actionType:
+          type: string
+          description: 操作类型（register/login/change-password等）
+
+    UpdateUserProfileRequest:
+      type: object
+      properties:
+        nickName:
+          type: string
+          description: 新昵称
+        avatarKey:
+          type: string
+          description: 头像文件Key
+
+    UpdateUserAccountRequest:
+      type: object
+      required:
+        - userAccount
+      properties:
+        userAccount:
+          type: string
+          description: 新的用户账号名
+
+    DeactivateAccountRequest:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          description: 邮箱验证码
+
+    ChangePasswordRequest:
+      type: object
+      required:
+        - newPassword
+      properties:
+        oldPassword:
+          type: string
+          description: 旧密码
+        newPassword:
+          type: string
+          description: 新密码
+        code:
+          type: string
+          description: 邮箱验证码
+
+    # 计划相关模型
+    CreatePlanRequest:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          description: 打卡计划标题
+        description:
+          type: string
+          description: 计划描述
+        startDate:
+          type: string
+          format: date
+          description: 计划开始日期
+        endDate:
+          type: string
+          format: date
+          description: 计划结束日期
+        timeSlots:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimeSlotDto'
+          description: 打卡时间段列表
+
+    UpdatePlanRequest:
+      type: object
+      required:
+        - id
+        - title
+        - isActive
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 打卡计划唯一标识
+        title:
+          type: string
+          description: 打卡计划标题
+        description:
+          type: string
+          description: 计划描述
+        isActive:
+          type: boolean
+          description: 是否处于启用状态
+        startDate:
+          type: string
+          format: date
+          description: 计划开始日期
+        endDate:
+          type: string
+          format: date
+          description: 计划结束日期
+        timeSlots:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimeSlotDto'
+          description: 打卡时间段列表
+
+    PlanSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 计划唯一标识
+        checkinMode:
+          type: integer
+          description: 打卡模式（0=默认，1=时间段）
+        title:
+          type: string
+          description: 计划标题
+        description:
+          type: string
+          description: 计划描述
+        startDate:
+          type: string
+          format: date
+          description: 计划开始日期
+        endDate:
+          type: string
+          format: date
+          description: 计划结束日期
+        isActive:
+          type: boolean
+          description: 是否处于启用状态
+        timeSlots:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimeSlotDto'
+          description: 打卡时间段列表
+
+    TimeSlotDto:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 时间段ID
+        slotName:
+          type: string
+          description: 时间段名称
+        startTime:
+          type: string
+          format: time
+          description: 开始时间（HH:mm:ss）
+        endTime:
+          type: string
+          format: time
+          description: 结束时间（HH:mm:ss）
+        orderNum:
+          type: integer
+          format: int32
+          description: 排序序号
+        isActive:
+          type: boolean
+          description: 是否启用
+
+    # 打卡相关模型
+    DailyCheckinRequest:
+      type: object
+      required:
+        - planId
+      properties:
+        planId:
+          type: integer
+          format: int64
+          description: 对应的打卡计划ID
+        imageUrls:
+          type: array
+          items:
+            type: string
+          description: 打卡图片URL列表
+        note:
+          type: string
+          description: 打卡备注信息
+        timeSlotId:
+          type: integer
+          format: int64
+          description: 时间段ID（可选）
+
+    RetroCheckinRequest:
+      type: object
+      required:
+        - planId
+        - date
+      properties:
+        planId:
+          type: integer
+          format: int64
+          description: 对应的打卡计划ID
+        date:
+          type: string
+          format: date
+          description: 需要补打卡的日期
+        imageUrls:
+          type: array
+          items:
+            type: string
+          description: 打卡图片URL列表
+        note:
+          type: string
+          description: 补打卡备注信息
+        timeSlotId:
+          type: integer
+          format: int64
+          description: 时间段ID（可选）
+
+    CalendarStatusItem:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+          description: 日期
+        checkinMode:
+          type: integer
+          description: 打卡模式（0=默认，1=时间段）
+        status:
+          type: integer
+          description: 打卡状态
+        timeSlots:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimeSlotStatusItem'
+          description: 时间段打卡详情列表
+
+    TimeSlotStatusItem:
+      type: object
+      properties:
+        checkinId:
+          type: integer
+          format: int64
+          description: 对应的打卡记录ID
+        timeSlotId:
+          type: integer
+          format: int64
+          description: 打卡时间段ID
+        status:
+          type: integer
+          description: 时间段打卡状态
+
+    CheckinDetailResponse:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+          description: 打卡日期
+        status:
+          type: integer
+          description: 打卡状态（0=错过，1=正常，2=补打）
+        note:
+          type: string
+          description: 打卡备注信息
+        imageUrls:
+          type: array
+          items:
+            type: string
+          description: 打卡图片URL列表
+        timeSlotId:
+          type: integer
+          format: int64
+          description: 关联的时间段ID
+
+externalDocs:
+  description: 查看更多文档
+  url: https://docs.dailycheck.com

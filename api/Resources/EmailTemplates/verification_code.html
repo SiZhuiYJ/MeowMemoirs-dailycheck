@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{AppName}} 验证码</title>
+</head>
+
+<body
+    style="margin: 0; padding: 0; font-family: 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif; background-color: #f4f7fa; color: #1a202c; -webkit-font-smoothing: antialiased;">
+    <div style="max-width: 600px; margin: 2px auto; padding: 0 2px;">
+        <!-- 主体卡片 -->
+        <div
+            style="background-color: #ffffff; border-radius: 20px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05); overflow: hidden; border: 1px solid #e2e8f0;">
+
+            <!-- 头部装饰 -->
+            <div style="background: #4f46e5; padding: 20px 0; text-align: center;">
+                <div
+                    style="border-left: 6px solid #ccc;border-color: #2196F3;display: inline-block; padding: 12px 24px; background: rgba(255, 255, 255, 0.1);backdrop-filter: blur(5px);">
+                    <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: 1px;">
+                        {{AppName}}</h1>
+                </div>
+            </div>
+
+            <div style="padding:20px;">
+                <!-- 欢迎语 -->
+                <div style="text-align: center; margin-bottom: 24px;">
+                    <div
+                        style="font-size: 14px; color: #6366f1; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">
+                        {{Greeting}}
+                    </div>
+                </div>
+
+                <!-- 精简后的说明文字，添加了用户邮箱和 mailto -->
+                <div style="margin: 0 0 30px; line-height: 1.8; color: #4a5568; font-size: 15px; text-align: center;">
+                    <p style="margin: 0 0 8px;font-weight: 700;">您好 <a href="mailto:{{UserEmail}}"
+                            style="color: #4f46e5; text-decoration: none; font-weight: 700; border-bottom: 1px dashed #4f46e5;">{{UserEmail}}</a>
+                    </p>
+                    <p style="margin: 0;">您正在进行
+                        <span
+                            style="color: red; font-size: 20px;font-weight: 700;text-decoration:solid underline red 2px;">
+                            {{ActionType}}
+                        </span>操作！请使用以下代码完成验证：
+                    </p>
+                </div>
+
+                <div
+                    style="display: flex; justify-content: center; align-items: center;background: #1e293b; border-radius: 16px; padding: 32px 20px; text-align: center; margin-bottom: 24px;">
+                    <div style="width: 100%; overflow: hidden;">
+                        <div
+                            style="display: inline-block; font-family: 'Monaco', 'Consolas', monospace; font-size: 36px; font-weight: 700; color: #ffffff; letter-spacing: 10px; text-indent: 10px; white-space: nowrap; line-height: 1; vertical-align: middle;">
+                            {{Code}}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 金句展示卡片 (Inspiration) -->
+                <div style="text-align: center; margin-bottom: 30px; padding: 0 10px;">
+                    <p style="margin: 0; font-size: 14px; color: #64748b; font-style: italic; line-height: 1.6;">
+                        “{{Inspiration}}”
+                    </p>
+                </div>
+
+                <!-- 底部辅助信息 -->
+                <div style="border-top: 1px dotted #e2e8f0; padding-top: 25px; text-align: center;">
+                    <p style="margin: 0 0 8px; font-size: 13px; color: #94a3b8;">
+                        验证码将在 {{ExpiryMinutes}} 分钟后失效
+                    </p>
+                    <p style="margin: 0; font-size: 12px; color: #cbd5e0;">
+                        若非本人操作，请忽略此邮件
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 页脚 -->
+        <div style="text-align: center; margin-top: 30px;">
+            <div style="margin-bottom: 15px;">
+                <a href="#" style="color: #718096; text-decoration: none; font-size: 12px; margin: 0 10px;">喵咪记事簿</a>
+                <a href="#" style="color: #718096; text-decoration: none; font-size: 12px; margin: 0 10px;">隐私政策</a>
+                <a href="#" style="color: #718096; text-decoration: none; font-size: 12px; margin: 0 10px;">服务条款</a>
+                <a href="#" style="color: #718096; text-decoration: none; font-size: 12px; margin: 0 10px;">联系我们</a>
+            </div>
+            <p style="margin: 0; font-size: 11px; color: #b8c2cc; line-height: 1.5;">
+                &copy; {{Year}} {{AppName}} Team. All rights reserved.
+            </p>
+        </div>
+    </div>
+</body>
+
+</html>

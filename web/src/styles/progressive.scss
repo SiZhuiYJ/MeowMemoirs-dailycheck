@@ -1,0 +1,16 @@
+/* src/assets/styles/progressive.css */
+.progressive-preview {
+  filter: blur(2px);
+  transition: filter 0.3s ease, opacity 0.3s ease;
+}
+
+.progressive-fade {
+  filter: blur(0);
+  opacity: 1;
+}
+
+/* 初始状态 */
+img.preview {
+  // opacity: 0.8;
+  width: 100%;
+}

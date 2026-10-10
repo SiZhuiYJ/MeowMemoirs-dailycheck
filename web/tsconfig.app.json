@@ -1,0 +1,44 @@
+{
+  "extends": "@vue/tsconfig/tsconfig.dom.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "types": [
+      "vite/client"
+    ],
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "src/*"
+      ]
+    },
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "composite": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/**/*.vue",
+    "src/**/*.d.ts",
+    "src/auto-imports.d.ts" // 包含生成的类型文件
+    ,
+    "src/features/chat/.copy/components/MessagePanel.vue",
+    "src/features/chat/.copy/components/MessageItem.vue",
+    "src/features/chat/.copy/components/ConversationSidebar.vue",
+    "src/features/chat/.copy/components/index.vue",
+    "src/features/chat/.copy/composables/useChat.ts",
+    "src/features/chat/.copy/composables/useChatPush.ts",
+    "src/features/chat/.copy/types/index.ts"
+  ]
+}

@@ -1,0 +1,469 @@
+// ==============================================
+// 全局重置
+// ==============================================
+.el-button+.el-button {
+  margin-left: 0 !important;
+}
+
+// ==============================================
+// 变量定义
+// ==============================================
+.chat-page {
+  --chat-bg: linear-gradient(180deg, #f7f7f5 0%, #ebeae4 100%);
+  --chat-surface: rgba(255, 255, 255, 0.94);
+  --chat-border: rgba(17, 24, 39, 0.08);
+  --chat-shadow: 0 18px 40px rgba(17, 24, 39, 0.08);
+  --chat-accent-soft: #e6f0ff;
+  --chat-muted: #6b7280;
+  --chat-danger: #dc2626;
+  --chat-vh: 100vh;
+
+  min-height: var(--chat-vh);
+  height: var(--chat-vh);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  padding: 12px;
+  background: var(--chat-bg);
+  overflow: hidden;
+}
+
+@supports (height: 100dvh) {
+  .chat-page {
+    --chat-vh: 100dvh;
+  }
+}
+
+// ==============================================
+// 工具类 / 占位符
+// ==============================================
+%glass {
+  flex-shrink: 0;
+  backdrop-filter: blur(6px);
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+%flex-center {
+  display: flex;
+  align-items: center;
+}
+
+%gap-12 {
+  gap: 12px;
+}
+
+%gap-6 {
+  gap: 6px;
+}
+
+// ==============================================
+// 布局骨架
+// ==============================================
+.layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+
+  >* {
+    min-width: 0;
+  }
+}
+
+.left-panel,
+.main-panel {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--chat-border);
+  border-radius: 8px;
+  background: var(--chat-surface);
+  box-shadow: var(--chat-shadow);
+}
+
+.left-panel {
+  position: relative;
+  height: 100%;
+}
+
+.main-panel {
+  padding: 0;
+}
+
+// ==============================================
+// 顶部工具栏
+// ==============================================
+.toolbar {
+  @extend %flex-center;
+  @extend %gap-12;
+  margin-bottom: 0;
+
+  @media max-width {}
+}
+
+.push-status {
+  @extend %flex-center;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--chat-border);
+  border-radius: 12px;
+  background: var(--chat-surface);
+  color: var(--chat-muted);
+  font-size: 13px;
+  box-shadow: var(--chat-shadow);
+}
+
+.error {
+  margin: 0 0 10px;
+  color: var(--chat-danger);
+}
+
+// ==============================================
+// 左侧边栏 - 会话列表
+// ==============================================
+.create-box {
+  @extend %glass;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  top: 0;
+  background: linear-gradient(var(--chat-surface), transparent);
+}
+
+.create-box-item {
+  @extend %flex-center;
+  @extend %gap-12;
+  justify-content: space-between;
+  height: 32px;
+
+  h3 {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 18px;
+    line-height: 20px;
+    padding-left: 6px; // (32px - 20px)/2 = 6px
+  }
+}
+
+.conversation-type-select {
+  width: 100%;
+}
+
+.conversation-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 100px 12px 12px;
+  list-style: none;
+
+  li {
+    @extend %flex-center;
+    @extend %gap-12;
+    align-items: flex-start;
+    cursor: pointer;
+    border: 1px solid var(--chat-border);
+    border-radius: 12px;
+    padding: 12px;
+    transition: transform 160ms ease, border-color 160ms ease,
+      background-color 160ms ease;
+
+    &:hover {
+      transform: translateY(-1px);
+    }
+
+    &.active {
+      border-color: #9bbcff;
+      background: var(--chat-accent-soft);
+    }
+  }
+}
+
+.conversation-avatar {
+  flex-shrink: 0;
+}
+
+.item {
+  width: 100%;
+}
+
+.title-row {
+  @extend %flex-center;
+  @extend %gap-6;
+  margin-bottom: 4px;
+}
+
+.custom-content {
+  @extend %flex-center;
+  @extend %gap-6;
+  justify-content: center;
+}
+
+.badge {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  text-align: center;
+}
+
+// ==============================================
+// 右侧主面板 - 会话详情
+// ==============================================
+.conversation-detail {
+  position: relative;
+  height: 100%;
+}
+
+.chat-header {
+  @extend %glass;
+  @extend %flex-center;
+  @extend %gap-12;
+  justify-content: space-between;
+  padding: 12px;
+  top: 0;
+  background: linear-gradient(var(--chat-surface), transparent);
+}
+
+.chat-header-main {
+  @extend %flex-center;
+  @extend %gap-12;
+  min-width: 0;
+}
+
+.chat-header h3 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 18px;
+  line-height: 20px;
+  padding-left: 6px;
+}
+
+.composer {
+  @extend %glass;
+  @extend %flex-center;
+  @extend %gap-6;
+  padding: 12px;
+  bottom: 0;
+  background: linear-gradient(to top, var(--chat-surface), transparent);
+}
+
+// ==============================================
+// 消息列表区域
+// ==============================================
+.message-scroll-wrap {
+  height: calc(100vh - 156px);
+  overflow: auto;
+}
+
+.message-list {
+  display: grid;
+  gap: 12px;
+  padding: 56px 12px;
+}
+
+.msg-item {
+  width: fit-content;
+  display: flex;
+  flex-direction: row;
+  max-width: 75%;
+  gap: 12px;
+
+  &.mine {
+    flex-direction: row-reverse;
+    margin-left: auto;
+
+    .content {
+      align-items: flex-end;
+
+      .meta {
+        margin-left: auto;
+      }
+
+      .bubble-wrap {
+        align-items: flex-end;
+
+        .foot {
+          margin-right: auto;
+          margin-left: 0;
+          flex-direction: row-reverse;
+        }
+      }
+
+      .bubble {
+        background: var(--chat-accent-soft);
+        border-top-left-radius: 12px;
+        border-top-right-radius: 0px;
+      }
+    }
+  }
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+
+  .bubble-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+.meta {
+  @extend %flex-center;
+  @extend %gap-6;
+  color: var(--chat-muted);
+
+  &.header {
+    margin-bottom: 1px;
+    font-size: 12px;
+  }
+
+  &.foot {
+    margin-top: 1px;
+    margin-left: auto;
+    font-size: 8px;
+  }
+}
+
+.read-count {
+  font-size: 8px;
+  color: var(--chat-muted);
+  margin-left: 2px;
+}
+
+.message-avatar {
+  margin: 3px 0;
+  flex-shrink: 0;
+}
+
+.bubble {
+  padding: 6px;
+  border-top-right-radius: 12px;
+  border-bottom-right-radius: 12px;
+  border-bottom-left-radius: 12px;
+  background: #f3f4f6;
+  line-height: 1.5;
+  word-break: break-word;
+  width: fit-content;
+}
+
+// ==============================================
+// 空状态 / 辅助元素
+// ==============================================
+.empty {
+  display: grid;
+  place-items: center;
+  min-height: 320px;
+  padding: 24px;
+  color: var(--chat-muted);
+  text-align: center;
+}
+
+.members {
+  display: flex;
+  margin: 4px 0 12px;
+  color: var(--chat-muted);
+  line-height: 1.6;
+  gap: 12px;
+
+  .members-item {
+    width: 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
+// ==============================================
+// 移动端响应式
+// ==============================================
+@media (max-width: 768px) {
+  .chat-page {
+    padding: 6px;
+    gap: 6px;
+  }
+
+  .chat-header-main,
+  .create-box-item,
+  .toolbar {
+    gap: 6px;
+  }
+
+  .push-status {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+
+  .layout {
+    height: calc(100vh - 50px);
+    grid-template-columns: 1fr;
+
+    &.mobile {
+
+      .left-panel,
+      .main-panel {
+        border-radius: 4px;
+        min-height: 0;
+        height: 100%;
+
+        .create-box {
+          padding: 6px;
+          gap: 6px;
+        }
+      }
+    }
+  }
+
+  .conversation-list {
+    gap: 6px;
+    padding: 82px 6px 6px;
+
+    li {
+      padding: 6px;
+      gap: 6px;
+    }
+  }
+
+  .chat-header,
+  .composer {
+    padding: 6px;
+    gap: 6px;
+  }
+
+  .chat-header {
+    align-items: flex-start;
+
+    h3 {
+      padding-left: 0;
+    }
+  }
+
+  .message-list {
+    gap: 6px;
+    padding: 44px 6px;
+  }
+
+  .msg-item {
+    max-width: 88%;
+    gap: 6px;
+  }
+
+  .back-to-list {
+    flex-shrink: 0;
+  }
+
+  .el-scrollbar__bar.is-vertical {
+    width: 3px;
+  }
+}

@@ -1,0 +1,70 @@
+@mixin auth-input-styles {
+    background-color: transparent;
+    color: #fff;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.4);
+    padding: 10px 0;
+    text-indent: 10px;
+    margin: 8px 0;
+    font-size: 14px;
+    letter-spacing: 2px;
+    width: 70%;
+
+    &::placeholder {
+        color: #fff;
+    }
+
+    &:focus {
+        color: #a262ad;
+        outline: none;
+        border-bottom: 1px solid #a262ad80;
+        transition: 0.5s;
+
+        &::placeholder {
+            opacity: 0;
+        }
+    }
+}
+
+@mixin auth-button-styles {
+    width: 70%;
+    margin-top: 35px;
+    background-color: #f6f6f6;
+    outline: none;
+    border-radius: 8px;
+    padding: 13px;
+    color: #a262ad;
+    letter-spacing: 2px;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.5s ease;
+
+    &:hover {
+        background-color: #a262ad;
+        color: #f6f6f6;
+    }
+}
+
+@mixin auth-title-styles {
+    text-align: center;
+    margin-bottom: 25px;
+    text-transform: uppercase;
+    color: #fff;
+    letter-spacing: 5px;
+}
+
+@mixin element-plus-overrides {
+    :deep(.el-radio-button__inner):hover {
+        color: #a262ad;
+    }
+
+    :deep(.el-input__wrapper) {
+        background-color: rgba(255, 255, 255, 0);
+        box-shadow: none;
+
+        &.is-focus,
+        &:hover {
+            box-shadow: none;
+        }
+    }
+}

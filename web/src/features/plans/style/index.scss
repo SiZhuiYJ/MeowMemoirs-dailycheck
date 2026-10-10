@@ -1,0 +1,89 @@
+.el-drawer__header {
+  margin-bottom: 0px !important;
+}
+
+.el-calendar-day {
+  padding: 0 !important;
+}
+
+.el-calendar-day {
+  height: 46px !important;
+}
+
+.day:not(.mini-day) {
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+}
+
+.is-today .day .day-label {
+  border: 1px dashed var(--el-color-primary)
+}
+
+.prev .day.success span,
+.next .day.success span {
+  border: 1px dashed #89ffb6;
+  background: rgba(202, 255, 222, 0.2);
+  color: #89ffb6;
+}
+
+.success .day-label {
+  border: 1px dashed #22c55e;
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.prev .day.retro span,
+.next .day.retro span {
+  border: 1px dashed #ffc685;
+  background: rgba(255, 246, 217, 0.2);
+  color: #ffc685;
+}
+
+.retro .day-label {
+  border: 1px dashed #eab308;
+  background: rgba(234, 179, 8, 0.2);
+  color: #eab308;
+}
+
+.prev .day.missed span,
+.next .day.missed span {
+  border: 1px dashed #ff7f7f;
+  background: rgba(255, 211, 211, 0.2);
+  color: #ff7f7f;
+}
+
+.missed .day-label {
+  border: 1px dashed #f87171;
+  background: rgba(248, 113, 113, 0.2);
+  color: #f87171;
+}
+
+.legend {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+
+  .success {
+    background: #22c55e;
+  }
+
+  .retro {
+    background: #eab308;
+  }
+
+  .missed {
+    background: #f87171;
+  }
+
+  .dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    margin-right: 4px;
+  }
+}

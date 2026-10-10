@@ -1,0 +1,52 @@
+[Version]
+signature="$CHICAGO$"
+
+[DefaultInstall]
+CopyFiles = Scheme.Cur
+AddReg    = Scheme.Reg
+
+[DestinationDirs]
+Scheme.Cur = 24,"%CUR_DIR%"
+
+[Scheme.Reg]
+HKCU,"Control Panel\Cursors\Schemes","%SCHEME_NAME%",,"%24%\%CUR_DIR%\%pointer%,%24%\%CUR_DIR%\%help%,%24%\%CUR_DIR%\%work%,%24%\%CUR_DIR%\%busy%,%24%\%CUR_DIR%\%cross%,%24%\%CUR_DIR%\%text%,%24%\%CUR_DIR%\%handwrt%,%24%\%CUR_DIR%\%unavailiable%,%24%\%CUR_DIR%\%vert%,%24%\%CUR_DIR%\%horz%,%24%\%CUR_DIR%\%dgn1%,%24%\%CUR_DIR%\%dgn2%,%24%\%CUR_DIR%\%move%,%24%\%CUR_DIR%\%alternate%,%24%\%CUR_DIR%\%link%,%24%\%CUR_DIR%\%pin%,%24%\%CUR_DIR%\%person%"
+HKLM,"SOFTWARE\Microsoft\Windows\CurrentVersion\Runonce\Setup\","",,"rundll32.exe shell32.dll,Control_RunDLL main.cpl,,1"
+
+[Scheme.Cur]
+Normal Select.ani
+Help Select.ani
+Work.ani
+Busy.ani
+Precision Select.ani
+Text Select.ani
+Unavailable.ani
+Vertical Resize.ani
+Horizontal Resize.ani
+Diagonal Resize 1.ani
+Diagonal Resize 2.ani
+Move.ani
+Link.ani
+Location Select.ani
+Person Select.ani
+handwriting.ani
+
+[Strings]
+CUR_DIR       = "Windows\Cursors\Moos"
+SCHEME_NAME   = "Moos"
+pointer       = "Normal Select.ani"
+help          = "Help Select.ani"
+work          = "Work.ani"
+busy          = "Busy.ani"
+cross         = "Precision Select.ani"
+text          = "Text Select.ani"
+handwrt       = "handwriting.ani"
+unavailiable  = "Unavailable.ani"
+vert          = "Vertical Resize.ani"
+horz          = "Horizontal Resize.ani"
+dgn1          = "Diagonal Resize 1.ani"
+dgn2          = "Diagonal Resize 2.ani"
+move          = "Move.ani"
+alternate     = "Normal Select.ani"
+link          = "Link.ani"
+pin           = "Location Select.ani
+person        = "Person Select.ani"

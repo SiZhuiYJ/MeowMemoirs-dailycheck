@@ -1,0 +1,120 @@
+@use "./element.scss";
+@use "./progressive.scss";
+@use "./nprogress.scss";
+
+:root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  color-scheme: dark;
+  --bg-color: #020617;
+  --bg-elevated: #020617;
+  --border-color: #1f2937;
+  --text-color: #e5e7eb;
+  --text-muted: #9ca3af;
+  --accent-color: #ffb3f1;
+  --accent-alt: #66c4ff;
+  --accent-on: #022c22;
+  --surface-soft: #0b1220;
+  // 自定义
+  --header-h: 56px;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg-color: #f3f4f6;
+  --bg-elevated: #ffffff;
+  --border-color: #e5e7eb;
+  --text-color: #111827;
+  --text-muted: #6b7280;
+  --accent-color: #ffb3f1;
+  --accent-alt: #66c4ff;
+  --accent-on: #ffffff;
+  --surface-soft: #f9fafb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  &::-webkit-scrollbar {
+    width: 4px;
+    height: 0px;
+  }
+
+  &::-webkit-scrollbar-corner,
+  &::-webkit-scrollbar-track {
+    background: #d2d2d2;
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #555;
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb:active,
+  &::-webkit-scrollbar-thumb:hover {
+    background: #777;
+  }
+}
+
+#app {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  word-break: break-word;
+}
+
+.ink {
+  position: relative;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 0 0 6px var(--bgc-color);
+    width: inherit;
+    height: inherit;
+    opacity: 0;
+    transition: 0.3s;
+  }
+
+  &:focus-visible {
+    outline: 0;
+  }
+
+  &:hover,
+  &:focus {
+    color: var(--bgc-color);
+    border-color: var(--bgc-color);
+  }
+
+  &:active {
+    &::after {
+      transition: 0s;
+      box-shadow: none;
+      opacity: 0.4;
+    }
+  }
+}

@@ -1,0 +1,53 @@
+/* Status Colors for Days and Indicators */
+
+.day, .mini-day, .dot, .status-tag {
+  &.success {
+    border-color: #10b981;
+    background-color: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+    
+    &.dot, &.status-tag {
+      background-color: #10b981;
+      color: white;
+    }
+
+    .mini-day-text {
+      color: #10b981;
+    }
+  }
+
+  &.retro {
+    border-color: #eab308;
+    background-color: rgba(234, 179, 8, 0.2);
+    color: #a16207;
+
+    &.dot, &.status-tag {
+      background-color: #f59e0b;
+      color: white;
+    }
+
+    .mini-day-text {
+      color: #a16207;
+    }
+  }
+
+  &.missed {
+    border-color: #ef4444;
+    background-color: rgba(239, 68, 68, 0.1);
+    color: #b91c1c;
+
+    &.dot, &.status-tag {
+      background-color: #ef4444;
+      color: white;
+    }
+
+    .mini-day-text {
+      color: #b91c1c;
+    }
+  }
+}
+
+.mini-day-today {
+  border: 1px solid var(--theme-primary) !important;
+  font-weight: bold;
+}
