@@ -1,4 +1,25 @@
 <script setup lang="ts">
+import { ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { telemetry } from "@/libs/telemetry";
+
+/**
+ * 埋点诊断入口（悬浮按钮）。
+ * 有错误事件时显示红点，方便在手机上直接点开看「刚才报了什么」。
+ * 关闭方式：.env 里设 VITE_TELEMETRY_DEBUG=false
+ */
+const telemetryDebugEnabled = telemetry.isDebugEnabled();
+const route = useRoute();
+const router = useRouter();
+const telemetryErrorCount = ref(
+  telemetry.getEvents().filter((event) => event.level === "error").length,
+);
+telemetry.subscribe((event) => {
+  if (event.level === "error") telemetryErrorCount.value += 1;
+});
+const showTelemetryFab = computed(
+  () => telemetryDebugEnabled && route.path !== "/debug/telemetry",
+);
 // 2495550774@qq.com
 import { dayjs } from "element-plus";
 import { setNotificationInstance } from "@/utils/notification";
@@ -231,6 +252,44 @@ const globalConfig = computed<GlobalConfig>(() => {
     <!-- 路由视图容器 -->
     <router-view />
     <NotificationSystem ref="notificationSystemRef" />
+
+    <button v-if="showTelemetryFab" class="telemetry-fab" type="button" title="埋点诊断"
+      @click="router.push('/debug/telemetry')">
+      诊断
+      <span v-if="telemetryErrorCount > 0" class="telemetry-fab-badge">
+        {{ telemetryErrorCount > 99 ? "99+" : telemetryErrorCount }}
+      </span>
+    </button>
   </el-config-provider>
 </template>
-<style></style>
+<style>
+.telemetry-fab {
+  position: fixed;
+  left: 10px;
+  bottom: 12px;
+  z-index: 3000;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px solid rgba(17, 24, 39, 0.16);
+  border-radius: 999px;
+  color: #111827;
+  font-size: 12px;
+  line-height: 16px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 6px 18px rgba(17, 24, 39, 0.16);
+  cursor: pointer;
+}
+
+.telemetry-fab-badge {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  background: #dc2626;
+}
+</style>

@@ -138,6 +138,30 @@ export function formatChatTime(value: string): string {
 }
 
 /**
+ * 会话列表用的相对时间：今天显示时:分，昨天显示「昨天」，
+ * 一周内显示星期，更早显示月/日。
+ */
+export function formatConversationListTime(value?: string | null): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const timestamp = date.getTime();
+  const diffDays = Math.floor((startOfToday - timestamp) / (24 * 60 * 60 * 1000));
+
+  if (timestamp >= startOfToday) {
+    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  }
+  if (diffDays < 1) return '昨天';
+  if (diffDays < 6) {
+    return ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][date.getDay()] ?? '';
+  }
+  return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+}
+
+/**
  * 获取成员显示名称
  */
 export function getMemberDisplayName(

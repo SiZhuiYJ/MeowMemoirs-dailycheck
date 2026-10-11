@@ -18,6 +18,14 @@ import type {
  */
 export const authApi = {
   /**
+   * 退出登录：让服务端撤销该账号当前所有令牌。
+   * 失败也不影响本地登出（不阻断用户体验）。
+   */
+  async logout() {
+    return await http.post("/mm/Auth/logout", undefined, { showError: false });
+  },
+
+  /**
    * 发送邮箱验证码
    * @param data 包含邮箱和操作类型的对象
    * @returns Promise<void>

@@ -53,6 +53,9 @@ Generated\ Files/
 
 # 构建结果
 [Dd]ebug/
+# 例外：这个 debug 是前端源码目录（埋点诊断页），不是构建产物
+!web/src/views/debug/
+!web/src/views/debug/**
 [Dd]ebugPublic/
 [Rr]elease/
 [Rr]eleases/

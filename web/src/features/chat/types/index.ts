@@ -20,6 +20,26 @@ export interface MessageSummary extends MessageReference {
   replyToMessage?: MessageReference | null;
 }
 
+/** 本地乐观发送状态。 */
+export type ClientSendStatus = "sending" | "failed";
+
+/**
+ * 乐观发送的本地消息（文本）。
+ * tempId 为负数，服务端确认后用真实消息替换。
+ */
+export interface PendingTextMessage {
+  tempId: number;
+  senderUserId: number;
+  senderNickName?: string | null;
+  messageType: Extract<MessageType, "text">;
+  content: string;
+  createdAt: string;
+  replyToMessageId?: number | null;
+  replyToMessage?: MessageReference | null;
+  status: ClientSendStatus;
+  errorText?: string;
+}
+
 export interface FileExtra {
   fileName: string;
   fileSize: number;

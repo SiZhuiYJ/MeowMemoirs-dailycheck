@@ -14,6 +14,7 @@ const props = defineProps<{
   selectedConversationId: number;
   conversations: ConversationSummary[];
   isMobile: boolean;
+  loading?: boolean;
   friendRequestVersion: number;
   friendshipVersion: number;
 }>();
@@ -30,6 +31,7 @@ const emit = defineEmits<{
       :selected-conversation-id="selectedConversationId"
       :conversations="conversations"
       :is-mobile="isMobile"
+      :loading="props.loading"
       @select-conversation="emit('selectConversation', $event)"
     />
     <ConversationSidebarCreatePanel

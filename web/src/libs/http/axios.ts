@@ -12,6 +12,7 @@ import { notifyWarning } from "@/utils/notification";
 import router from "@/routers/index";
 import { httpConfig as defaultHttpConfig, type HttpConfig } from "./config";
 import type { ApiResponse, HttpRequestConfig } from "./type";
+import { telemetry } from "@/libs/telemetry";
 
 /**
  * HTTP 客户端封装：
@@ -93,6 +94,10 @@ class MM {
   }
 
   private async handleRequestError(error: AxiosError): Promise<never> {
+    telemetry.captureError("http-request-error", error, {
+      url: error.config?.url,
+      method: error.config?.method,
+    });
     return Promise.reject(error);
   }
 
@@ -116,6 +121,12 @@ class MM {
       const isSuccess = payload.success === true || payload.code === 0 || payload.code === 200;
       if (!isSuccess) {
         const message = payload.message || "请求失败";
+        telemetry.track("http", "http-business-error", {
+          url: config.url,
+          method: config.method,
+          code: payload.code,
+          message,
+        }, "error");
         if (config.showError !== false) {
           notifyWarning(message);
         }
@@ -182,8 +193,36 @@ class MM {
     // 刷新接口自己失败时，直接判定登录过期，避免死循环。
     const isRefreshRequest = config.url?.includes("/mm/Auth/refresh");
     if (isRefreshRequest && status === 401) {
-      this.clearAuthAndRedirect();
+      // 登出前最后一搏：若其它标签页/窗口刚拿到新会话，直接复用，不要把人踢出去
+      if (auth.adoptSessionFromStorage()) {
+        telemetry.track("auth", "auth-refresh-recovered", {
+          reason: "刷新被拒但存在更新的会话，已复用",
+        }, "warn");
+        config.headers = this.normalizeHeaders(config.headers);
+        config.headers.set("Authorization", `Bearer ${auth.accessToken}`);
+        return this.instance(config);
+      }
+
+      telemetry.track("auth", "auth-refresh-rejected", {
+        url: config.url,
+        status,
+        serverMessage: this.getResponseErrorMessage(error),
+      }, "error");
+      this.clearAuthAndRedirect(`刷新令牌被服务端拒绝(${status})`);
       return Promise.reject({ ...error, hasClearedAuth: true });
+    }
+
+    if (status === 401) {
+      // 记录是「哪个请求」触发的 401：这是判断「谁把令牌踢掉」的关键线索
+      telemetry.track("auth", "auth-401", {
+        url: config.url,
+        method: config.method,
+        hadRefreshToken: Boolean(auth.refreshToken),
+        alreadyRetried: Boolean(config._retry),
+        skipAuthRefresh: Boolean(config.skipAuthRefresh),
+        serverMessage: this.getResponseErrorMessage(error),
+        accessTokenTail: auth.accessToken ? String(auth.accessToken).slice(-12) : null,
+      }, "warn");
     }
 
     if (status === 401 && auth.refreshToken && !config._retry && !config.skipAuthRefresh) {
@@ -195,8 +234,16 @@ class MM {
         return this.instance(config);
       } catch (refreshError) {
         const shouldLogout = this.shouldForceLogout(refreshError);
+        telemetry.track("auth", "auth-refresh-failed", {
+          url: config.url,
+          status: (refreshError as AxiosError)?.response?.status,
+          message: this.getResponseErrorMessage(refreshError as AxiosError),
+          willForceLogout: shouldLogout,
+        }, "error");
         if (shouldLogout) {
-          this.clearAuthAndRedirect();
+          this.clearAuthAndRedirect(
+            `刷新令牌失败(status=${(refreshError as AxiosError)?.response?.status ?? "无响应"})，触发请求：${config.url}`,
+          );
         } else if (config.showError !== false) {
           notifyWarning("网络异常，登录状态刷新失败，请稍后重试");
         }
@@ -217,6 +264,15 @@ class MM {
       notifyWarning(this.getResponseErrorMessage(error));
     }
 
+    if (status && status >= 400 && status !== 401) {
+      telemetry.track("http", "http-error", {
+        url: config.url,
+        method: config.method,
+        status,
+        message: this.getResponseErrorMessage(error),
+      }, status >= 500 ? "error" : "warn");
+    }
+
     return Promise.reject(error);
   }
 
@@ -226,6 +282,22 @@ class MM {
   private async refreshTokenWithLock() {
     if (!this.refreshPromise) {
       const auth = useAuthStore();
+      const startedAt = Date.now();
+
+      // 先看其他标签页是否已经刷新过：
+      // 后端每个用户只保留一份令牌，重复刷新会把对方挤下线，这里能复用就复用。
+      if (auth.adoptSessionFromStorage()) {
+        telemetry.track("auth", "auth-refresh-skipped", {
+          reason: "其他标签页已刷新，直接复用其令牌",
+        }, "info");
+        return;
+      }
+
+      telemetry.track("auth", "auth-refresh-start", {
+        refreshTokenTail: auth.refreshToken ? String(auth.refreshToken).slice(-12) : null,
+        reason: "收到 401 后自动刷新",
+      }, "info");
+
       this.refreshPromise = this.post<AuthData>("/mm/Auth/refresh", {
         refreshToken: auth.refreshToken,
       }, {
@@ -234,6 +306,19 @@ class MM {
       })
         .then((refreshResponse) => {
           auth.setSession(refreshResponse.data);
+          telemetry.track("auth", "auth-refresh-success", {
+            inMs: Date.now() - startedAt,
+            newAccessTokenTail: String(refreshResponse.data?.token ?? "").slice(-12),
+            expiresAt: refreshResponse.data?.accessTokenExpiresAt,
+          }, "info");
+        })
+        .catch((error) => {
+          telemetry.track("auth", "auth-refresh-http-failed", {
+            inMs: Date.now() - startedAt,
+            status: (error as AxiosError)?.response?.status,
+            message: (error as AxiosError)?.message,
+          }, "error");
+          throw error;
         })
         .finally(() => {
           this.refreshPromise = null;
@@ -243,9 +328,25 @@ class MM {
     return this.refreshPromise;
   }
 
+  /**
+   * 对外暴露的「单飞」刷新：所有刷新入口（自动续期定时器 / 401 兜底）
+   * 共用同一把锁，避免同一时刻发出两次刷新。
+   */
+  async refreshSession(): Promise<void> {
+    await this.refreshTokenWithLock();
+  }
+
   /** 登录状态失效后统一处理。 */
-  private clearAuthAndRedirect() {
+  private clearAuthAndRedirect(reason = "未知") {
     const auth = useAuthStore();
+    telemetry.track("auth", "auth-force-logout", {
+      reason,
+      route: router.currentRoute.value.fullPath,
+      accessTokenTail: auth.accessToken ? String(auth.accessToken).slice(-12) : null,
+      refreshTokenTail: auth.refreshToken ? String(auth.refreshToken).slice(-12) : null,
+    }, "error");
+    // 强制登出前先落盘并上报，避免跳转/刷新把现场丢掉
+    telemetry.flush(true);
     auth.clear();
     notifyWarning("登录过期，请重新登录");
     if (router.currentRoute.value.path !== "/login") {
@@ -317,6 +418,9 @@ class MM {
 
       if (this.currentConcurrent < this.maxConcurrent) {
         runRequest();
+      } else if (config.priority) {
+        // 交互请求（发送消息等）插队，避免排在后台批量请求后面
+        this.requestQueue.unshift({ config, resolve, reject });
       } else {
         this.requestQueue.push({ config, resolve, reject });
       }
@@ -389,6 +493,7 @@ class MM {
       "allowDuplicate",
       "skipAuth",
       "skipAuthRefresh",
+      "priority",
     ]);
 
     return Object.keys(value).some((key) => configKeys.has(key));

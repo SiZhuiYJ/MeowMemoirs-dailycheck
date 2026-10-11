@@ -55,6 +55,13 @@ export interface HttpRequestConfig extends AxiosRequestConfig {
    * 跳过 401 自动刷新逻辑。
    */
   skipAuthRefresh?: boolean;
+
+  /**
+   * 交互优先级请求：并发槽位不足时插队到队列最前面。
+   * 用于「用户主动触发」的请求（发送消息、标记已读等），
+   * 避免被后台轮询/批量刷新请求堵住。
+   */
+  priority?: boolean;
 }
 
 declare module "axios" {
@@ -67,5 +74,6 @@ declare module "axios" {
     _retry?: boolean;
     skipAuth?: boolean;
     skipAuthRefresh?: boolean;
+    priority?: boolean;
   }
 }

@@ -200,7 +200,6 @@
 
 .custom-content {
   @extend %flex-center;
-  @extend %gap-6;
   justify-content: center;
 }
 
@@ -406,7 +405,9 @@
   }
 
   .layout {
-    height: calc(100vh - 50px);
+    // 用 --chat-vh（移动端为 100dvh）而不是 100vh：
+    // 移动浏览器地址栏会占用视口高度，100vh 会把底部输入框顶出屏幕外
+    height: calc(var(--chat-vh) - 50px);
     grid-template-columns: 1fr;
 
     &.mobile {
@@ -461,6 +462,11 @@
 
   .back-to-list {
     flex-shrink: 0;
+  }
+
+  .scroll-to-latest {
+    right: 10px;
+    bottom: 104px;
   }
 
   .el-scrollbar__bar.is-vertical {

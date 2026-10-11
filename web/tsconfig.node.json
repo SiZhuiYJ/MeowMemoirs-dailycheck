@@ -1,6 +1,14 @@
 {
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    /* 固定 vite 类型只解析到项目自身的 node_modules：
+       上层目录（$HOME/node_modules）里可能存在另一份 vite（例如 vite-plugin-vue-devtools 带入的 vite 8），
+       否则插件类型会跨版本混用，导致 defineConfig 重载匹配失败、整个构建挂掉。 */
+    "baseUrl": ".",
+    "paths": {
+      "vite": ["./node_modules/vite"],
+      "vite/*": ["./node_modules/vite/*"]
+    },
     "target": "ES2023",
     "lib": ["ES2023"],
     "module": "ESNext",

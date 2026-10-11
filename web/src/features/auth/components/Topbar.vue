@@ -65,6 +65,8 @@ function toggleTheme(): void {
 
 function handleCommand(command: string): void {
   if (command === "logout") {
+    // 先让服务端撤销令牌：短令牌有效期 30 分钟，只清本地会让旧令牌在有效期内仍然可用
+    void authApi.logout().catch(() => undefined);
     authStore.clear();
     router.push("/login");
   } else if (command === "profile") {

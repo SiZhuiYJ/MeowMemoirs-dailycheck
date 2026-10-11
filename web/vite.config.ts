@@ -1,6 +1,9 @@
 import { defineConfig, loadEnv } from "vite";
 // 引入Vue插件
 import vue from "@vitejs/plugin-vue";
+
+import vueDevTools from 'vite-plugin-vue-devtools'
+
 // 引入路径别名解析插件
 import path from "path";
 
@@ -67,7 +70,10 @@ export default defineConfig(({ mode }) => {
   const dropConsole = env.VITE_DROP_CONSOLE !== "false";
   const apiProxyTarget = (() => {
     const raw = env.VITE_API_BASE_URL?.trim();
-    if (!raw || raw === "/") return "https://8.137.127.7";
+    // 使用相对地址（VITE_API_BASE_URL=/）时，请求会打到 Vite 自身再走代理。
+    // 这样可以显式指定本地后端（VITE_API_PROXY_TARGET），
+    // 既不受本机 IP 变化影响，也不需要后端配置 CORS。
+    if (!raw || raw === "/") return env.VITE_API_PROXY_TARGET?.trim() || "https://8.137.127.7";
 
     try {
       return new URL(raw).origin;
@@ -86,7 +92,8 @@ export default defineConfig(({ mode }) => {
     plugins: [
       // 引入Vue插件
       vue(),
-
+      // 添加 Vue DevTools 插件
+      vueDevTools(),
       // PrismJS插件，用于代码高亮
       prismjs({
         languages: ["json", "bash", "typescript", "css", "sql", "javascript"],

@@ -10,6 +10,7 @@ import {
   watch,
 } from 'vue';
 import { storeToRefs } from 'pinia';
+import { telemetry } from '@/libs/telemetry';
 import { Document, UploadFilled } from '@element-plus/icons-vue';
 import { useAuthStore } from '@/stores';
 import MessageItem from './MessageItem.vue';
@@ -23,6 +24,7 @@ import type {
   MessageReadStatus,
   MessageReference,
   MessageSummary,
+  PendingTextMessage,
   PendingUpload,
   SendMessagePayload,
 } from '../types';
@@ -72,6 +74,12 @@ type RenderedChatItem =
     message: MessageSummary;
   }
   | {
+    kind: 'pendingText';
+    key: string;
+    createdAt: string;
+    pendingText: PendingTextMessage;
+  }
+  | {
     kind: 'pending';
     key: string;
     createdAt: string;
@@ -85,13 +93,21 @@ interface MessageGroup {
 
 const props = defineProps<{
   messages: MessageSummary[];
+  /** 本地乐观发送中的文本消息（服务端确认后自动移除）。 */
+  pendingTextMessages?: PendingTextMessage[];
   meUserId?: number;
   loading: boolean;
+  /** 发送中：只影响发送按钮，不阻塞输入与列表滚动。 */
+  sending?: boolean;
+  loadingMore?: boolean;
   showBackToList?: boolean;
   replyingMessage?: MessageSummary | null;
   messageReadStatus?: Map<number, MessageReadStatus>;
   readInfoMap?: Map<number, { readText: string; readColor: string }>;
   sendMessageHandler?: (payload: SendMessagePayload) => Promise<MessageSummary | null>;
+  retrySendHandler?: (tempId: number) => Promise<void>;
+  discardSendHandler?: (tempId: number) => void;
+  loadMessageReadStatusBatchHandler?: (messageIds: number[]) => Promise<void>;
 }>();
 
 const emit = defineEmits<{
@@ -101,16 +117,18 @@ const emit = defineEmits<{
   backToList: [];
   updateConversation: [options?: ConversationDetailUpdateOptions];
   loadMessageReadStatus: [messageId: number];
+  loadMessageReadStatusBatch: [messageIds: number[]];
   replyMessage: [message: MessageSummary];
   recallMessage: [message: MessageSummary];
   clearReplyMessage: [];
+  retrySend: [tempId: number];
+  discardSend: [tempId: number];
 }>();
 
 const { user } = storeToRefs(useAuthStore());
 const FilePreview = defineAsyncComponent(() => import('@/components/FilePreview/index.vue'));
 const scrollbarRef = useTemplateRef('scrollbarRef');
 const isChatDetail = ref(false);
-const pendingAutoScroll = ref(true);
 const uploadingFiles = ref(false);
 const isFileDragActive = ref(false);
 const dropUploadDialogVisible = ref(false);
@@ -222,6 +240,12 @@ const renderedItems = computed<RenderedChatItem[]>(() =>
         createdAt: message.createdAt,
         message,
       })),
+    ...(props.pendingTextMessages ?? []).map<RenderedChatItem>((pendingText) => ({
+      kind: 'pendingText',
+      key: `pending-text-${pendingText.tempId}`,
+      createdAt: pendingText.createdAt,
+      pendingText,
+    })),
     ...pendingUploads.value.map<RenderedChatItem>((pendingUpload) => ({
       kind: 'pending',
       key: `pending-${pendingUpload.tempId}`,
@@ -311,7 +335,7 @@ const dropUploadBusy = computed(() =>
 );
 
 const canConfirmDropUpload = computed(() =>
-  validDroppedFiles.value.length > 0 && !dropUploadBusy.value && !props.loading,
+  validDroppedFiles.value.length > 0 && !dropUploadBusy.value && !props.sending,
 );
 
 function getScrollWrap() {
@@ -366,7 +390,26 @@ async function jumpToMessage(messageId?: number | null) {
 }
 
 function handleSendTextMessage() {
+  if (props.sending) return;
+  if (!model.value.trim()) return;
   emit('sendTextMessage', props.replyingMessage?.id ?? null);
+}
+
+/**
+ * 输入框按键处理。
+ * 旧实现用 @keyup.enter 直接发送，中文输入法用 Enter 上屏候选词时
+ * 也会触发发送，等于「打字打到一半消息就飞出去了」。
+ * 这里用 keydown + isComposing 判断，并支持 Shift+Enter 换行。
+ */
+function handleComposerKeydown(event: Event | KeyboardEvent) {
+  if (!(event instanceof KeyboardEvent)) return;
+  if (event.key !== 'Enter') return;
+  // 输入法组合中（如拼音候选上屏）不发送
+  if (event.isComposing || (event as KeyboardEvent & { keyCode?: number }).keyCode === 229) return;
+  if (event.shiftKey) return;
+
+  event.preventDefault();
+  handleSendTextMessage();
 }
 
 function getReplyTarget(message: MessageSummary): MessageSummary | MessageReference | null {
@@ -624,7 +667,7 @@ function handleDrop(event: DragEvent) {
     return;
   }
 
-  if (uploadingFiles.value || props.loading) {
+  if (uploadingFiles.value || props.sending) {
     ElMessage.warning('正在发送文件，请稍后再试');
     return;
   }
@@ -697,9 +740,23 @@ async function handleFileSelected(files: File[]) {
   let successCount = 0;
   let failedCount = 0;
 
+  // 标记「有上传在进行」：页面若在此期间被刷新/卸载，埋点快照里能看到它
+  telemetry.markPending('file-upload-batch', '文件上传中', {
+    count: files.length,
+    conversationId: currentConversation.value.id,
+  });
+
   try {
     for (const file of files) {
       const tempId = createPendingUpload(file, replyToMessageId);
+      const fileStartedAt = Date.now();
+
+      telemetry.track('file', 'file-upload-start', {
+        fileName: file.name,
+        size: file.size,
+        type: file.type,
+        conversationId: currentConversation.value.id,
+      }, 'info');
 
       try {
         const { extra, messageType } = await uploadFileForMessage(currentConversation.value.id, file, {
@@ -726,9 +783,20 @@ async function handleFileSelected(files: File[]) {
 
         settlePendingUpload(tempId, sentMessage);
         successCount++;
+        telemetry.track('file', 'file-upload-done', {
+          fileName: file.name,
+          messageId: sentMessage.id,
+          durationMs: Date.now() - fileStartedAt,
+        }, 'info');
       } catch (error: unknown) {
         failedCount++;
         markPendingFailed(tempId);
+        telemetry.captureError('file-upload-failed', error, {
+          fileName: file.name,
+          size: file.size,
+          durationMs: Date.now() - fileStartedAt,
+          note: '上传或发送阶段失败',
+        });
         console.error(`Failed to upload file ${file.name}:`, error);
         const message = error instanceof Error ? error.message : '上传失败';
         ElMessage.error(`${file.name}: ${message}`);
@@ -741,11 +809,29 @@ async function handleFileSelected(files: File[]) {
       ElMessage.warning(`${successCount} 个文件发送成功，${failedCount} 个失败`);
     }
   } catch (error: unknown) {
+    telemetry.captureError('file-upload-batch-failed', error, { fileCount: files.length });
     console.error('File upload error:', error);
     ElMessage.error('文件发送失败');
   } finally {
+    telemetry.clearPending('file-upload-batch');
     uploadingFiles.value = false;
   }
+}
+
+/** 可见消息的已读状态按批查询，避免「每条消息一个请求」。 */
+const pendingReadStatusIds = new Set<number>();
+let readStatusFlushTimer: ReturnType<typeof window.setTimeout> | null = null;
+
+function flushReadStatusBatch() {
+  readStatusFlushTimer = null;
+  const ids = Array.from(pendingReadStatusIds);
+  pendingReadStatusIds.clear();
+  if (ids.length === 0) return;
+  if (props.loadMessageReadStatusBatchHandler) {
+    void props.loadMessageReadStatusBatchHandler(ids);
+    return;
+  }
+  emit('loadMessageReadStatusBatch', ids);
 }
 
 function onMessageVisible(entry: IntersectionObserverEntry) {
@@ -756,9 +842,15 @@ function onMessageVisible(entry: IntersectionObserverEntry) {
     visibleMessageIds.value = new Set(visibleMessageIds.value).add(messageId);
   }
 
-  if (!props.messageReadStatus?.has(messageId)) {
-    emit('loadMessageReadStatus', messageId);
-  }
+  if (props.messageReadStatus?.has(messageId)) return;
+
+  // 已读状态只对自己发出的消息有意义，别人的消息不必查询
+  const message = messageMap.value.get(messageId);
+  if (!message || !props.meUserId || message.senderUserId !== props.meUserId) return;
+
+  pendingReadStatusIds.add(messageId);
+  if (readStatusFlushTimer) return;
+  readStatusFlushTimer = window.setTimeout(flushReadStatusBatch, 150);
 }
 
 function getReadDisplay(messageId: number) {
@@ -779,30 +871,146 @@ function getReadDisplay(messageId: number) {
 }
 
 function getItemSenderId(item: RenderedChatItem) {
-  return item.kind === 'message' ? item.message.senderUserId : item.pendingUpload.senderUserId;
+  if (item.kind === 'message') return item.message.senderUserId;
+  if (item.kind === 'pendingText') return item.pendingText.senderUserId;
+  return item.pendingUpload.senderUserId;
 }
 
 function getItemReplyTarget(item: RenderedChatItem) {
-  return item.kind === 'message'
-    ? getReplyTarget(item.message)
-    : item.pendingUpload.replyToMessage ?? null;
+  if (item.kind === 'message') return getReplyTarget(item.message);
+  if (item.kind === 'pendingText') return item.pendingText.replyToMessage ?? null;
+  return item.pendingUpload.replyToMessage ?? null;
 }
 
 function getItemReplyTargetId(item: RenderedChatItem) {
-  return item.kind === 'message'
-    ? item.message.replyToMessageId ?? null
-    : item.pendingUpload.replyToMessageId ?? null;
+  if (item.kind === 'message') return item.message.replyToMessageId ?? null;
+  if (item.kind === 'pendingText') return item.pendingText.replyToMessageId ?? null;
+  return item.pendingUpload.replyToMessageId ?? null;
+}
+
+function handleRetrySend(tempId: number) {
+  if (props.retrySendHandler) {
+    void props.retrySendHandler(tempId);
+    return;
+  }
+  emit('retrySend', tempId);
+}
+
+function handleDiscardSend(tempId: number) {
+  if (props.discardSendHandler) {
+    props.discardSendHandler(tempId);
+    return;
+  }
+  emit('discardSend', tempId);
+}
+
+// —— 滚动位置管理 ——
+/** 用户是否停留在列表底部；决定新消息到达时是否自动跟随。 */
+const isAtBottom = ref(true);
+/** 用户上滑后累积的新消息条数，用于「回到最新」按钮提醒。 */
+const unseenNewCount = ref(0);
+const SCROLL_BOTTOM_THRESHOLD = 48;
+
+function syncScrollState() {
+  const wrap = getScrollWrap();
+  if (!wrap) return;
+  const atBottom = isLatestMessageInView(SCROLL_BOTTOM_THRESHOLD);
+  isAtBottom.value = atBottom;
+  if (atBottom) unseenNewCount.value = 0;
+}
+
+/**
+ * 滚动位置锚定信息。
+ * 上翻加载历史时，新内容插在顶部会把正在阅读的消息顶下去，
+ * 这里记录加载前的滚动高度与首条消息 id，渲染完成后把视口补偿回来。
+ */
+let anchorState: { height: number; top: number; firstId: number } | null = null;
+let lastLoadMoreAt = 0;
+
+function requestLoadMore() {
+  const wrap = getScrollWrap();
+  anchorState = {
+    height: wrap?.scrollHeight ?? 0,
+    top: wrap?.scrollTop ?? 0,
+    firstId: props.messages[0]?.id ?? 0,
+  };
+  emit('loadMore');
+}
+
+/** 滚动到顶部附近时自动加载更早的历史消息。 */
+function handleScroll(payload?: { scrollTop?: number }) {
+  syncScrollState();
+
+  const wrap = getScrollWrap();
+  const scrollTop = payload?.scrollTop ?? wrap?.scrollTop ?? 0;
+
+  if (scrollTop > 96) {
+    // 已经离开顶部，取消待生效的锚定，避免影响后续新消息
+    if (anchorState && scrollTop > anchorState.top + 200) anchorState = null;
+    return;
+  }
+  if (props.loadingMore || props.loading) return;
+
+  const now = Date.now();
+  if (now - lastLoadMoreAt < 400) return;
+  lastLoadMoreAt = now;
+  requestLoadMore();
+}
+
+function handleScrollToLatest() {
+  unseenNewCount.value = 0;
+  isAtBottom.value = true;
+  scrollToBottom('smooth');
 }
 
 watch(
   () => renderedItems.value.length,
   async (newLength, oldLength) => {
-    if (newLength > oldLength) {
-      pendingAutoScroll.value = isLatestMessageInView();
-    }
+    const grew = newLength > oldLength;
+    const wasAtBottom = isAtBottom.value;
     await nextTick();
-    if (newLength > oldLength && pendingAutoScroll.value) {
+
+    if (!grew) return;
+
+    // 优先处理「上翻历史」：恢复滚动位置，不跳到底部
+    const currentFirstId = props.messages[0]?.id ?? 0;
+    if (anchorState && currentFirstId !== anchorState.firstId) {
+      const state = anchorState;
+      anchorState = null;
+      requestAnimationFrame(() => {
+        const wrap = getScrollWrap();
+        if (!wrap) return;
+        const heightDelta = wrap.scrollHeight - state.height;
+        if (heightDelta > 0) {
+          wrap.scrollTop = state.top + heightDelta;
+        }
+        syncScrollState();
+      });
+      return;
+    }
+
+    if (wasAtBottom) {
       scrollToBottom('smooth');
+      unseenNewCount.value = 0;
+      return;
+    }
+
+    // 用户正在上翻历史：不打断阅读，只累计提示有新消息
+    const hasIncomingFromOthers = props.messages.some(
+      (message) => message.senderUserId !== props.meUserId,
+    );
+    if (hasIncomingFromOthers) {
+      unseenNewCount.value += newLength - oldLength;
+    }
+  },
+);
+
+// 没有更多历史时清掉锚定状态，避免污染后续渲染
+watch(
+  () => props.loadingMore,
+  (value) => {
+    if (!value && anchorState && (props.messages[0]?.id ?? 0) === anchorState.firstId) {
+      anchorState = null;
     }
   },
 );
@@ -839,7 +1047,8 @@ onBeforeUnmount(() => {
   <main class="main-panel" @dragenter="handleDragEnter" @dragover="handleDragOver" @dragleave="handleDragLeave"
     @drop="handleDrop">
     <div v-if="currentConversation" class="conversation-detail">
-      <el-scrollbar ref="scrollbarRef" view-class="message-list-container">
+      <el-scrollbar ref="scrollbarRef" view-class="message-list-container" @scroll="handleScroll">
+        <div v-if="props.loadingMore" class="history-loading">正在加载更早的消息…</div>
         <div v-if="props.meUserId" class="message-list">
           <template v-for="group in groupedMessages" :key="group.dateLabel">
             <div class="date-separator">
@@ -849,6 +1058,7 @@ onBeforeUnmount(() => {
             <MessageItem v-for="item in group.items" :key="item.key" v-viewport="onMessageVisible"
               :data-message-id="item.kind === 'message' ? item.message.id : undefined"
               :message="item.kind === 'message' ? item.message : undefined"
+              :pending-text="item.kind === 'pendingText' ? item.pendingText : undefined"
               :pending-upload="item.kind === 'pending' ? item.pendingUpload : undefined"
               :src="getMemberAvatarBySender(currentConversation, getItemSenderId(item))" :meUserId="props.meUserId"
               :thumbnail-src="getMemberAvatarSourcesBySender(currentConversation, getItemSenderId(item)).thumbnailSrc"
@@ -857,10 +1067,18 @@ onBeforeUnmount(() => {
               :highlighted="item.kind === 'message' && highlightedMessageId === item.message.id"
               v-bind="item.kind === 'message' ? getReadDisplay(item.message.id) : emptyReadDisplay"
               @reply="emit('replyMessage', $event)" @recall="emit('recallMessage', $event)"
+              @retry-send="handleRetrySend" @discard-send="handleDiscardSend"
               @media-settled="handlePendingMediaSettled" @jump-to-message="jumpToMessage" />
           </template>
         </div>
       </el-scrollbar>
+
+      <transition name="el-fade-in">
+        <button v-if="!isAtBottom && props.messages.length > 0" class="scroll-to-latest" type="button"
+          @click="handleScrollToLatest">
+          <span>{{ unseenNewCount > 0 ? `${unseenNewCount} 条新消息` : '回到最新' }}</span>
+        </button>
+      </transition>
 
       <div v-if="pendingMediaPreloads.length > 0" class="media-preload-layer" aria-hidden="true">
         <FileMessage v-for="item in pendingMediaPreloads" :key="`preload-${item.tempId}-${item.message.id}`"
@@ -901,14 +1119,12 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="composer-main">
-          <FileUploadButton :disabled="uploadingFiles || props.loading"
-            @file-selected="handleFileSelected" />
-          <el-input v-model="model" clearable placeholder="输入消息" @keyup.enter="handleSendTextMessage" />
-          <el-button color="#111827" :disabled="props.loading || uploadingFiles" @click="handleSendTextMessage">
+          <FileUploadButton :disabled="uploadingFiles" @file-selected="handleFileSelected" />
+          <el-input v-model="model" type="textarea" :autosize="{ minRows: 1, maxRows: 6 }" resize="none"
+            placeholder="输入消息，Enter 发送，Shift + Enter 换行" @keydown="handleComposerKeydown" />
+          <el-button color="#111827" :loading="props.sending" :disabled="uploadingFiles || !model.trim()"
+            @click="handleSendTextMessage">
             发送
-          </el-button>
-          <el-button color="#111827" :disabled="props.loading" @click="emit('markRead')">
-            标记已读
           </el-button>
         </div>
       </div>
@@ -972,6 +1188,49 @@ onBeforeUnmount(() => {
 <style scoped lang="scss">
 .date-separator {
   margin: 0 12px;
+}
+
+.history-loading {
+  padding: 10px 12px;
+  color: #909399;
+  font-size: 12px;
+  text-align: center;
+}
+
+.scroll-to-latest {
+  position: absolute;
+  right: 18px;
+  bottom: 96px;
+  z-index: 15;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  border-radius: 999px;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 22px rgba(17, 24, 39, 0.18);
+  transition: transform 0.15s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+  }
+}
+
+.composer-main {
+  :deep(.el-textarea) {
+    min-width: 0;
+  }
+
+  :deep(.el-textarea__inner) {
+    padding: 6px 10px;
+    line-height: 20px;
+  }
 }
 
 .media-preload-layer {

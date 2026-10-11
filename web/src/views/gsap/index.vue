@@ -82,9 +82,6 @@ const galleryImages = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18
 // 创建山峰的 SplitText 实例
 const mountainImages = [31, 32, 33, 34, 35, 36, 37];
 
-// 视频列表，包含需要在分页故事中使用的视频编号
-const videoList = ref([16, 44, 54, 56, 57, 114, 114, 116, 177, 179, 180, 181, 334, 335, 337, 341, 342, 344, 350, 365, 371]);
-
 // 创建查看的 SplitText 实例
 const seeList = [
     { key: '48', label: '清晨的大理洱海' },
@@ -395,7 +392,10 @@ onUnmounted(() => {
             <div class="hero-block gradient-purple">
                 <div class="hero-image">
                     <div class="hero-img-container">
-                        <img src="/gsap/yunnan/tourism/t-1.jpg" class="hero-img" alt="">
+                        <!-- 用绑定写法引用 public 目录资源：静态 src 会让 Rollup 在构建期
+                             尝试解析该文件，而这些演示素材（public/gsap/yunnan）已被 gitignore，
+                             缺失时会直接让整个 `npm run build` 失败。 -->
+                        <img :src="'/gsap/yunnan/tourism/t-1.jpg'" class="hero-img" alt="">
                         <span class="boundary"></span>
                     </div>
 

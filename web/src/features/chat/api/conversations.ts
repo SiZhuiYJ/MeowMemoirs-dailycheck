@@ -1,4 +1,5 @@
 import http from "@/libs/http";
+import type { HttpRequestConfig } from "@/libs/http/type";
 import type {
   ConversationDetail,
   ConversationSummary,
@@ -13,12 +14,12 @@ import type {
   UpdateConversationMemberRolePayload,
 } from "../types";
 
-export async function getConversations() {
-  return await http.get<ConversationSummary[]>("/mm/chat/conversations");
+export async function getConversations(config: HttpRequestConfig = {}) {
+  return await http.get<ConversationSummary[]>("/mm/chat/conversations", undefined, config);
 }
 
-export async function getConversation(id: number) {
-  return await http.get<ConversationDetail>(`/mm/chat/conversations/${id}`);
+export async function getConversation(id: number, config: HttpRequestConfig = {}) {
+  return await http.get<ConversationDetail>(`/mm/chat/conversations/${id}`, undefined, config);
 }
 
 export async function createConversation(payload: CreateConversationPayload) {

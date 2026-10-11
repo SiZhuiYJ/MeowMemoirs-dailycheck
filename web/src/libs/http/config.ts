@@ -8,7 +8,9 @@ export interface HttpConfig {
 
 // 默认配置
 export const httpConfig: HttpConfig = {
-    maxConcurrentRequests: 5,
+    // 5 太低：进入聊天页/切换会话时会同时发出「会话详情 + 消息列表 + 批量已读状态」等请求，
+    // 队列被后台请求占满后，用户主动发送的消息只能排在队尾，表现为「发消息要等半天」。
+    maxConcurrentRequests: 12,
     throttleEnabled: true,
     throttleKeyGenerator: (config) => {
         // 默认 key 生成规则：method + url + 排序后的 params/data

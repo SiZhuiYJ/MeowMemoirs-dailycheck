@@ -15,9 +15,33 @@ public class ChatHub(DailyCheckDbContext db) : Hub
 {
     readonly DailyCheckDbContext _db = db;
 
+    /// <summary>
+    /// 连接建立时自动加入的会话上限，避免会话极多的账号产生过大的分组扇出。
+    /// </summary>
+    const int MaxAutoSubscribedConversations = 200;
+
     public override async Task OnConnectedAsync()
     {
-        await Groups.AddToGroupAsync(Context.ConnectionId, UserGroupName(GetUserId()));
+        var userId = GetUserId();
+        await Groups.AddToGroupAsync(Context.ConnectionId, UserGroupName(userId));
+
+        // 连接建立时直接把用户加入其所有会话分组。
+        // 旧实现只在客户端显式调用 SubscribeConversation 后才入组，
+        // 断线重连（组是按 ConnectionId 记的，重连即失效）或客户端订阅失败时，
+        // 会话内的消息事件根本不会送到这个连接，表现为「收消息不及时、要手动刷新」。
+        var conversationIds = await _db.ChatConversationMembers
+            .AsNoTracking()
+            .Where(m => m.UserId == userId && m.LeftAt == null)
+            .OrderByDescending(m => m.ConversationId)
+            .Select(m => m.ConversationId)
+            .Take(MaxAutoSubscribedConversations)
+            .ToListAsync();
+
+        foreach (var conversationId in conversationIds)
+        {
+            await Groups.AddToGroupAsync(Context.ConnectionId, GroupName(conversationId));
+        }
+
         await base.OnConnectedAsync();
     }
 

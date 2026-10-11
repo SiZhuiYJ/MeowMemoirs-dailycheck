@@ -78,7 +78,7 @@ public interface IJwtTokenService
     /// </summary>
     /// <param name="user">用户实体。</param>
     /// <returns>访问令牌与刷新令牌组合。</returns>
-    TokenPair GenerateTokens(User user);
+    TokenPair GenerateTokens(User user, string? sessionId = null);
 
     /// <summary>
     /// 验证刷新令牌有效性并返回声明主体。
@@ -107,16 +107,18 @@ public class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenService
     /// </summary>
     /// <param name="user">用户实体。</param>
     /// <returns>访问令牌与刷新令牌组合。</returns>
-    public TokenPair GenerateTokens(User user)
+    public TokenPair GenerateTokens(User user, string? sessionId = null)
     {
         var jti = Guid.NewGuid().ToString("N");
-        // 不再使用内存字典存储，完全由Redis管理
+        // 设备会话标识 sid：登录时新建，刷新时沿用。
+        // 登出只撤销这一个 sid，其它设备不受影响（按设备登出）。
+        var sid = string.IsNullOrWhiteSpace(sessionId) ? Guid.NewGuid().ToString("N") : sessionId;
 
         var accessExpires = DateTime.UtcNow.AddMinutes(_options.AccessTokenMinutes);
         var refreshExpires = DateTime.UtcNow.AddDays(_options.RefreshTokenDays);
 
-        var accessToken = CreateToken(user, jti, accessExpires, "access");
-        var refreshToken = CreateToken(user, jti, refreshExpires, "refresh");
+        var accessToken = CreateToken(user, jti, accessExpires, "access", sid);
+        var refreshToken = CreateToken(user, jti, refreshExpires, "refresh", sid);
 
         return new TokenPair
         {
@@ -195,26 +197,34 @@ public class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenService
     /// <param name="expires">过期时间。</param>
     /// <param name="tokenType">令牌类型：access 或 refresh。</param>
     /// <returns>序列化后的 JWT 字符串。</returns>
-    string CreateToken(User user, string jti, DateTime expires, string tokenType)
+    string CreateToken(User user, string jti, DateTime expires, string tokenType, string sid)
     {
+        var issuedAt = DateTime.UtcNow;
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new(JwtRegisteredClaimNames.Email, user.Email),
             new(ClaimTypes.Role, user.Role),
             new(JwtRegisteredClaimNames.Jti, jti),
-            new("typ", tokenType)
+            new("typ", tokenType),
+            new("sid", sid)
         };
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Key));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        var token = new JwtSecurityToken(
+        // 必须显式写入 iat（签发时间）：
+        // 服务端「登出即时生效」现在依赖「撤销时间戳 vs 令牌签发时间」来判断，
+        // 而 JwtSecurityToken 的默认构造不会带上 iat，导致旧令牌无法被判定为已撤销。
+        var payload = new JwtPayload(
             _options.Issuer,
             _options.Audience,
             claims,
+            notBefore: null,
             expires: expires,
-            signingCredentials: creds);
+            issuedAt: issuedAt);
+
+        var token = new JwtSecurityToken(new JwtHeader(creds), payload);
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }

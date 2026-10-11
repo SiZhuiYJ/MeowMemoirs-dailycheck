@@ -304,7 +304,7 @@
             <response code="400">邮箱为空、操作类型不合法或邮箱状态不匹配</response>
             <response code="429">请求过于频繁，超出频率限制</response>
         </member>
-        <member name="M:api.Controllers.AuthController.DeactivateAccount(api.Models.DeactivateAccountRequest,System.Threading.CancellationToken)">
+        <member name="M:api.Controllers.AuthController.Logout">
             <summary>
             用户账号注销接口，永久删除用户账户。
             需要提供有效的邮箱验证码进行二次确认。
@@ -340,6 +340,19 @@
             <response code="204">账号注销成功</response>
             <response code="400">验证码无效或已过期</response>
             <response code="404">用户不存在</response>
+            <summary>
+            退出登录：撤销该账号当前的所有令牌。
+            </summary>
+            <remarks>
+            实现方式是写入「撤销时间戳」：签发时间早于它的 access / refresh 令牌立即失效。
+            这样短令牌即使有效期较长（30 分钟），登出依然是即时的，
+            并且对同一账号在其它设备上的会话同时生效（不必再靠 1 分钟令牌来凑）。
+            </remarks>
+        </member>
+        <member name="M:api.Controllers.AuthController.LogoutAll">
+            <summary>
+            退出登录（所有设备）：撤销该账号当前的全部令牌。
+            </summary>
         </member>
         <member name="M:api.Controllers.AuthController.ChangePassword(api.Models.ChangePasswordRequest,System.Threading.CancellationToken)">
             <summary>
@@ -536,13 +549,15 @@
             <response code="400">账号名为空</response>
             <response code="409">账号名已被占用</response>
         </member>
-        <member name="M:api.Controllers.AuthController.StoreTokensInRedis(System.UInt64,System.String,System.String)">
+        <member name="M:api.Controllers.AuthController.ReadPayloadString(System.String,System.String)">
             <summary>
             将访问令牌和刷新令牌存储到Redis
             </summary>
             <param name="userId">用户ID</param>
             <param name="accessToken">访问令牌</param>
             <param name="refreshToken">刷新令牌</param>
+            <summary>从原始 JWT 的 payload 读取签发时间 iat（秒）。</summary>
+            <summary>从原始 JWT 的 payload 读取字符串声明（不依赖 claim 类型映射）。</summary>
         </member>
         <member name="M:api.Controllers.AuthController.DeleteTokensFromRedis(System.UInt64)">
             <summary>
@@ -746,6 +761,17 @@
             </summary>
             <param name="messageId">消息ID。</param>
             <returns>消息已读详情，包含已读用户列表。</returns>
+        </member>
+        <member name="M:api.Controllers.ChatController.GetConversationReadStatus(System.UInt64,System.String)">
+            <summary>
+            批量获取会话内多条消息的已读状态。
+            前端打开会话时需要展示自己发出的消息的已读进度，
+            逐条调用 read-status 会瞬间发出几十个并发请求（挤占并发队列、拖慢发送），
+            这里用一次请求返回整段状态。
+            </summary>
+            <param name="conversationId">会话ID。</param>
+            <param name="messageIds">逗号分隔的消息ID；不传则取该会话内自己最近发出的消息。</param>
+            <returns>消息已读状态列表（仅包含自己发出的消息）。</returns>
         </member>
         <!-- Badly formed XML comment ignored for member "M:api.Controllers.ChatController.BuildConversationSummaryProjection(System.UInt64)" -->
         <member name="M:api.Controllers.ChatController.BuildConversationDetail(System.UInt64,System.UInt64)">
@@ -1627,6 +1653,41 @@
             从当前访问令牌中解析用户 ID。
             </summary>
             <returns>当前登录用户的 ID。</returns>
+        </member>
+        <member name="T:api.Controllers.TelemetryController">
+             <summary>
+             客户端埋点接收接口。
+            
+             设计取舍：
+             • POST 允许匿名——「登录过期」恰恰发生在令牌失效之后，
+               此时如果要求鉴权，最需要的那几条日志反而写不进来；
+               因此只做体积/条数限制，不落库、不返回敏感信息。
+             • 存储为按天滚动的 JSONL 文件（errorLog/client/），
+               可以直接 grep/tail，不需要改数据库结构。
+             • GET 需要登录，避免日志被未授权读取。
+             </summary>
+        </member>
+        <member name="F:api.Controllers.TelemetryController.MaxBodyBytes">
+            <summary>单次请求体上限（256KB）。</summary>
+        </member>
+        <member name="F:api.Controllers.TelemetryController.MaxEventsPerBatch">
+            <summary>单批最多接收的事件数。</summary>
+        </member>
+        <member name="F:api.Controllers.TelemetryController.MaxRecentLines">
+            <summary>GET 最近日志时最多返回的行数。</summary>
+        </member>
+        <member name="M:api.Controllers.TelemetryController.PostEvents">
+            <summary>
+            接收客户端埋点事件（允许匿名）。
+            </summary>
+        </member>
+        <member name="M:api.Controllers.TelemetryController.GetRecent(System.Int32,System.String,System.String)">
+            <summary>
+            读取最近接收到的客户端埋点（需登录），便于直接排查。
+            </summary>
+            <param name="lines">返回的最大行数，默认 100。</param>
+            <param name="level">按级别过滤，例如 error。</param>
+            <param name="category">按分类过滤，例如 auth / file / app。</param>
         </member>
         <member name="T:api.Data.ChatConversation">
             <summary>
@@ -2653,6 +2714,11 @@
             聊天 Hub，处理实时通信功能。
             </summary>
         </member>
+        <member name="F:api.Hubs.ChatHub.MaxAutoSubscribedConversations">
+            <summary>
+            连接建立时自动加入的会话上限，避免会话极多的账号产生过大的分组扇出。
+            </summary>
+        </member>
         <member name="M:api.Hubs.ChatHub.SubscribeConversation(System.UInt64)">
             <summary>
             订阅指定的会话以接收实时消息。
@@ -2794,7 +2860,7 @@
             JWT 令牌服务接口。
             </summary>
         </member>
-        <member name="M:api.Infrastructure.IJwtTokenService.GenerateTokens(api.Data.User)">
+        <member name="M:api.Infrastructure.IJwtTokenService.GenerateTokens(api.Data.User,System.String)">
             <summary>
             为指定用户生成访问令牌和刷新令牌。
             </summary>
@@ -2826,7 +2892,7 @@
             </remarks>
             <param name="options">JWT 配置选项。</param>
         </member>
-        <member name="M:api.Infrastructure.JwtTokenService.GenerateTokens(api.Data.User)">
+        <member name="M:api.Infrastructure.JwtTokenService.GenerateTokens(api.Data.User,System.String)">
             <summary>
             为指定用户生成新的访问令牌和刷新令牌。
             </summary>
@@ -2840,7 +2906,7 @@
             <param name="refreshToken">刷新令牌字符串。</param>
             <returns>验证通过的声明主体，否则为 null。</returns>
         </member>
-        <member name="M:api.Infrastructure.JwtTokenService.CreateToken(api.Data.User,System.String,System.DateTime,System.String)">
+        <member name="M:api.Infrastructure.JwtTokenService.CreateToken(api.Data.User,System.String,System.DateTime,System.String,System.String)">
             <summary>
             创建包含基本声明和类型信息的 JWT 令牌。
             </summary>
@@ -2875,6 +2941,16 @@
             Redis Token验证中间件，在每个请求前检查Redis中的token状态
             确保访问令牌在Redis中仍然有效，避免JWT过期时间与Redis状态不一致的问题
             </summary>
+        </member>
+        <member name="M:api.Infrastructure.RedisTokenValidationMiddleware.IsAccessToken(System.String)">
+            <summary>
+            从原始 JWT 的 payload 读取签发时间 iat（秒）。
+            直接读 payload 而不依赖 Claim 类型映射，避免 iat 被映射成其他类型后取不到。
+            </summary>
+            <summary>判断该令牌是否为可用于业务接口的 access 令牌。</summary>
+        </member>
+        <member name="M:api.Infrastructure.RedisTokenValidationMiddleware.GetPayloadString(System.String,System.String)">
+            <summary>从原始 JWT 的 payload 读取字符串声明（不依赖 claim 类型映射）。</summary>
         </member>
         <member name="T:api.Infrastructure.ULongRouteConstraint">
             <summary>

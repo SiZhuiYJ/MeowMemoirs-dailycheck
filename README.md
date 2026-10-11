@@ -123,7 +123,20 @@ npm run dev
 | 聊天 Chat | 会话/群聊、成员与角色、入群申请、消息收发、已读回执、文件消息、SignalR 实时推送 |
 | 文件 Files | 上传、预览、下载（图片转 WebP、SHA256 去重） |
 
-> 安全机制：JWT 之外还有 `RedisTokenValidationMiddleware`，每个请求都会校验 Redis 中的 token 状态，保证登出/踢下线即时生效。
+> **鉴权模型（双令牌）**
+>
+> - **短令牌 access（默认 30 分钟）**：用于所有业务接口；`typ=access`，带 `iat`。
+> - **长令牌 refresh（默认 7 天）**：**只能**用于 `POST /mm/Auth/refresh` 换新令牌；用它访问业务接口一律 401。
+> - **多端并存**：令牌不再与 Redis 中的单一副本做精确比对，手机 + 电脑可同时在线、各自刷新，互不顶掉。
+> - **按设备会话（sid）**：登录时生成 `sid` 并写入令牌，刷新时沿用，因此每台设备是一个独立会话。
+> - **登出只影响当前设备**：`POST /mm/Auth/logout` 只把本设备的 `sid` 写入撤销标记（`revoked_sid:{sid}`，TTL 与刷新令牌一致），
+>   该设备的 access/refresh 令牌**立即失效**，其它设备不受影响。
+> - **全端下线**：`POST /mm/Auth/logout-all` 写入账号级撤销时间戳（`auth_revoked_before:{userId}`），
+>   签发时间早于它的令牌全部失效；改密码、注销账户同样走这条路径。
+> - `RedisTokenValidationMiddleware` 每次请求用一次 `MGET` 同时校验上面两个维度，并显式要求 `typ=access`。
+>
+> 客户端埋点：`POST /mm/Telemetry/events`（允许匿名，便于「登录过期」后仍能上报），
+> 落盘在 `api/errorLog/client/client-YYYYMMDD.log`（JSONL）；`GET /mm/Telemetry/recent`（需登录）可回读。
 
 ---
 

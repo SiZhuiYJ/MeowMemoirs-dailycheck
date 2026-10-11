@@ -1,4 +1,4 @@
-﻿
+
 using api.Data;
 using api.Hubs;
 using api.Models;
@@ -901,6 +901,8 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
                 && member.LeftAt == null
                 && conversationIds.Contains(message.ConversationId)
                 && message.SenderUserId != userId
+                && message.MessageType != "system"
+                && !message.IsRecalled
                 && message.Id > (member.LastReadMessageId ?? 0UL)
             group message by message.ConversationId into grouped
             select new
@@ -956,14 +958,22 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
         }
         var memberRole = (chatConversationMember.MemberRole ?? string.Empty).Trim().ToLowerInvariant();
         var canManageGroupConversation = conversation.ConversationType == "group" && (memberRole == "owner" || memberRole == "admin");
+
+        // 只有「值真的变了」才算修改群资料。
+        // 旧实现只看「字段是否出现在请求里」：前端提交整个会话对象
+        // （带着当前标题和 isActive），于是普通成员切换「置顶/免打扰」这种
+        // 个人设置时也会被判成改群资料 → 403。
         var isUpdatingConversationMetadata =
-            !string.IsNullOrWhiteSpace(request.Title)
-            || !string.IsNullOrWhiteSpace(request.AvatarKey)
-            || request.IsActive != null;
+            (!string.IsNullOrWhiteSpace(request.Title)
+                && !string.Equals(request.Title, conversation.Title, StringComparison.Ordinal))
+            || (!string.IsNullOrWhiteSpace(request.AvatarKey)
+                && !string.Equals(request.AvatarKey, conversation.AvatarKey, StringComparison.Ordinal))
+            || (request.IsActive.HasValue && request.IsActive.Value != conversation.IsActive);
 
         if (conversation.ConversationType == "group" && isUpdatingConversationMetadata && !canManageGroupConversation)
         {
-            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only the owner or an admin can update group information" });
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { message = "只有群主或管理员可以修改群资料（标题、头像、启用状态）" });
         }
 
         if (!string.IsNullOrWhiteSpace(request.Title))
@@ -1073,8 +1083,10 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
         membership.Conversation.UpdatedAt = now;
         membership.Conversation.LastMessageAt = now;
 
-        await _db.SaveChangesAsync();
-        membership.LastReadMessageId = message.Id;
+        // 注意：这里不再把发送者自己的 LastReadMessageId 推进到刚发出的消息。
+        // 旧实现会因此把对端更早的未读消息「顺手」标记为已读：
+        // 未读数按 Id > LastReadMessageId 计算，一旦光标被推进到 #103，
+        // 对端的 #101/#102 就永远不再算未读，也永远补不上已读回执。
         await _db.SaveChangesAsync();
 
         var result = await BuildMessageSummary(message.Id);
@@ -1331,23 +1343,25 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
         var newReceiptMessageIds = new List<ulong>();
         if (targetMessageId.HasValue && targetMessageId.Value > previousLastRead)
         {
+            // 回执按「Id <= target」补齐，而不是只补上一次光标之后的那一段：
+            // 光标可能因为别的原因跳跃（历史数据、其他端标记已读），
+            // 只用 (previousLastRead, target] 会让中间的消息永远拿不到回执。
+            // system / 已撤回消息不产生已读回执；已经存在的回执由 NOT EXISTS 直接排除。
             var readIds = await _db.ChatMessages
                 .Where(m => m.ConversationId == conversationId
-                    && m.Id > previousLastRead
                     && m.Id <= targetMessageId.Value
-                    && m.SenderUserId != userId)
+                    && m.SenderUserId != userId
+                    && m.MessageType != "system"
+                    && !m.IsRecalled
+                    && !_db.ChatMessageReceipts.Any(r => r.MessageId == m.Id && r.UserId == userId))
+                .OrderByDescending(m => m.Id)
+                .Take(500)
                 .Select(m => m.Id)
                 .ToListAsync();
 
             if (readIds.Count > 0)
             {
-                var existingReceiptMessageIds = await _db.ChatMessageReceipts
-                    .Where(r => r.UserId == userId && readIds.Contains(r.MessageId))
-                    .Select(r => r.MessageId)
-                    .ToListAsync();
-
                 var newReceipts = readIds
-                    .Except(existingReceiptMessageIds)
                     .Select(messageId => new ChatMessageReceipt
                     {
                         MessageId = messageId,
@@ -1356,23 +1370,23 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
                     })
                     .ToList();
 
-                if (newReceipts.Count > 0)
-                {
-                    _db.ChatMessageReceipts.AddRange(newReceipts);
-                    await _db.SaveChangesAsync();
-                    newReceiptMessageIds = newReceipts
-                        .Select(r => r.MessageId)
-                        .OrderBy(id => id)
-                        .ToList();
-                }
+                _db.ChatMessageReceipts.AddRange(newReceipts);
+                await _db.SaveChangesAsync();
+                newReceiptMessageIds = newReceipts
+                    .Select(r => r.MessageId)
+                    .OrderBy(id => id)
+                    .ToList();
             }
         }
 
-        foreach (var messageId in newReceiptMessageIds)
+        // 一次批量广播即可：前端会合并同一时间窗内的回执再查一次状态，
+        // 旧的逐条 await 会把 N 条回执变成 N 次串行网络等待。
+        if (newReceiptMessageIds.Count > 0)
         {
             await _hubContext.Clients.Group(ChatHub.GroupName(conversationId)).SendAsync("chat:message-read", new
             {
-                messageId,
+                messageId = newReceiptMessageIds[^1],
+                messageIds = newReceiptMessageIds,
                 conversationId,
                 readByUserId = userId,
                 readAt = now
@@ -1435,6 +1449,100 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
             ReadCount = readUsers.Count,
             ReadUsers = readUsers
         });
+    }
+
+    /// <summary>
+    /// 批量获取会话内多条消息的已读状态。
+    /// 前端打开会话时需要展示自己发出的消息的已读进度，
+    /// 逐条调用 read-status 会瞬间发出几十个并发请求（挤占并发队列、拖慢发送），
+    /// 这里用一次请求返回整段状态。
+    /// </summary>
+    /// <param name="conversationId">会话ID。</param>
+    /// <param name="messageIds">逗号分隔的消息ID；不传则取该会话内自己最近发出的消息。</param>
+    /// <returns>消息已读状态列表（仅包含自己发出的消息）。</returns>
+    [HttpGet("conversations/{conversationId:ulong}/read-status")]
+    public async Task<ActionResult<List<MessageReadDetailDto>>> GetConversationReadStatus(
+        ulong conversationId,
+        [FromQuery] string? messageIds = null)
+    {
+        var userId = GetUserId();
+
+        var isMember = await _db.ChatConversationMembers
+            .AsNoTracking()
+            .AnyAsync(m => m.ConversationId == conversationId && m.UserId == userId && m.LeftAt == null);
+        if (!isMember)
+            return NotFound(new { message = "Conversation not found or access denied" });
+
+        var requestedIds = new List<ulong>();
+        if (!string.IsNullOrWhiteSpace(messageIds))
+        {
+            foreach (var part in messageIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (ulong.TryParse(part, out var parsedId) && parsedId > 0)
+                    requestedIds.Add(parsedId);
+            }
+        }
+
+        var query = _db.ChatMessages
+            .AsNoTracking()
+            .Where(m => m.ConversationId == conversationId && m.SenderUserId == userId);
+
+        if (requestedIds.Count > 0)
+            query = query.Where(m => requestedIds.Contains(m.Id));
+
+        var messageRows = await query
+            .OrderByDescending(m => m.Id)
+            .Take(500)
+            .Select(m => new { m.Id })
+            .ToListAsync();
+
+        if (messageRows.Count == 0)
+            return Ok(new List<MessageReadDetailDto>());
+
+        var ids = messageRows.Select(m => m.Id).ToList();
+
+        var receiptRows = await _db.ChatMessageReceipts
+            .AsNoTracking()
+            .Where(r => ids.Contains(r.MessageId))
+            .Join(_db.Users.AsNoTracking(), r => r.UserId, u => u.Id, (r, u) => new
+            {
+                r.MessageId,
+                Dto = new ReadUserDto
+                {
+                    UserId = u.Id,
+                    NickName = u.NickName ?? u.UserAccount ?? string.Empty,
+                    AvatarKey = u.AvatarKey,
+                    ReadAt = r.ReadAt
+                }
+            })
+            .ToListAsync();
+
+        var readersByMessage = receiptRows
+            .GroupBy(r => r.MessageId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Dto).ToList());
+
+        var totalRecipients = await _db.ChatConversationMembers
+            .AsNoTracking()
+            .CountAsync(m => m.ConversationId == conversationId
+                          && m.UserId != userId
+                          && m.LeftAt == null);
+
+        var result = messageRows.Select(row =>
+        {
+            var readers = readersByMessage.TryGetValue(row.Id, out var value)
+                ? value
+                : new List<ReadUserDto>();
+
+            return new MessageReadDetailDto
+            {
+                MessageId = row.Id,
+                TotalRecipients = totalRecipients,
+                ReadCount = readers.Count,
+                ReadUsers = readers
+            };
+        }).ToList();
+
+        return Ok(result);
     }
 
     /// <summary>

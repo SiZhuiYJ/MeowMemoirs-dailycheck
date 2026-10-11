@@ -1,4 +1,5 @@
 import type { ComponentPublicInstance } from "vue";
+import { telemetry } from "@/libs/telemetry";
 
 // Define the shape of the notification options based on the component's interface
 // We duplicate this interface to avoid hard dependency on the component file for types,
@@ -41,6 +42,14 @@ export const setNotificationInstance = (
  * Show a notification message.
  */
 export const notify = (options: NotificationOptions) => {
+  // 记录「用户实际看到的提示」：排查时经常需要知道报错是以什么文案弹出来的
+  telemetry.track(
+    "ui",
+    "toast",
+    { content: options.content, color: options.color },
+    options.color === "#ef4444" ? "error" : "info",
+  );
+
   if (notificationInstance) {
     notificationInstance.addMessage(options);
   } else {

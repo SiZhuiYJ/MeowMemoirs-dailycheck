@@ -599,13 +599,35 @@ public class AuthController(
         if (_redisDb == null)
             return Unauthorized("服务端会话存储未启用，无法刷新登录状态");
 
-        var storedRefreshToken = await _redisDb.StringGetAsync($"refresh_token:{userId}");
-        if (storedRefreshToken.IsNullOrEmpty || storedRefreshToken != request.RefreshToken)
+        // 只校验「刷新令牌本身有效（签名/typ/7天有效期）+ 未被撤销」，
+        // 不再要求它与 Redis 中存的那一枚完全相等：
+        // 否则手机和电脑同时在线时，任一端刷新都会把另一端的刷新令牌顶掉，
+        // 另一端就只能被判「登录过期」而被强制登出。
+        var revokedBefore = await _redisDb.StringGetAsync($"auth_revoked_before:{userId}");
+        if (!revokedBefore.IsNullOrEmpty)
         {
-            return Unauthorized("刷新令牌无效或已过期");
+            var refreshIssuedAt = ReadIssuedAtEpoch(request.RefreshToken);
+            if (refreshIssuedAt == null || refreshIssuedAt.Value <= (long)revokedBefore)
+            {
+                return Unauthorized("登录状态已失效，请重新登录");
+            }
         }
 
-        var tokens = _jwtTokenService.GenerateTokens(user);
+        // 设备级撤销：某台设备登出后，它的长令牌也不能再换新令牌，
+        // 否则「登出」只是一次性的，拿旧的 refresh 还能立刻换回来。
+        var sid = ReadPayloadString(request.RefreshToken, "sid");
+        if (!string.IsNullOrWhiteSpace(sid))
+        {
+            var revokedSid = await _redisDb.StringGetAsync($"revoked_sid:{sid}");
+            if (!revokedSid.IsNullOrEmpty)
+            {
+                return Unauthorized("该设备已退出登录，请重新登录");
+            }
+        }
+
+        // 沿用旧刷新令牌里的 sid：刷新不等于新设备，
+        // 否则「登出当前设备」在刷新一次之后就失效了。
+        var tokens = _jwtTokenService.GenerateTokens(user, sid);
 
         // 更新Redis中的令牌
         await StoreTokensInRedis(user.Id, tokens.AccessToken, tokens.RefreshToken);
@@ -732,6 +754,47 @@ public class AuthController(
     /// <response code="204">账号注销成功</response>
     /// <response code="400">验证码无效或已过期</response>
     /// <response code="404">用户不存在</response>
+    /// <summary>
+    /// 退出登录：撤销该账号当前的所有令牌。
+    /// </summary>
+    /// <remarks>
+    /// 实现方式是写入「撤销时间戳」：签发时间早于它的 access / refresh 令牌立即失效。
+    /// 这样短令牌即使有效期较长（30 分钟），登出依然是即时的，
+    /// 并且对同一账号在其它设备上的会话同时生效（不必再靠 1 分钟令牌来凑）。
+    /// </remarks>
+    [HttpPost("logout")]
+    [Authorize]
+    public async Task<IActionResult> Logout()
+    {
+        var userId = GetUserId();
+
+        // 只撤销「当前这台设备」：读取本次请求令牌里的 sid，写入带 TTL 的撤销标记。
+        // 其它设备（其它 sid）不受影响；标记的 TTL 与刷新令牌一致，过期自动清理。
+        var rawToken = Request.Headers.Authorization.ToString().Replace("Bearer ", string.Empty).Trim();
+        var sid = ReadPayloadString(rawToken, "sid");
+
+        if (_redisDb != null && !string.IsNullOrWhiteSpace(sid))
+        {
+            var refreshTokenDays = _config.GetValue<int>("jwt:RefreshTokenDays", 7);
+            await _redisDb.StringSetAsync($"revoked_sid:{sid}", 1, TimeSpan.FromDays(refreshTokenDays));
+            Console.WriteLine($"[Auth] 用户 {userId} 的设备已登出 sid={sid}");
+        }
+
+        return Ok(new { message = "已退出登录" });
+    }
+
+    /// <summary>
+    /// 退出登录（所有设备）：撤销该账号当前的全部令牌。
+    /// </summary>
+    [HttpPost("logout-all")]
+    [Authorize]
+    public async Task<IActionResult> LogoutAll()
+    {
+        var userId = GetUserId();
+        await DeleteTokensFromRedis(userId);
+        return Ok(new { message = "已在所有设备退出登录" });
+    }
+
     [HttpPost("deactivate")]
     [Authorize]
     public async Task<ActionResult> DeactivateAccount(DeactivateAccountRequest request, CancellationToken cancellationToken)
@@ -990,15 +1053,9 @@ public class AuthController(
         if (user.Status == false)
             return Unauthorized("账号已被禁用");
 
-        // 检查令牌是否仍然有效
-        if (_redisDb != null)
-        {
-            var storedAccessToken = await _redisDb.StringGetAsync($"access_token:{userId}");
-            if (storedAccessToken.IsNullOrEmpty)
-            {
-                return Unauthorized("会话已过期，请重新登录");
-            }
-        }
+        // 令牌有效性由 RedisTokenValidationMiddleware 统一判定
+        // （账号级撤销时间戳 + 设备级 sid 撤销标记），
+        // 这里不再读「单值」令牌：多端在线时那个值只代表最后一次登录的设备。
 
         return Ok(new UserBasicResponse
         {
@@ -1204,6 +1261,49 @@ public class AuthController(
     /// <param name="userId">用户ID</param>
     /// <param name="accessToken">访问令牌</param>
     /// <param name="refreshToken">刷新令牌</param>
+    /// <summary>从原始 JWT 的 payload 读取签发时间 iat（秒）。</summary>
+    /// <summary>从原始 JWT 的 payload 读取字符串声明（不依赖 claim 类型映射）。</summary>
+    static string? ReadPayloadString(string rawToken, string claimName)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(rawToken)) return null;
+            var handler = new JwtSecurityTokenHandler();
+            if (!handler.CanReadToken(rawToken)) return null;
+
+            var jwt = handler.ReadJwtToken(rawToken);
+            return jwt.Payload.TryGetValue(claimName, out var value) ? value?.ToString() : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    static long? ReadIssuedAtEpoch(string rawToken)
+    {
+        try
+        {
+            var handler = new JwtSecurityTokenHandler();
+            if (!handler.CanReadToken(rawToken)) return null;
+
+            var jwt = handler.ReadJwtToken(rawToken);
+            if (!jwt.Payload.TryGetValue(JwtRegisteredClaimNames.Iat, out var value) || value == null)
+                return null;
+
+            return value switch
+            {
+                long l => l,
+                int i => i,
+                _ => long.TryParse(value.ToString(), out var parsed) ? parsed : null
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private async Task StoreTokensInRedis(ulong userId, string accessToken, string refreshToken)
     {
         if (_redisDb == null)
@@ -1230,6 +1330,10 @@ public class AuthController(
 
         await _redisDb.KeyDeleteAsync($"access_token:{userId}");
         await _redisDb.KeyDeleteAsync($"refresh_token:{userId}");
+        // 写入撤销时间戳：签发时间早于它的 access/refresh 令牌全部立即失效。
+        // 这就是「登出即时生效」的实现（对同一账号的所有端同时生效）。
+        var revokedBeforeEpoch = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        await _redisDb.StringSetAsync($"auth_revoked_before:{userId}", revokedBeforeEpoch);
     }
 
     /// <summary>

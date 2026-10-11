@@ -2,7 +2,12 @@
 import ProgressiveAvatar from '@/components/ProgressiveAvatar/index.vue';
 import { computed } from 'vue';
 import { CircleCheck } from '@element-plus/icons-vue';
-import type { MessageReference, MessageSummary, PendingUpload } from '../types';
+import type {
+  MessageReference,
+  MessageSummary,
+  PendingTextMessage,
+  PendingUpload,
+} from '../types';
 import {
   formatSystemMessageText,
   formatChatTimeShort,
@@ -14,6 +19,8 @@ import FileMessage from './FileMessage.vue';
 
 const props = defineProps<{
   message?: MessageSummary | null;
+  /** 乐观发送中的本地文本消息（尚未拿到服务端 id）。 */
+  pendingText?: PendingTextMessage | null;
   pendingUpload?: PendingUpload | null;
   meUserId: number;
   src: string;
@@ -32,22 +39,44 @@ const emit = defineEmits<{
   recall: [message: MessageSummary];
   jumpToMessage: [messageId: number];
   mediaSettled: [payload: { messageId: number; ready: boolean }];
+  retrySend: [tempId: number];
+  discardSend: [tempId: number];
 }>();
 
 const RECALL_WINDOW_MS = 5 * 60 * 1000;
 
-const hasMessage = computed(() => Boolean(props.message));
+const hasMessage = computed(() => Boolean(props.message || props.pendingText));
 const isUploading = computed(() => props.pendingUpload?.status === 'uploading');
 const isProcessing = computed(() => props.pendingUpload?.status === 'processing');
 const isFailed = computed(() => props.pendingUpload?.status === 'failed');
-const messageType = computed(() => props.pendingUpload?.messageType ?? props.message?.messageType ?? 'file');
+
+const isTextSending = computed(() => props.pendingText?.status === 'sending');
+const isTextFailed = computed(() => props.pendingText?.status === 'failed');
+
+const messageType = computed(() =>
+  props.pendingText?.messageType ??
+  props.pendingUpload?.messageType ??
+  props.message?.messageType ??
+  'file',
+);
 const senderName = computed(() =>
+  props.pendingText?.senderNickName ||
   props.pendingUpload?.senderNickName ||
   props.message?.senderNickName ||
-  String(props.pendingUpload?.senderUserId ?? props.message?.senderUserId ?? ''),
+  String(
+    props.pendingText?.senderUserId ??
+    props.pendingUpload?.senderUserId ??
+    props.message?.senderUserId ??
+    '',
+  ),
 );
 const createdAtText = computed(() =>
-  formatChatTimeShort(props.pendingUpload?.createdAt ?? props.message?.createdAt ?? new Date().toISOString()),
+  formatChatTimeShort(
+    props.pendingText?.createdAt ??
+    props.pendingUpload?.createdAt ??
+    props.message?.createdAt ??
+    new Date().toISOString(),
+  ),
 );
 const uploadProgress = computed(() => Math.round(props.pendingUpload?.progress ?? 0));
 const canReply = computed(() => {
@@ -74,12 +103,19 @@ const isSystemMessage = computed(() =>
   Boolean(props.message && !props.message.isRecalled && props.message.messageType === 'system'),
 );
 const headerText = computed(() => {
+  if (isTextSending.value) return '发送中';
+  if (isTextFailed.value) return '发送失败';
   if (isUploading.value) return '发送中';
   if (isProcessing.value) return '准备中';
   if (isFailed.value) return '发送失败';
   if (props.message?.id) return `#${props.message.id}`;
   return '本地上传';
 });
+
+/** 气泡内容：本地乐观消息优先取 pendingText。 */
+const bubbleContent = computed(
+  () => props.message?.content ?? props.pendingText?.content ?? '',
+);
 
 function handleJumpToReply() {
   if (!props.replyTargetId) return;
@@ -94,6 +130,16 @@ function handleReply() {
 function handleRecall() {
   if (!props.message) return;
   emit('recall', props.message);
+}
+
+function handleRetrySend() {
+  if (!props.pendingText) return;
+  emit('retrySend', props.pendingText.tempId);
+}
+
+function handleDiscardSend() {
+  if (!props.pendingText) return;
+  emit('discardSend', props.pendingText.tempId);
 }
 </script>
 
@@ -112,7 +158,7 @@ function handleRecall() {
       <div class="system-notice-time">{{ createdAtText }}</div>
     </div>
   </div>
-  <div v-else :class="['msg-item', { mine: props.isMine, highlighted: props.highlighted }]">
+  <div v-else :class="['msg-item', { mine: props.isMine, highlighted: props.highlighted, 'local-pending': isTextSending, 'local-failed': isTextFailed }]">
     <ProgressiveAvatar class="message-avatar" :src="props.src || undefined"
       :thumbnail-src="props.thumbnailSrc || props.src || undefined" :size="40" shape="square">
       {{ senderName.slice(0, 1) }}
@@ -148,8 +194,8 @@ function handleRecall() {
             :allow-inline-media-load="props.allowInlineMediaLoad" @media-settled="emit('mediaSettled', $event)" />
         </template>
 
-        <div v-else-if="props.message?.messageType === 'text'" class="bubble">
-          {{ props.message.content || '[空消息]' }}
+        <div v-else-if="messageType === 'text'" class="bubble">
+          {{ bubbleContent || '[空消息]' }}
         </div>
 
         <template v-else-if="props.message?.messageType === 'system'">
@@ -157,12 +203,24 @@ function handleRecall() {
         </template>
 
         <template v-else>
-          {{ props.message?.content || props.message?.extra || '[未知消息类型]' }}
+          {{ bubbleContent || props.message?.extra || '[未知消息类型]' }}
         </template>
 
         <div class="meta foot">
           <span>{{ createdAtText }}</span>
-          <span v-if="isUploading" class="client-status uploading">上传 {{ uploadProgress }}%</span>
+          <template v-if="isTextSending">
+            <span class="client-status uploading">发送中…</span>
+          </template>
+          <template v-else-if="isTextFailed">
+            <span class="client-status failed">发送失败</span>
+            <el-button link color="#2563eb" size="small" class="retry-action" @click="handleRetrySend">
+              重试
+            </el-button>
+            <el-button link color="#909399" size="small" class="retry-action" @click="handleDiscardSend">
+              删除
+            </el-button>
+          </template>
+          <span v-else-if="isUploading" class="client-status uploading">上传 {{ uploadProgress }}%</span>
           <span v-else-if="isProcessing" class="client-status uploading">加载中...</span>
           <span v-else-if="isFailed" class="client-status failed">发送失败</span>
           <template v-else-if="props.message && props.meUserId && props.message.senderUserId === props.meUserId">
@@ -255,6 +313,26 @@ function handleRecall() {
   &.failed {
     color: #dc2626;
   }
+}
+
+.retry-action {
+  padding: 0;
+}
+
+.retry-action+.retry-action {
+  margin-left: 6px;
+}
+
+// 本地乐观消息：发送中略降透明度，失败时描边提示
+.msg-item.local-pending :deep(.bubble),
+.msg-item.local-pending .bubble {
+  opacity: 0.66;
+}
+
+.msg-item.local-failed :deep(.bubble),
+.msg-item.local-failed .bubble {
+  border: 1px solid #fecaca;
+  background: #fff5f5;
 }
 
 .recalled-message {
