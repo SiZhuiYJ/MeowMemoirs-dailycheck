@@ -1,0 +1,47 @@
+# tools/dev-verify — 开发期端到端验证
+
+对**本地开发环境**跑真实接口/SignalR 的验证套件。这些脚本会伪造开发令牌（用 `api/appsettings.Development.json` 里的 `Jwt:Key`）并写入 Redis，
+所以**只能对本地开发实例运行，绝不能指向生产环境**。
+
+## 为什么不含密钥
+
+脚本目录里没有任何凭据：`config.mjs` 统一从 **`api/appsettings.Development.json`**（已被 `.gitignore` 忽略）读取
+`Jwt:Key`、Redis 密码、Kestrel 端口，因此本目录可以安全地随仓库提交。
+
+需要换端口/环境时用环境变量覆盖，无需改代码：
+
+```bash
+DEV_VERIFY_API=http://127.0.0.1:5210 \
+DEV_VERIFY_JWT_KEY=... DEV_VERIFY_REDIS_PASS=... \
+node tools/dev-verify/run-all.mjs
+```
+
+## 前置条件
+
+1. 后端与依赖已启动：`sv status devnotebookapi mysqld redis`（或自行 `dotnet run`）
+2. 已按 README 配置好 `api/appsettings.Development.json`
+3. 数据库里存在测试会话：脚本默认使用群聊 **conversation 10**（成员 user 8 / 11 / 14），
+   其中 `verify-pin-mute` 用 user 11（普通成员）、user 8（群主）验证权限边界
+
+## 运行
+
+```bash
+node tools/dev-verify/run-all.mjs          # 全部套件 + 汇总
+node tools/dev-verify/e2e-chat.mjs         # 单个套件
+```
+
+## 套件说明
+
+| 套件 | 覆盖内容 |
+| --- | --- |
+| `e2e-chat.mjs` | 会话列表、**发消息不再吞掉对端未读**、标记已读与回执、批量已读状态接口、未读不含 system 消息、列表排序 |
+| `e2e-signalr.mjs` | 客户端**不订阅任何会话**也能收到消息、事件携带完整 message、批量回执事件、重连后仍自动入组 |
+| `verify-auth-model.mjs` | 长令牌不能访问业务接口、多端并存、并发/重复刷新不再判失效、令牌 `typ`/`iat`/有效期、全端登出 `logout-all` 即时生效 |
+| `verify-device-logout.mjs` | **只登出当前设备**（另一台不受影响）、刷新沿用同一 `sid`、账号级撤销仍可全端下线 |
+| `verify-pin-mute.mjs` | 普通成员可切换置顶/免打扰（曾因误判为「改群资料」被 403）、改群名仍被拒、群主可改 |
+
+## 副作用
+
+- 会向 conversation 10 发送若干条测试消息（内容形如 `e2e-peer-<时间戳>`）。
+- `verify-pin-mute` 会切换并复原 user 11 的置顶/免打扰。
+- 鉴权类套件使用 user 14，并在结束时清理 `revoked_sid:*` / `auth_revoked_before:*`，不影响你正在用的登录状态。
