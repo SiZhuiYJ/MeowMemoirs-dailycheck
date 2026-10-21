@@ -13,6 +13,27 @@ import {
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 export const MAX_VIDEO_FILE_SIZE = 25 * 1024 * 1024;
 
+/**
+ * 聊天图片转换上限。
+ *
+ * 以前这里是 `quality: 1` 且**不给 maxWidth/maxHeight**：手机原图 4000×3000，
+ * 等于要开「48MB 位图 + 48MB canvas + 全质量 WebP 编码」。Chrome 移动端的
+ * 渲染进程会因此被 OOM 杀掉 —— 用户看到的是「选完文件，页面自己刷新了」，
+ * 转码期间整页也会卡住（点击没反应 / 选择器迟迟不弹）。
+ *
+ * 现在：长边压到 1920、质量 0.9。聊天气泡里图片最大也就 300px，
+ * 全屏预览 1920 也够；转码耗时和峰值内存都降到 1/10 量级。
+ */
+const MAX_IMAGE_LONG_EDGE = 1920;
+const IMAGE_WEBP_QUALITY = 0.9;
+/** 超过这个体积的图片不本地转码，直接传原图（服务端本来也会转 WebP）。 */
+const MAX_IMAGE_CONVERT_BYTES = 20 * 1024 * 1024;
+/** 单张图转码的超时：卡住就退回原图，绝不让按钮一直转圈。 */
+const IMAGE_CONVERT_TIMEOUT_MS = 8_000;
+/** 视频封面是缩略图，没必要按原分辨率抽帧。 */
+const VIDEO_COVER_MAX_EDGE = 1280;
+const VIDEO_COVER_QUALITY = 0.85;
+
 export interface PreparedMessageUploadFiles {
   files: File[];
   invalidFiles: { name: string; error: string }[];
@@ -89,6 +110,72 @@ export function validateFile(file: File): { valid: boolean; error?: string } {
   return { valid: true };
 }
 
+/** 给一个 Promise 加超时；超时用 `fallback` 的结果继续，不会把流程卡死。 */
+function withTimeout<T>(task: Promise<T>, ms: number, fallback: () => T): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(fallback());
+    }, ms);
+
+    task.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/** 让出一次主线程，让浏览器有机会绘制/回收内存。 */
+function yieldToMainThread(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * 把一张图转成 WebP；**任何失败/超时都退回原图**。
+ *
+ * 服务端上传时本来也会转 WebP（见 FileService），所以退原图不会产生
+ * 额外的格式兼容问题，但能保证「用户选了的文件一定发得出去」，
+ * 也不会让 preparing 状态永远挂在按钮上。
+ */
+async function convertImageSafely(file: File): Promise<File> {
+  // 体积过大的图连解码都可能把移动端渲染进程撑爆，直接传原图
+  if (file.size > MAX_IMAGE_CONVERT_BYTES) {
+    console.warn(`Skip webp conversion for large image: ${file.name} (${file.size} bytes)`);
+    return file;
+  }
+
+  try {
+    const converted = await withTimeout(
+      convertToWebP(file, {
+        quality: IMAGE_WEBP_QUALITY,
+        maxWidth: MAX_IMAGE_LONG_EDGE,
+        maxHeight: MAX_IMAGE_LONG_EDGE,
+        output: "file",
+        fileName: getWebPFileName(file.name),
+      }),
+      IMAGE_CONVERT_TIMEOUT_MS,
+      () => null,
+    );
+
+    return converted instanceof File ? converted : file;
+  } catch (error) {
+    console.warn(`WebP conversion failed, fallback to original file: ${file.name}`, error);
+    return file;
+  }
+}
+
 export async function prepareFilesForMessageUpload(
   files: File[],
 ): Promise<PreparedMessageUploadFiles> {
@@ -108,12 +195,7 @@ export async function prepareFilesForMessageUpload(
 
     try {
       if (resolveFileCategory(file) === "image") {
-        const webpFile = await convertToWebP(file, {
-          quality: 1,
-          output: "file",
-          fileName: getWebPFileName(file.name),
-        }) as File;
-        preparedFiles.push(webpFile);
+        preparedFiles.push(await convertImageSafely(file));
       } else {
         preparedFiles.push(file);
       }
@@ -124,6 +206,9 @@ export async function prepareFilesForMessageUpload(
         error: error instanceof Error ? error.message : "\u5904\u7406\u5931\u8d25",
       });
     }
+
+    // 多选时每张图之间让出主线程：连续解码/编码会让手机端长时间失去响应
+    await yieldToMainThread();
   }
 
   return { files: preparedFiles, invalidFiles, failedFiles };
@@ -148,7 +233,9 @@ export async function uploadFileForMessage(
   if (resolveFileCategory(file) === "video") {
     reportProgress(3);
     const coverFile = await extractVideoFrameToWebP(file, {
-      quality: 1,
+      quality: VIDEO_COVER_QUALITY,
+      maxWidth: VIDEO_COVER_MAX_EDGE,
+      maxHeight: VIDEO_COVER_MAX_EDGE,
       onProgress: (progress) => {
         reportProgress(Math.round((Math.max(0, Math.min(100, progress)) / 100) * 30));
       },

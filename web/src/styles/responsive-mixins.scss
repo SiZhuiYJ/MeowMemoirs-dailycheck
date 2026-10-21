@@ -24,6 +24,14 @@
 ///
 /// 这两条与 src/utils/device-layout.ts 的 classifyViewport() 一一对应，
 /// 改任意一边都要同步另一边，否则 JS 判定与 CSS 判定会打架。
+///
+/// ## 三条轴（别混）
+///
+/// | 轴 | 档位 | mixin | 谁在用 |
+/// | --- | --- | --- | --- |
+/// | 布局结构（旧） | 手机 / 桌面 | `phone` / `desktop` | 计划页、首页等老页面 |
+/// | **设备档位（新）** | **手机 / 平板 / 大屏电脑** | **`device-phone` / `device-tablet` / `device-desktop`（+`device-mobile`）** | **聊天页** |
+/// | 紧凑密度 | 窄 / 矮 | `compact()` / `short-viewport` | 各页面的间距字号 |
 ////
 
 // —— 断点常量（CSS 像素）——

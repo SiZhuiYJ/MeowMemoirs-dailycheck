@@ -21,6 +21,42 @@ export type ConvertOptions = {
 export type ExtractVideoFrameOptions = ConvertOptions & {
     onProgress?: (progress: number) => void;
 };
+
+/**
+ * 画布像素硬上限（约 4096×4096）。
+ *
+ * 为什么要这个：手机原图动辄 4000×3000（12MP），全尺寸建画布 = 位图 48MB
+ * + canvas 48MB + 编码缓冲，Chrome 移动端渲染进程常直接被 OOM 杀掉，
+ * 用户看到的是「选完文件页面自己刷新了」。调用方忘了传 maxWidth 时，
+ * 这里必须兜住，宁可降分辨率也不能让页面崩。
+ */
+const MAX_CANVAS_PIXELS = 16 * 1024 * 1024;
+
+/** 只取尺寸（不建位图）：<img> 的自然尺寸基本在解析头部时就有了，比整图解码省得多。 */
+function measureImage(blob: Blob): Promise<{ width: number; height: number }> {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        let settled = false;
+        const finish = (fn: () => void) => {
+            if (settled) return;
+            settled = true;
+            URL.revokeObjectURL(url);
+            fn();
+        };
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            const size = {
+                width: img.naturalWidth || img.width,
+                height: img.naturalHeight || img.height,
+            };
+            finish(() => resolve(size));
+        };
+        img.onerror = () => finish(() => reject(new Error('Failed to measure image')));
+        img.src = url;
+    });
+}
+
 /**
  * 获取 Blob 对象，如果 input 是 URL，则从 URL 获取 Blob
  * @param input - File | Blob | string (URL)
@@ -90,6 +126,103 @@ function calcSize(srcWidth: number, srcHeight: number, maxWidth?: number, maxHei
     return { w, h };
 }
 
+/** 把目标尺寸压到 MAX_CANVAS_PIXELS 以内（等比），防止画布本身把渲染进程撑爆。 */
+function clampPixels(w: number, h: number) {
+    const pixels = w * h;
+    if (pixels <= MAX_CANVAS_PIXELS) return { w, h };
+    const scale = Math.sqrt(MAX_CANVAS_PIXELS / pixels);
+    return { w: Math.max(1, Math.round(w * scale)), h: Math.max(1, Math.round(h * scale)) };
+}
+
+function closeDrawable(drawable: ImageBitmap | HTMLImageElement) {
+    try {
+        const bitmap = drawable as ImageBitmap;
+        if (typeof bitmap.close === 'function') bitmap.close();
+    } catch {
+        // ignore
+    }
+}
+
+type Drawable = {
+    drawable: ImageBitmap | HTMLImageElement;
+    width: number;
+    height: number;
+    dispose: () => void;
+};
+
+/**
+ * 准备一个「适合画进画布」的图源。
+ *
+ * 关键点：需要缩小时优先用 `createImageBitmap(blob, { resizeWidth/resizeHeight })`，
+ * 让浏览器**在解码阶段就缩**。否则会同时持有「原尺寸位图 + 原尺寸画布」两份大内存，
+ * 手机端（尤其 12MP 以上原图）渲染进程很容易被 OOM 杀掉 ——
+ * 用户看到的现象就是「选完文件，页面自己刷新了」。
+ */
+async function decodeForDraw(blob: Blob, maxWidth?: number, maxHeight?: number): Promise<Drawable> {
+    let sourceSize: { width: number; height: number } | null = null;
+    try {
+        sourceSize = await measureImage(blob);
+    } catch {
+        sourceSize = null;
+    }
+
+    // 尺寸量不出来（例如没有固有尺寸的 SVG）：退回整图解码，解码后再算目标尺寸
+    if (!sourceSize || !sourceSize.width || !sourceSize.height) {
+        const decoded = await createImageBitmapOrElement(blob);
+        const w = Number((decoded as unknown as { width?: number }).width) || 0;
+        const h = Number((decoded as unknown as { height?: number }).height) || 0;
+        if (!w || !h) {
+            closeDrawable(decoded);
+            throw new Error('Image size is invalid');
+        }
+        const sized = calcSize(w, h, maxWidth, maxHeight);
+        const target = clampPixels(sized.w, sized.h);
+        return {
+            drawable: decoded,
+            width: target.w,
+            height: target.h,
+            dispose: () => closeDrawable(decoded),
+        };
+    }
+
+    const sized = calcSize(sourceSize.width, sourceSize.height, maxWidth, maxHeight);
+    const target = clampPixels(sized.w, sized.h);
+    const needDownscale = target.w !== sourceSize.width || target.h !== sourceSize.height;
+
+    if (needDownscale && typeof createImageBitmap === 'function') {
+        try {
+            const bitmap = await createImageBitmap(blob, {
+                resizeWidth: target.w,
+                resizeHeight: target.h,
+                resizeQuality: 'high',
+            });
+            // 个别内核对「resize + EXIF 方向」的组合有 bug，解出来的尺寸对不上就退回去，
+            // 否则会把照片拉变形。
+            const sizeOk = Math.abs(bitmap.width - target.w) <= 2 && Math.abs(bitmap.height - target.h) <= 2;
+            if (!sizeOk) {
+                closeDrawable(bitmap);
+            } else {
+                return {
+                    drawable: bitmap,
+                    width: target.w,
+                    height: target.h,
+                    dispose: () => closeDrawable(bitmap),
+                };
+            }
+        } catch {
+            // 有些不支持 resize 选项的内核会抛错，落到下面的整图路径
+        }
+    }
+
+    const decoded = await createImageBitmapOrElement(blob);
+    return {
+        drawable: decoded,
+        width: target.w,
+        height: target.h,
+        dispose: () => closeDrawable(decoded),
+    };
+}
+
 /**
  * 将图片转换为 WebP（返回 Blob）
  * @param input - File | Blob | string (URL)
@@ -101,58 +234,37 @@ export async function convertToWebPBlob(input: File | Blob | string, options: Co
     const blob = await fetchToBlobIfNeeded(input);
 
     // For GIFs: canvas will draw only the first frame (animated GIFs will be flattened)
-    const imageOrBitmap = await createImageBitmapOrElement(blob);
-
-    let srcWidth: number, srcHeight: number;
-    if ('width' in imageOrBitmap && 'height' in imageOrBitmap) {
-        srcWidth = (imageOrBitmap as any).width;
-        srcHeight = (imageOrBitmap as any).height;
-    } else {
-        // Fallback: use blob URL to measure
-        const url = URL.createObjectURL(blob);
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        await new Promise<void>((resolve, reject) => {
-            img.onload = () => resolve();
-            img.onerror = () => reject(new Error('Failed to measure image'));
-            img.src = url;
-        });
-        srcWidth = img.width;
-        srcHeight = img.height;
-        URL.revokeObjectURL(url);
-    }
-
-    const { w, h } = calcSize(srcWidth, srcHeight, maxWidth, maxHeight);
+    const source = await decodeForDraw(blob, maxWidth, maxHeight);
 
     const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = source.width;
+    canvas.height = source.height;
     const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas 2D context not available');
-
-    // draw using ImageBitmap or HTMLImageElement
-    if ((imageOrBitmap as ImageBitmap).close) {
-        // ImageBitmap
-        ctx.drawImage(imageOrBitmap as ImageBitmap, 0, 0, w, h);
-        try {
-            // close imageBitmap to free memory
-            (imageOrBitmap as ImageBitmap).close();
-        } catch (e) { }
-    } else {
-        ctx.drawImage(imageOrBitmap as HTMLImageElement, 0, 0, w, h);
+    if (!ctx) {
+        source.dispose();
+        throw new Error('Canvas 2D context not available');
     }
 
-    return await new Promise<Blob>((resolve, reject) => {
-        // toBlob supports 'image/webp' in modern browsers
-        canvas.toBlob(
-            (b) => {
-                if (!b) reject(new Error('Conversion to WebP failed'));
-                else resolve(b);
-            },
-            'image/webp',
-            Math.max(0, Math.min(1, quality))
-        );
-    });
+    try {
+        ctx.drawImage(source.drawable as CanvasImageSource, 0, 0, source.width, source.height);
+
+        return await new Promise<Blob>((resolve, reject) => {
+            // toBlob supports 'image/webp' in modern browsers
+            canvas.toBlob(
+                (b) => {
+                    if (!b) reject(new Error('Conversion to WebP failed'));
+                    else resolve(b);
+                },
+                'image/webp',
+                Math.max(0, Math.min(1, quality))
+            );
+        });
+    } finally {
+        // 尽最大努力立刻归还内存：大画布 + 大位图是移动端崩溃的主要来源
+        source.dispose();
+        canvas.width = 0;
+        canvas.height = 0;
+    }
 }
 
 /**
