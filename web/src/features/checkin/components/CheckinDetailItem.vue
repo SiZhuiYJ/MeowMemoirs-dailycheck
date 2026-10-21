@@ -54,7 +54,7 @@ function getBlobUrl(url: string): string {
 }
 
 .drawer-status {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .dot {
@@ -77,11 +77,11 @@ function getBlobUrl(url: string): string {
 }
 
 .drawer-note {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .no-images {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 </style>

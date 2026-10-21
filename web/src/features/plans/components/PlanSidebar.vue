@@ -39,8 +39,13 @@ function handleCreate(): void {
         ＋ 新建
       </button>
     </div>
+    <!--
+      注意：这里原本是 calc(100vh - var(--header-h) - 32px - 16px -120px)，
+      「-120px」前面缺空格，calc 里 +/- 必须两侧留空格，否则整条声明非法被浏览器丢弃，
+      侧栏列表高度根本没生效。顺带把 100vh 换成 --app-h、--header-h 换成 --header-total-h。
+    -->
     <el-scrollbar
-      wrap-style="height: calc(100vh - var(--header-h) - 32px - 16px -120px);"
+      wrap-style="height: calc(var(--app-h) - var(--header-total-h) - 32px - 16px - 120px);"
     >
       <el-skeleton v-if="loading" class="detail" :rows="5" animated />
       <ul v-else class="plan-list">
@@ -81,7 +86,7 @@ function handleCreate(): void {
   padding: 4px 10px;
   background: var(--accent-alt);
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -115,11 +120,11 @@ function handleCreate(): void {
 }
 
 .plan-title {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .plan-dates {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 </style>

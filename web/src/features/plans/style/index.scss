@@ -16,6 +16,27 @@
   padding: 8px;
 }
 
+// 小屏紧凑密度：横屏手机走桌面结构，但只有 393px 高。
+// 6 行日历 x 46px = 276px 加上顶栏与标题基本占满，
+// 这里把格高与内边距收下来，让整屏能放得下。
+// html[data-short] 由 use-device-layout 按「视口高 <= 560px」写入。
+html[data-short="true"] {
+  .el-calendar-day {
+    height: 34px !important;
+  }
+
+  .day:not(.mini-day) {
+    padding: 4px;
+  }
+
+  // 图例也一并收：横屏手机上每一行纵向空间都很紧张
+  .legend {
+    margin-top: 4px;
+    gap: 8px;
+    font-size: 10px;
+  }
+}
+
 .is-today .day .day-label {
   border: 1px dashed var(--el-color-primary)
 }
@@ -64,7 +85,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
 
   .success {

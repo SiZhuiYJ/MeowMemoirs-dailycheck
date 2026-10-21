@@ -19,6 +19,8 @@ const model = defineModel<'login' | 'register'>()
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .auth-tabs-wrapper {
     display: flex;
     justify-content: center;
@@ -52,7 +54,7 @@ const model = defineModel<'login' | 'register'>()
     transition: all 0.2s ease;
     min-width: 60px;
     position: relative;
-    font-size: 14px;
+    font-size: 13px;
     border-bottom: 2px solid transparent;
 }
 
@@ -75,14 +77,15 @@ const model = defineModel<'login' | 'register'>()
     align-self: center;
 }
 
-@media (max-width: 480px) {
+// 480px 阈值保留，同时覆盖横屏手机（宽度超 480 但高度只有手机级别）。
+@include rp.compact(480px) {
     .auth-tabs-wrapper {
         margin-top: 20px;
     }
 
     .tab {
         padding: 6px 12px;
-        font-size: 14px;
+        font-size: 13px;
         min-width: 50px;
     }
 }

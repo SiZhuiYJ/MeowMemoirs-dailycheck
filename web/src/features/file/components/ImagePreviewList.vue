@@ -66,7 +66,7 @@ function handleRemove(index: number): void {
   border: none;
   background: rgba(15, 23, 42, 0.9);
   color: #f9fafb;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 20px;
   text-align: center;
   cursor: pointer;

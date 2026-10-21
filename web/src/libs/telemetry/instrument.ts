@@ -7,6 +7,7 @@
  *  3) 刷新时正在做什么（卸载时快照「进行中的操作」，例如文件上传）
  */
 import { getPending, getIdentity } from "./store";
+import { classifyViewport, readViewportInput } from "@/utils/device-layout";
 import type { TelemetryCategory, TelemetryEvent, TelemetryLevel } from "./types";
 
 export interface TelemetryApi {
@@ -30,6 +31,39 @@ function getNavigationType(): string {
   }
 }
 
+/**
+ * 设备布局分类快照。
+ *
+ * 刻意直接调用纯函数，而不是读 use-device-layout 的 ref：
+ * 埋点在 initTelemetry() 时就会用到环境快照，那时设备布局可能还没安装，
+ * 直接算一遍才能保证「真机上看到的就是当时的真实判定」。
+ *
+ * 用途：手机上打开 /debug/telemetry，能看到这台设备被判成了 mobile 还是 desktop、
+ * 是横屏还是竖屏、有没有被识别成手机 —— 排查适配问题不用再靠猜。
+ */
+function deviceSnapshot() {
+  try {
+    const layout = classifyViewport(readViewportInput());
+    return {
+      layout: layout.layout,
+      orientation: layout.orientation,
+      isPhone: layout.isPhone,
+      isPhonePortrait: layout.isPhonePortrait,
+      isPhoneLandscape: layout.isPhoneLandscape,
+      isShortViewport: layout.isShortViewport,
+      isSmallWindow: layout.isSmallWindow,
+      isTouch: layout.isTouch,
+      aspectRatio: Number(layout.aspectRatio.toFixed(3)),
+      shortSide: layout.shortSide,
+      longSide: layout.longSide,
+      visualHeight: layout.visualHeight,
+      keyboardOpen: layout.isKeyboardOpen,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function envSnapshot() {
   return {
     url: (() => { try { return window.location.href; } catch { return ""; } })(),
@@ -37,6 +71,8 @@ function envSnapshot() {
     visibility: (() => { try { return document.visibilityState; } catch { return "unknown"; } })(),
     online: (() => { try { return navigator.onLine; } catch { return true; } })(),
     viewport: (() => { try { return `${window.innerWidth}x${window.innerHeight}`; } catch { return ""; } })(),
+    // 视口尺寸之外，一并记录「按宽度 + 宽高比判定成了什么」
+    device: deviceSnapshot(),
     dpr: (() => { try { return window.devicePixelRatio; } catch { return 0; } })(),
     ua: (() => { try { return navigator.userAgent; } catch { return ""; } })(),
   };

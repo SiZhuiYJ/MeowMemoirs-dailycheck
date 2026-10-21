@@ -295,15 +295,33 @@ function handleClick() {
   void triggerPreview();
 }
 
+/**
+ * 图片消息的尺寸上限，与卡片型的 300px 保持一致。
+ * 下限 100px 由 `.image-message` 的 `min-width: min(100px, 100%)` 负责
+ * （不在这里给 img 设 min-width：那会把小图放大成糊的）。
+ */
+const IMAGE_MAX_SIZE = 300;
+
 const imageStyle = computed(() => {
   if (!fileExtra.value) return {};
-  const maxWidth = 300;
-  const maxHeight = 300;
-  if (fileExtra.value.width && fileExtra.value.height) {
-    const ratio = Math.min(maxWidth / fileExtra.value.width, maxHeight / fileExtra.value.height, 1);
-    return { width: `${fileExtra.value.width * ratio}px`, height: `${fileExtra.value.height * ratio}px` };
+  const width = fileExtra.value.width;
+  const height = fileExtra.value.height;
+  if (width && height) {
+    const ratio = Math.min(IMAGE_MAX_SIZE / width, IMAGE_MAX_SIZE / height, 1);
+    return {
+      width: `${Math.round(width * ratio)}px`,
+      // 不再写死 height：宽度被 max-width 夹小时的等比例缩小要靠 aspect-ratio，
+      // 写死 height 的话只会把图片拉扁。
+      height: 'auto',
+      aspectRatio: `${width} / ${height}`,
+      maxWidth: '100%',
+    };
   }
-  return { maxWidth: `${maxWidth}px`, maxHeight: `${maxHeight}px` };
+  // 尺寸未知时按上限约束：min(300px, 100%) 保证窄容器里能缩
+  return {
+    maxWidth: `min(${IMAGE_MAX_SIZE}px, 100%)`,
+    maxHeight: `${IMAGE_MAX_SIZE}px`,
+  };
 });
 
 function handleImageError(event: Event) {
@@ -498,8 +516,51 @@ function formatDuration(seconds: number): string {
 </template>
 
 <style scoped lang="scss">
+////
+/// 文件卡片（文档 / 音频）的宽度策略：
+///   **最多 300px，容器窄于 300px 时等比收缩，最小 100px。**
+///
+/// 为什么不是 `width: clamp(100px, 100%, 300px)`：
+/// 卡片的父级 `.file-item-wrap` 是 `inline-flex`（收缩到内容宽），
+/// 百分比宽度在「按内容定宽」的父级里会形成循环，浏览器只能把 100% 当 auto 处理，
+/// 结果不可预期。
+/// 而 `width: 300px` + `max-width: 100%` 对收缩容器是良性的：
+///   父级按内容的 300px 定宽（再被可用宽度夹住），
+///   子项的 max-width: 100% 再夹一次，最终 = min(300px, 可用宽度)。
+/// min-width: 100px 是下限（按需求，极窄时宁可溢出也不低于 100px）。
+////
+@mixin file-card-width {
+  width: 300px;
+  max-width: 100%;
+  min-width: 100px;
+  box-sizing: border-box;
+  // 自身作为容器，让内部图标/徽标能按**卡片宽度**（而不是视口）自适应
+  container-type: inline-size;
+  container-name: filecard;
+}
+
+////
+/// 媒体型（图片 / 视频）的同一套宽度策略：**最多 300px，窄则收缩，最小 100px**。
+///
+/// 与卡片型的差别只有两点，都是必须的：
+///   1. 不给固定 `width`：媒体应贴合自身尺寸（小图不该被撑成 300px 的空框）；
+///   2. 不加 `container-type`：`.image-message` 是 `inline-block` 贴合内容，
+///      而 `container-type: inline-size` 会带上 `contain: inline-size`，
+///      让它不再按内容定宽 —— 那会直接破坏"贴合图片"的行为。
+///
+/// 下限写成 `min(100px, 100%)` 而不是硬 100px：媒体按 max-width 收缩时，
+/// 硬下限会在极窄容器里反而撑破气泡；取两者较小值既保留 100px 的目标下限，
+/// 又不会制造新的溢出。
+////
+@mixin file-media-width {
+  max-width: min(300px, 100%);
+  min-width: min(100px, 100%);
+  box-sizing: border-box;
+}
+
 .file-message {
-  max-width: 300px;
+  // min(300px, 100%)：只写 300px 时，比它更窄的消息气泡里会横向顶破容器
+  max-width: min(300px, 100%);
   cursor: pointer;
   user-select: none;
 
@@ -540,14 +601,14 @@ function formatDuration(seconds: number): string {
   .status-icon {
     margin-right: 6px;
     vertical-align: middle;
-    font-size: 14px;
+    font-size: 13px;
   }
 
   .status-text {
     display: inline-flex;
     align-items: center;
     margin-bottom: 6px;
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.3;
     font-weight: 500;
   }
@@ -567,11 +628,16 @@ function formatDuration(seconds: number): string {
 .image-message {
   position: relative;
   display: inline-block;
+  @include file-media-width;
   border-radius: 8px;
   overflow: hidden;
 
   img {
     display: block;
+    // 图片尺寸由 JS 的 imageStyle 给出（含 aspect-ratio），
+    // 这里兜住上限：窄气泡里必须能缩，否则会顶破容器
+    max-width: 100%;
+    height: auto;
     border-radius: 8px;
     transition: transform 0.2s;
   }
@@ -590,7 +656,7 @@ function formatDuration(seconds: number): string {
   gap: 8px;
   padding: 40px;
   color: #999;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .image-placeholder,
@@ -600,11 +666,12 @@ function formatDuration(seconds: number): string {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-width: 180px;
+  // 占位框与真实媒体用同一套宽度上下限（原来是硬 180px，窄气泡里会顶破）
+  @include file-media-width;
   min-height: 120px;
   padding: 20px;
   color: #777;
-  font-size: 13px;
+  font-size: 12px;
   background: #f5f5f5;
   border-radius: 8px;
   box-sizing: border-box;
@@ -660,7 +727,7 @@ function formatDuration(seconds: number): string {
   padding: 6px 12px;
   border-radius: 999px;
   color: #fff;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   text-align: center;
   background: rgba(17, 24, 39, 0.74);
@@ -677,13 +744,14 @@ function formatDuration(seconds: number): string {
   gap: 8px;
   padding: 40px;
   color: #999;
-  font-size: 13px;
+  font-size: 12px;
   background: #f5f5f5;
   border-radius: 8px;
 }
 
 .video-message {
-  max-width: 200px;
+  // 原来固定 max-width: 200px，与文档/音频的 300px 不一致；统一成同一套上下限
+  @include file-media-width;
   border-radius: 8px;
   overflow: hidden;
   background: #f5f5f5;
@@ -718,7 +786,7 @@ function formatDuration(seconds: number): string {
       overflow: hidden;
       margin-bottom: 4px;
       color: #333;
-      font-size: 13px;
+      font-size: 12px;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
@@ -728,7 +796,7 @@ function formatDuration(seconds: number): string {
       flex-wrap: wrap;
       gap: 8px;
       color: #999;
-      font-size: 12px;
+      font-size: 11px;
     }
   }
 }
@@ -737,7 +805,7 @@ function formatDuration(seconds: number): string {
   display: flex;
   align-items: center;
   gap: 12px;
-  width: 300px;
+  @include file-card-width;
   padding: 12px;
   background: #f5f5f5;
   border-radius: 8px;
@@ -759,7 +827,7 @@ function formatDuration(seconds: number): string {
     .file-name {
       overflow: hidden;
       color: #333;
-      font-size: 13px;
+      font-size: 12px;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
@@ -769,7 +837,7 @@ function formatDuration(seconds: number): string {
       flex-wrap: wrap;
       gap: 8px;
       color: #999;
-      font-size: 12px;
+      font-size: 11px;
     }
   }
 }
@@ -778,7 +846,7 @@ function formatDuration(seconds: number): string {
   display: flex;
   align-items: center;
   gap: 12px;
-  width: 300px;
+  @include file-card-width;
   padding: 12px;
   background: #f5f5f5;
   border-radius: 8px;
@@ -819,7 +887,7 @@ function formatDuration(seconds: number): string {
     overflow: hidden;
     margin-bottom: 4px;
     color: #333;
-    font-size: 14px;
+    font-size: 13px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -830,13 +898,13 @@ function formatDuration(seconds: number): string {
     gap: 8px;
     align-items: center;
     color: #999;
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .file-type {
     padding: 1px 6px;
     border-radius: 3px;
-    font-size: 11px;
+    font-size: 10px;
     background: #e0e0e0;
   }
 
@@ -862,7 +930,7 @@ function formatDuration(seconds: number): string {
 
 .file-meta .status-text {
   display: inline-block;
-  font-size: 12px;
+  font-size: 11px;
   color: #909399;
 
   &.ready {
@@ -886,5 +954,54 @@ function formatDuration(seconds: number): string {
   color: #f56c6c;
   background: #fef0f0;
   border-radius: 8px;
+}
+
+// ==============================================
+// 卡片内部按「卡片宽度」自适应（容器查询）
+// ==============================================
+// 卡片按需求最窄会到 100px，而图标是 48px、内边距/间距各 12px ——
+// 加起来 84px，文字只剩十几像素，等于看不见文件名。所以图标、间距、
+// 内边距、徽标都要跟着**卡片实际宽度**收。
+//
+// 为什么用容器查询而不是媒体查询：同一视口下卡片可能很窄
+// （会话列表占位、气泡本身只有 75%~88% 宽），视口宽度反映不出卡片有多宽。
+// .document-message / .audio-message 已声明 container-name: filecard。
+@container filecard (max-width: 260px) {
+  .document-message,
+  .audio-message {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .document-icon,
+  .audio-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+  }
+}
+
+@container filecard (max-width: 180px) {
+  .document-message,
+  .audio-message {
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .document-icon,
+  .audio-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  // 类型徽标（PDF / DOCX…）在极窄时让位给文件名
+  .file-type {
+    display: none;
+  }
+
+  .file-meta {
+    gap: 4px;
+    font-size: 10px;
+  }
 }
 </style>

@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import ProgressiveAvatar from "@/components/ProgressiveAvatar/index.vue";
 import { Bell, MuteNotification } from "@element-plus/icons-vue";
 import { createAvatarUploadFormData } from "@/utils/avatar";
@@ -886,6 +886,8 @@ watch(
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .conversation-detail-dialog {
   display: grid;
   gap: 20px;
@@ -917,7 +919,7 @@ watch(
 
 .avatar-tip {
   color: #6b7280;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 18px;
 }
 
@@ -937,7 +939,7 @@ watch(
 .meta-item {
   margin: 0;
   color: #111827;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 20px;
 }
 
@@ -987,13 +989,13 @@ watch(
 
 .direct-friend-name {
   color: #111827;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 22px;
 }
 
 .direct-friend-meta {
   color: #6b7280;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 18px;
   word-break: break-all;
 }
@@ -1007,7 +1009,7 @@ watch(
 .direct-friend-tip {
   margin: 0;
   color: #6b7280;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 18px;
 }
 
@@ -1022,13 +1024,13 @@ watch(
   align-items: center;
   gap: 12px;
   color: #111827;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .section-tip {
   color: #6b7280;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 400;
 }
 
@@ -1072,7 +1074,7 @@ watch(
 .member-name {
   overflow: hidden;
   color: #111827;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 20px;
   text-overflow: ellipsis;
@@ -1081,7 +1083,7 @@ watch(
 
 .member-subtext {
   color: #6b7280;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 18px;
 }
 
@@ -1097,7 +1099,7 @@ watch(
   align-items: center;
   gap: 14px;
   color: #111827;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .load-more {
@@ -1114,7 +1116,7 @@ watch(
 .mute-dialog-text {
   margin: 0;
   color: #4b5563;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 20px;
 }
 
@@ -1164,7 +1166,7 @@ watch(
 
 .join-request-meta {
   color: #6b7280;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 18px;
 }
 
@@ -1182,10 +1184,11 @@ watch(
 
 .friend-option-meta {
   color: #9ca3af;
-  font-size: 12px;
+  font-size: 11px;
 }
 
-@media (max-width: 768px) {
+// 单列化调整：横屏手机（宽度可能超过 768）同样需要，故用 rp.phone。
+@include rp.phone {
   .direct-friend-main {
     grid-template-columns: 1fr;
   }

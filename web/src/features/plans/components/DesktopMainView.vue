@@ -86,10 +86,15 @@ function getDayStatusClass(date: Date): string {
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .content {
   flex: 1;
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  // 侧栏按占比给而不是写死 260px：小窗口下 260px 占比过大。
+  //   1200 宽 -> 260px（上限，与原来一致）
+  //    852 宽 -> 约 187px
+  grid-template-columns: clamp(150px, 22%, 260px) minmax(0, 1fr);
   max-width: 1200px;
   margin: 0;
 }
@@ -102,10 +107,35 @@ function getDayStatusClass(date: Date): string {
   margin-bottom: 8px;
 }
 
+// 小屏紧凑密度：横屏手机（852x393）走的就是这套桌面结构，
+// 但纵向只有 393px —— 间距不收，日历区域几乎没空间可用。
+// 只针对「矮」的视口，不影响正常桌面宽度下的观感。
+@include rp.short-viewport {
+  .main {
+    padding: 8px;
+  }
+
+  .calendar-header {
+    margin-bottom: 4px;
+
+    h2 {
+      font-size: 15px;
+    }
+  }
+}
+
+// 手机结构下隐藏桌面视图。
+//
+// 这里原本写的是 `display: block`，等于「在手机上把桌面网格显示出来」，
+// 与 MobilePlanCards / MobileCalendarPage 同时渲染，谁生效取决于样式表顺序 ——
+// 是本项目手机端布局错乱的主因。
+//
+// 现在两处兜底，且用的都是「宽度 + 宽高比」同一套判定：
+//   1. 全局工具类 html[data-layout="mobile"] .desktop-only（styles/responsive.scss）；
+//   2. 本地的 @include rp.phone，让组件不依赖全局层是否被引入。
 .desktop-only {
-  /* 手机端 */
-  @media (max-width: 768px) {
-    display: block;
+  @include rp.phone {
+    display: none;
   }
 }
 
@@ -119,10 +149,20 @@ function getDayStatusClass(date: Date): string {
   border: none;
   background: transparent;
   color: var(--text-muted);
-  font-size: 18px;
+  font-size: 16px;
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
+
+  // 触屏平板/触屏笔电上把点击区域撑到 44x44。
+  @include rp.coarse-pointer {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+  }
 
   &:hover {
     background: var(--bg-elevated);

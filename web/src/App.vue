@@ -23,6 +23,7 @@ const showTelemetryFab = computed(
 // 2495550774@qq.com
 import { dayjs } from "element-plus";
 import { setNotificationInstance } from "@/utils/notification";
+import { useDeviceLayout } from "@/composables/use-device-layout";
 import NotificationSystem from "@/components/NotificationSystem/index.vue";
 // import {
 //   notify,
@@ -36,6 +37,25 @@ import zhCn from "element-plus/dist/locale/zh-cn.mjs";
 dayjs.en.weekStart = 1;
 
 const notificationSystemRef = useTemplateRef("notificationSystemRef");
+
+/**
+ * Element Plus 组件的全局尺寸，随窗口自适应。
+ *
+ * 交给 el-config-provider 的 size，而不是各处单独写：EP 会给所有子组件加
+ * `--small` / `--large` 尺寸类，按钮、输入框、下拉、日期选择器等一起跟着变，
+ * 是官方且唯一的统一切换点。
+ *
+ * 策略：只有「视口过矮」（横屏手机 852x393、被拉扁的窗口、分屏）才降到 small ——
+ * 那时纵向空间是主要矛盾；竖屏手机宽度虽窄但高度充足，用默认尺寸，
+ * 否则 24px 的输入框在触屏上反而难点中。
+ *
+ * 「窄但不矮」的窗口由 styles/responsive.scss 里的流体尺寸变量
+ * （--el-component-size 等，28~32px）负责，两级配合覆盖各种窗口。
+ */
+const { isShortViewport } = useDeviceLayout();
+const elementComponentSize = computed<"default" | "small">(() =>
+  isShortViewport.value ? "small" : "default",
+);
 // 初始化主题
 function initTheme(): void {
   const saved = localStorage.getItem("theme");
@@ -248,7 +268,7 @@ const globalConfig = computed<GlobalConfig>(() => {
 
 <template>
   <!-- Element Plus全局配置组件 -->
-  <el-config-provider :locale="zhCn" :dialog="globalConfig">
+  <el-config-provider :locale="zhCn" :dialog="globalConfig" :size="elementComponentSize">
     <!-- 路由视图容器 -->
     <router-view />
     <NotificationSystem ref="notificationSystemRef" />
@@ -266,7 +286,7 @@ const globalConfig = computed<GlobalConfig>(() => {
 .telemetry-fab {
   position: fixed;
   left: 10px;
-  bottom: 12px;
+  bottom: 36px;
   z-index: 3000;
   display: inline-flex;
   align-items: center;
@@ -275,7 +295,7 @@ const globalConfig = computed<GlobalConfig>(() => {
   border: 1px solid rgba(17, 24, 39, 0.16);
   border-radius: 999px;
   color: #111827;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 16px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 6px 18px rgba(17, 24, 39, 0.16);

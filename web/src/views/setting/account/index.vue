@@ -114,14 +114,14 @@ async function handleSave() {
 
 .setting-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
   color: var(--text-color);
 }
 
 .setting-subtitle {
   margin: 8px 0 0;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .form-group {
@@ -135,7 +135,7 @@ async function handleSave() {
 
 .label {
   display: block;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-muted);
   margin-bottom: 8px;
 }
@@ -146,7 +146,7 @@ async function handleSave() {
   background-color: var(--bg-color);
   border-radius: 8px;
   padding: 0 12px;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-color);
   box-sizing: border-box;
   border: 1px solid var(--border-color);
@@ -159,14 +159,14 @@ async function handleSave() {
 
 .hint-text {
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   color: #fa5151;
   margin-top: 8px;
 }
 
 .desc {
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
   margin-top: 8px;
 }
@@ -175,7 +175,7 @@ async function handleSave() {
   background-color: var(--theme-primary);
   color: #fff;
   border-radius: 8px;
-  font-size: 16px;
+  font-size: 15px;
   height: 44px;
   line-height: 44px;
   margin-top: 10px;

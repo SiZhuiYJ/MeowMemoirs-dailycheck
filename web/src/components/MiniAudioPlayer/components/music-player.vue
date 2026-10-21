@@ -152,6 +152,8 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 /* ===== 以下样式保持不变（仅移除未使用的部分） ===== */
 .player-page {
     display: flex;
@@ -198,7 +200,7 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
     color: var(--hero-text);
     transition: --hero-start 0.4s ease-in-out, --hero-end 0.4s ease-in-out;
 
-    @media (max-width: 768px) {
+    @include rp.phone {
         border-radius: 0;
         padding: clamp(1rem, 4vw, 1.5rem);
     }
@@ -255,7 +257,7 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
             "vinyl controls";
     }
 
-    @media (max-width: 768px) {
+    @include rp.phone {
         grid-template-columns: 1fr;
         grid-template-rows: auto auto auto;
         grid-template-areas:
@@ -307,7 +309,7 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
         transform: translateY(-4px);
     }
 
-    @media (max-width: 768px) {
+    @include rp.phone {
         width: min(220px, 70vw);
     }
 }
@@ -331,7 +333,7 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
     margin: 0;
     line-height: 1.15;
 
-    @media (max-width: 768px) {
+    @include rp.phone {
         font-size: clamp(1.5rem, 8vw, 2.1rem);
     }
 }
@@ -539,7 +541,7 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
         grid-template-columns: 48px 1fr 48px
     }
 
-    @media (max-width: 768px) {
+    @include rp.phone {
         grid-template-columns: 1fr;
         grid-template-areas:
             "player"
@@ -559,7 +561,7 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
         }
     }
 
-    @media (max-width: 480px) {
+    @include rp.compact(480px) {
         .primary {
             width: 54px;
             height: 54px;

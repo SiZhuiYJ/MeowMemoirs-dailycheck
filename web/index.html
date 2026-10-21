@@ -4,7 +4,10 @@
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- viewport-fit=cover：让页面铺满刘海屏/灵动岛，配合 env(safe-area-inset-*)
+        （styles/responsive.scss 的 --safe-* 变量）把内容推回安全区内。 -->
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <!-- <meta name="viewport" content="width=device-width, initial-scale=1.0" /> -->
   <title>%VITE_APP_TITLE%</title>
 </head>

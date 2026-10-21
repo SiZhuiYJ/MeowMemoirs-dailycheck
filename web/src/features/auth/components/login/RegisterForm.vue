@@ -85,6 +85,8 @@ defineExpose({
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .form {
     display: flex;
     flex-direction: column;
@@ -97,7 +99,7 @@ defineExpose({
     gap: 6px;
 
     span {
-        font-size: 14px;
+        font-size: 13px;
         color: var(--text-muted);
     }
 
@@ -108,7 +110,7 @@ defineExpose({
         border: 1px solid var(--border-color);
         background: var(--bg-color);
         color: var(--text-color);
-        font-size: 14px;
+        font-size: 13px;
         transition: border-color 0.2s;
         box-sizing: border-box;
     }
@@ -121,7 +123,7 @@ defineExpose({
     background: var(--bg-elevated);
     color: var(--text-color);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
     white-space: nowrap;
 }
 
@@ -147,10 +149,11 @@ input:focus {
     cursor: not-allowed;
 }
 
-@media (max-width: 480px) {
+// 480px 阈值保留，同时覆盖横屏手机。
+@include rp.compact(480px) {
     .submit {
         padding: 12px 0;
-        font-size: 16px;
+        font-size: 15px;
     }
 }
 </style>

@@ -289,21 +289,22 @@ function handleDiscardSend() {
 }
 
 .reply-card-sender {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 18px;
 }
 
 .reply-card-preview {
   overflow: hidden;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .client-status {
-  font-size: 8px;
+  // 原本 8px，实际几乎无法辨认
+  font-size: 10px;
   font-weight: 500;
 
   &.uploading {
@@ -339,7 +340,7 @@ function handleDiscardSend() {
   padding: 12px 14px;
   border-radius: 10px;
   color: #6b7280;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 20px;
   background: #f3f4f6;
 }
@@ -361,7 +362,7 @@ function handleDiscardSend() {
   padding: 4px 12px;
   border-radius: 999px;
   color: #4b5563;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 18px;
   text-align: center;
   background: rgba(107, 114, 128, 0.12);
@@ -369,7 +370,7 @@ function handleDiscardSend() {
 
 .system-notice-time {
   color: #9ca3af;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 16px;
 }
 

@@ -98,8 +98,9 @@ const convertToWebm = async (event: Event) => {
   --accent-soft: rgba(37, 99, 235, 0.12);
   --danger: #dc2626;
   --warning: #b45309;
-  width: 100vw;
-  height: 100vh;
+  /* 100vw 含纵向滚动条宽度会横向溢出；100vh 在移动端超出可视区。 */
+  width: 100%;
+  height: var(--app-h);
   overflow-x: auto;
   padding: 24px;
   background: var(--page-bg);

@@ -372,9 +372,13 @@ async function handleDeactivateConfirm(): Promise<void> {
 
 <style scoped lang="scss">
 .topbar {
-  height: var(--header-h);
+  // 用 --header-total-h（--header-h + --safe-top）而不是 --header-h：
+  // 在刘海屏/灵动岛上顶栏要往下让出状态栏区域，
+  // 而各页面的 calc(视口 - 顶栏) 引用同一个变量，两边始终一致。
+  height: var(--header-total-h);
   width: 100%;
-  padding: 0 8px 0 16px;
+  // 横屏手机刘海在左/右侧，所以左右也要让开安全区。
+  padding: var(--safe-top) calc(8px + var(--safe-right)) 0 calc(16px + var(--safe-left));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -408,7 +412,7 @@ async function handleDeactivateConfirm(): Promise<void> {
 }
 
 .email {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-muted);
   width: calc(300px - 76px);
 }
@@ -460,12 +464,12 @@ async function handleDeactivateConfirm(): Promise<void> {
       border: 1px solid var(--border-color);
       background: var(--bg-color);
       color: var(--text-color);
-      font-size: 14px;
+      font-size: 13px;
       box-sizing: border-box;
     }
 
     span {
-      font-size: 14px;
+      font-size: 13px;
       color: var(--text-muted);
     }
   }
@@ -506,7 +510,7 @@ async function handleDeactivateConfirm(): Promise<void> {
   background: var(--bg-elevated);
   color: var(--text-color);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
   white-space: nowrap;
   display: flex;
   align-items: center;
@@ -520,7 +524,7 @@ async function handleDeactivateConfirm(): Promise<void> {
 
 
 .warning-text {
-  font-size: 14px;
+  font-size: 13px;
   color: #ef4444;
   margin: 0;
   line-height: 1.5;
@@ -550,7 +554,7 @@ async function handleDeactivateConfirm(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
   color: var(--text-color);
 }

@@ -1,6 +1,7 @@
 import { createApp } from 'vue';
 import App from "./App.vue";
 import { setupMikuCursor } from "./libs/mikuCursor";
+import { installDeviceLayout } from "./composables/use-device-layout";
 import { initTelemetry, telemetry } from "./libs/telemetry";
 
 // 埋点初始化必须最早执行：这样连「应用启动阶段」的报错都能被记下来
@@ -62,5 +63,10 @@ window.addEventListener("error", (event) => {
 });
 
 setupMikuCursor();
+
+// 设备布局必须在挂载前写入 <html>：
+// CSS 的 .desktop-only / .mobile-only 以及各断点选择器直接读 data-layout 等属性，
+// 晚一步就会先闪一帧错误结构。判定规则见 utils/device-layout.ts。
+installDeviceLayout();
 
 app.mount("#app");

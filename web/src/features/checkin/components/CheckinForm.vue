@@ -50,9 +50,13 @@ function resetForm(): void {
 async function uploadImages(): Promise<string[]> {
   const urls: string[] = [];
   for (const file of images.value) {
-    // 转换为 WebP 格式
+    // 转换为 WebP 格式。
+    // 必须带上尺寸上限：打卡照片是手机原图（4000px+），全尺寸建画布 + 全质量编码
+    // 会让移动端渲染进程 OOM（表现为「选完图片页面自己刷新了」）。
     const webpFile = await convertToWebP(file, {
-      quality: 1,
+      quality: 0.9,
+      maxWidth: 1920,
+      maxHeight: 1920,
       output: 'file',
       fileName: file.name.replace(/\.[^.]+$/, '.webp')
     }) as File;
@@ -61,6 +65,9 @@ async function uploadImages(): Promise<string[]> {
     formData.append("file", webpFile);
     const res = await FileApi.UploadImage(formData);
     urls.push(res.data.url);
+
+    // 多图时每张之间让出主线程，避免整页卡死
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
   return urls;
 }
@@ -231,7 +238,7 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 14px;
+  font-size: 13px;
 
   .title {
     color: var(--text-muted);
@@ -241,7 +248,7 @@ defineExpose({
     border-radius: 8px;
     border: 1px solid var(--border-color);
     padding: 8px 10px;
-    font-size: 14px;
+    font-size: 13px;
     background: var(--bg-elevated);
     color: var(--text-color);
   }

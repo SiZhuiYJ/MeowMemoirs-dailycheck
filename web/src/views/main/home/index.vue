@@ -36,6 +36,18 @@ const drawerPlan = ref<PlanSummary | null>(null);
 const showDetailDrawer = ref(false);
 const mobileMode = ref<"card" | "calendar">("card");
 
+/**
+ * 滚动区高度 = 真实视口高度 - 顶栏总高度。
+ *
+ * 用 --app-h（由 use-device-layout 写入，跟随地址栏与软键盘变化）而不是 100vh：
+ * 移动端 100vh 不随地址栏收缩，会把底部内容顶出屏幕；
+ * 横屏手机上更明显 —— 视口只有 393 高，误差占比很大。
+ * 顶栏用 --header-total-h（含 --safe-top），避免刘海屏上漏算状态栏高度。
+ */
+const scrollWrapStyle = computed(
+  () => "height: calc(var(--app-h) - var(--header-total-h))",
+);
+
 onMounted(async () => {
   await plansStore.fetchMyPlans();
   const first = plansStore.PlansItems[0];
@@ -152,7 +164,7 @@ function handleOpenCheckinFromDetail(): void {
 </script>
 
 <template>
-  <el-scrollbar wrap-style="height: calc(100vh - var(--header-h))" view-class="dashboard">
+  <el-scrollbar :wrap-style="scrollWrapStyle" view-class="dashboard" class="custom-scrollbar">
     <DesktopMainView v-model:selected-plan-id="selectedPlanId" v-model:checkin-date="checkinDate"
       :get-day-status-class="getDayStatusClass" :get-day-status-style="getDayStatusStyle" @create="handleCreatePlan"
       @edit="handleEditPlan" @date-click="handleDateClick" />
@@ -188,9 +200,13 @@ function handleOpenCheckinFromDetail(): void {
   align-items: center;
 }
 
-@media (max-width: 768px) {
-  .desktop-only {
-    display: none;
-  }
+:deep(.custom-scrollbar) {
+  width: 100%;
 }
+
+// 这里原本有一条 scoped 的 `@media (max-width: 768px) { .desktop-only { display: none } }`，
+// 用来压住 DesktopMainView 里写错的 `display: block`。现在 DesktopMainView 自己
+// 用 @include rp.phone 正确隐藏，全局工具类 html[data-layout="mobile"] .desktop-only
+// 也做了兜底，这条跨组件的 scoped 覆盖规则不再需要（它依赖父组件作用域属性打到子组件根元素，
+// 顺序一变就失效，属于典型的隐性耦合）。
 </style>

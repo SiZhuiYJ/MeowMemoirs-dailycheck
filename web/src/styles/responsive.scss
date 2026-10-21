@@ -1,0 +1,182 @@
+////
+/// 全局响应式基础层。
+///
+/// 只应由 styles/index.scss `@use` 一次 —— 这里会输出实际 CSS，
+/// 被多个组件重复引入会导致样式表膨胀。组件要用的是 responsive-mixins.scss。
+////
+@use "./responsive-mixins" as rp;
+
+// ==============================================
+// 视口变量：JS 会覆盖成真实像素值
+// ==============================================
+// 初值是纯 CSS 兜底，保证 JS 尚未执行时布局也不会塌。
+// 真实值由 composables/use-device-layout.ts 写到 <html> 的行内样式上，
+// 行内样式优先级高于这里，所以会稳定覆盖。
+:root {
+  --app-w: 100%;
+  --app-h: 100vh;
+
+  // 安全区（刘海 / 灵动岛 / 底部手势条）。
+  // 需要 index.html 的 viewport 带 viewport-fit=cover 才会拿到非 0 值。
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
+  // 顶栏占用的总高度 = 视觉高度 + 状态栏/刘海高度。
+  // 所有「视口高度 - 顶栏」的计算都引用这一个变量，
+  // 否则每个页面各自减 var(--header-h) 时会漏掉 --safe-top，
+  // 在刘海屏上滚动区底部会被切掉一条（横屏手机还会多出左右安全区）。
+  --header-total-h: calc(var(--header-h) + var(--safe-top));
+}
+
+// dvh 会跟随地址栏收起展开，比 vh 更接近「真实可见高度」。
+// JS 可用时 --app-h 是像素值，这条只是无 JS / 首帧的兜底。
+@supports (height: 100dvh) {
+  :root {
+    --app-h: 100dvh;
+  }
+}
+
+// ==============================================
+// 结构切换工具类
+// ==============================================
+// 由 <html data-layout> 驱动，而不是媒体查询：
+// JS 与 CSS 因此共用同一个判定结果（含宽高比/短边长边），
+// 不会再出现「JS 判定手机、CSS 判定桌面」互相打架的半吊子状态。
+//
+// data-layout="mobile"  该用手机结构（含桌面窗口被拉窄的兜底）
+// data-layout="desktop" 该用桌面结构
+html[data-layout="mobile"] .desktop-only {
+  display: none !important;
+}
+
+html[data-layout="desktop"] .mobile-only {
+  display: none !important;
+}
+
+// 方向工具类：竖屏手机横过来后，单纯按宽度判定会漏掉，按方向判定更准。
+html[data-orientation="landscape"] .portrait-only {
+  display: none !important;
+}
+
+html[data-orientation="portrait"] .landscape-only {
+  display: none !important;
+}
+
+// 输入方式工具类：触屏端不该有粘滞 hover，鼠标端不需要放大点击区域。
+html[data-touch="false"] .touch-only {
+  display: none !important;
+}
+
+html[data-touch="true"] .mouse-only {
+  display: none !important;
+}
+
+// ==============================================
+// 安全区工具类
+// ==============================================
+.safe-top {
+  padding-top: var(--safe-top);
+}
+
+.safe-bottom {
+  padding-bottom: var(--safe-bottom);
+}
+
+.safe-x {
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+// ==============================================
+// 移动端基础修正
+// ==============================================
+html {
+  // 横竖屏切换时 iOS 会自动放大字号，这里关掉，避免旋转后字号跳变。
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html[data-touch="true"] {
+  // 去掉点按高亮块（Android Chrome 会闪一下灰块）。
+  -webkit-tap-highlight-color: transparent;
+}
+
+// ==============================================
+// 小屏紧凑密度（视口高 <= 560px）
+// ==============================================
+// 由 use-device-layout 按 height <= 560 写入 data-short。
+// 覆盖横屏手机（852x393）、被拉扁的桌面窗口、分屏窗口。
+//
+// 注意：这类视口走的是**桌面结构**（横屏一律桌面），
+// 所以这里只压间距/字号/内边距，绝不改布局结构。
+html[data-short="true"] {
+  // 顶栏矮一点，把纵向空间还给内容。Topbar 的高度与各页面的
+  // calc(... - var(--header-total-h)) 都取自 --header-h，改这一个值即可一起生效。
+  --header-h: 44px;
+
+  // Element Plus 抽屉/弹层的内边距走这两个变量，改变量即可一并生效
+  // （默认 16px）。用官方开关比硬覆盖 padding 更稳，不会打特异性官司。
+  --el-drawer-padding-primary: 12px;
+  --el-dialog-padding-primary: 12px;
+
+  // .el-dialog / .el-drawer 会在自身重新声明这两个变量，
+  // 所以要在元素级再覆盖一次，否则上面那两行对它们不生效。
+  .el-dialog,
+  .el-drawer {
+    --el-dialog-padding-primary: 12px;
+    --el-drawer-padding-primary: 12px;
+    // 14px -> 13px：小屏上正文行高更省地方
+    --el-dialog-content-font-size: 12px;
+  }
+
+  // 抽屉头默认 margin-bottom: 32px，在 393px 高的屏幕上太奢侈。
+  // （plans 那边把 margin-bottom 置 0 且带 !important，不受这里影响。）
+  .el-drawer__header {
+    margin-bottom: 12px;
+  }
+}
+
+// ==============================================
+// Element Plus 组件尺寸：随窗口缩放
+// ==============================================
+// 两级配合：
+//   1. 这里（流体变量）：随窗口宽度连续缩放，窄窗口更紧凑、大窗口维持 EP 默认；
+//   2. App.vue 的 el-config-provider :size：视口过矮时整体降到 small 一档。
+//
+// 为什么要额外接管写死的高度：EP 的按钮高度是硬编码的
+// （.el-button 32px、--small 24px、--large 40px），根本不读 --el-component-size，
+// 只有输入框等组件读。不接管的话会出现「输入框缩了、按钮没缩」的错位。
+// 各档都保留了可点按下限（28/24/36px），不会缩到点不中。
+html {
+  --el-component-size: clamp(28px, 3.2vw, 32px); // 窄窗口 28px，≥1000px 恢复 32px
+  --el-component-size-small: clamp(24px, 2.4vw, 26px);
+  --el-component-size-large: clamp(36px, 4vw, 40px);
+}
+
+// 用 html 前缀提高特异性，避免依赖「我的样式排在 EP 之后」这个顺序假设。
+// 三个档位必须按 base -> small -> large 的顺序写：小/大按钮同时带 .el-button 类，
+// 特异性相同时靠顺序决定，写在后面才能覆盖 base。
+html .el-button {
+  height: var(--el-component-size);
+}
+
+html .el-button--small {
+  // height: var(--el-component-size-small);
+  height: var(--el-component-size);
+
+}
+
+html .el-button--large {
+  // height: var(--el-component-size-large);
+  height: var(--el-component-size);
+
+}
+
+// 输入框：EP 的 --el-input-height 默认值写死在 fallback 里（32px），
+// 这里挂到流体变量上。用 :not() 排除尺寸变体，否则会把 --small/--large
+// 的高度压回默认值（变体自己声明了 --el-input-height）。
+html .el-input:not(.el-input--small):not(.el-input--large) {
+  --el-input-height: var(--el-component-size);
+}

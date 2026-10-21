@@ -1,6 +1,8 @@
 @use "./element.scss";
 @use "./progressive.scss";
 @use "./nprogress.scss";
+// 视口变量（--app-h 等）、结构切换工具类（.desktop-only/.mobile-only）、安全区
+@use "./responsive.scss";
 
 :root {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -26,6 +28,27 @@
   --header-h: 56px;
 }
 
+// ==============================================
+// 全局字号：整体下调一档
+// ==============================================
+// 自定义样式里的 px 字号已整体 –1 档（主体 14 -> 13、次要 12 -> 11 …）。
+// Element Plus 组件（按钮/输入框/日历/抽屉/提示）默认吃 --el-font-size-*，
+// 这里同步下调，否则 EP 组件会比自定义文字显大，反而更不一致。
+//
+// 为什么单独写一条、而且用 html:root 而不是并进上面的 :root：
+// EP 的 theme-chalk 也在 :root 里声明这 6 个变量，而 main.ts 里
+// element-plus 是在本文件**之后** import 的 —— 只靠「谁在后面」定胜负太脆弱，
+// 一旦有人调整 import 顺序，字号覆盖就会静默失效。
+// html:root 比 :root 多一个元素选择器，特异性更高，与顺序无关。
+html:root {
+  --el-font-size-extra-small: 11px; // EP 默认 12
+  --el-font-size-small: 12px; // EP 默认 13
+  --el-font-size-base: 13px; // EP 默认 14
+  --el-font-size-medium: 15px; // EP 默认 16
+  --el-font-size-large: 16px; // EP 默认 18
+  --el-font-size-extra-large: 18px; // EP 默认 20
+}
+
 html[data-theme="light"] {
   color-scheme: light;
   --bg-color: #f3f4f6;
@@ -46,6 +69,10 @@ html[data-theme="light"] {
 body {
   margin: 0;
   padding: 0;
+  // 基准字号：与自定义样式的「主体 13px」对齐。
+  // 项目里绝大多数文字都写了显式 px，这里是给没写的那部分兜底，
+  // 否则它们会沿用浏览器默认 16px，比周围文字明显偏大。
+  font-size: 13px;
   background-color: var(--bg-color);
   color: var(--text-color);
   &::-webkit-scrollbar {
@@ -71,8 +98,11 @@ body {
 }
 
 #app {
-  height: 100vh;
-  width: 100vw;
+  // --app-h 由 use-device-layout 写入：跟随地址栏/软键盘变化，
+  // 比 100vh 更贴近真实可见高度（移动端 100vh 会把底部内容顶出屏幕）。
+  height: var(--app-h);
+  // 不用 100vw：桌面端出现纵向滚动条时 100vw 含滚动条宽度，会横向溢出。
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;

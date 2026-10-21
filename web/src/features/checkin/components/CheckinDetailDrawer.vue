@@ -192,7 +192,8 @@ const slotStatuses = (slot: TimeSlotDto): CheckinStatus => {
         </template>
       </h1>
     </template>
-    <el-scrollbar wrap-style="max-height: calc(100vh - 80px);" view-class="drawer-body">
+    <!-- 用 --app-h（键盘/地址栏感知）而不是 100vh，横屏手机上抽屉内容才不会被切掉 -->
+    <el-scrollbar wrap-style="max-height: calc(var(--app-h) - 80px);" view-class="drawer-body">
       <el-skeleton v-if="detailLoading" class="detail" :rows="getPlanTimeLength(props.planId)" animated />
       <div v-else-if="props.mode == 'default'" class="detail">
         <CheckinForm v-if="!detail || !detail[0]" :plan-id="props.planId" :date="props.date" @success="fetchDetail" />

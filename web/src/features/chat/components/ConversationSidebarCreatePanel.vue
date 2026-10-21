@@ -368,7 +368,7 @@ const {
 .search-tip {
   margin: 0;
   color: #6b7280;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 18px;
 }
 
@@ -409,7 +409,7 @@ const {
 
 .search-result-meta {
   color: #6b7280;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 18px;
   word-break: break-all;
 }
@@ -497,7 +497,7 @@ const {
 
 .friend-request-meta {
   color: #6b7280;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 18px;
 }
 
@@ -514,7 +514,7 @@ const {
 .group-join-tip {
   margin: 0;
   color: #6b7280;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 18px;
 }
 

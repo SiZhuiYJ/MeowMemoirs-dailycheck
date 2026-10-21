@@ -33,7 +33,7 @@ function handleClick(): void {
     width: 100%;
     height: 100%;
     border-radius: 10px;
-    font-size: 13px;
+    font-size: 12px;
     display: flex;
     align-items: center;
     justify-content: center;

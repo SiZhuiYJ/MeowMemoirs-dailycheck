@@ -271,10 +271,12 @@ onBeforeUnmount(() => {
 
 <style scoped lang="scss">
 .telemetry-page {
-  min-height: 100vh;
-  padding: 10px 10px 40px;
+  // 诊断页经常在手机上打开，用 --app-h 让内容随地址栏收缩。
+  min-height: var(--app-h);
+  // 底部让开手势条，避免最后几条日志被系统手势区压住。
+  padding: 10px 10px calc(40px + var(--safe-bottom));
   color: #111827;
-  font-size: 13px;
+  font-size: 12px;
   background: #f6f7f9;
 }
 
@@ -291,7 +293,7 @@ onBeforeUnmount(() => {
 
 .title {
   flex: 1;
-  font-size: 16px;
+  font-size: 15px;
 }
 
 .btn {
@@ -299,7 +301,7 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(17, 24, 39, 0.12);
   border-radius: 8px;
   background: #fff;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
 
   &.danger {
@@ -324,7 +326,7 @@ onBeforeUnmount(() => {
 .section-title {
   margin-bottom: 6px;
   color: #6b7280;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -366,7 +368,7 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(17, 24, 39, 0.12);
   border-radius: 999px;
   background: #fff;
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
 
   &.active {
@@ -388,7 +390,7 @@ onBeforeUnmount(() => {
   padding: 7px 10px;
   border: 1px solid rgba(17, 24, 39, 0.12);
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 12px;
   background: #fff;
 }
 
@@ -461,18 +463,18 @@ onBeforeUnmount(() => {
 .event-time {
   color: #6b7280;
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .event-name {
   font-weight: 600;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .event-summary {
   margin-top: 3px;
   color: #4b5563;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 17px;
   word-break: break-all;
 }
@@ -485,7 +487,7 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   background: #0f172a;
   color: #e2e8f0;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 16px;
   white-space: pre-wrap;
   word-break: break-all;

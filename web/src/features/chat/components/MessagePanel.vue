@@ -12,6 +12,7 @@ import {
 import { storeToRefs } from 'pinia';
 import { telemetry } from '@/libs/telemetry';
 import { Document, UploadFilled } from '@element-plus/icons-vue';
+import { useDeviceLayout } from '@/composables/use-device-layout';
 import { useAuthStore } from '@/stores';
 import MessageItem from './MessageItem.vue';
 import FileMessage from './FileMessage.vue';
@@ -90,6 +91,27 @@ interface MessageGroup {
   dateLabel: string;
   items: RenderedChatItem[];
 }
+
+const { isSmallWindow } = useDeviceLayout();
+
+/**
+ * 输入框 placeholder：窄窗口要换短的，否则空输入框会被撑成两行高。
+ *
+ * EP 的 autosize 在输入框为空时是拿 placeholder 去量高度的：
+ *   node_modules/element-plus/es/components/input/src/utils.mjs
+ *   hiddenTextarea.value = targetElement.value || targetElement.placeholder || "";
+ * 所以长 placeholder 一旦折行，autosize 就把它算成两行，
+ * 空输入框显示成两排、整体过高。
+ *
+ * 实测：「输入消息，Enter 发送，Shift + Enter 换行」约 20 个全角宽 ≈ 260px，
+ * 而竖屏手机（393px 宽）的输入框实际只有约 269px，刚好临界就会折行。
+ * 小窗口下换成「输入消息…」，任何宽度都不会折。
+ */
+const composerPlaceholder = computed(() =>
+  isSmallWindow.value
+    ? "输入消息…"
+    : "输入消息，Enter 发送，Shift + Enter 换行",
+);
 
 const props = defineProps<{
   messages: MessageSummary[];
@@ -1119,9 +1141,10 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="composer-main">
-          <FileUploadButton :disabled="uploadingFiles" @file-selected="handleFileSelected" />
+          <FileUploadButton :disabled="uploadingFiles" :context-key="currentConversation?.id ?? null"
+            @file-selected="handleFileSelected" />
           <el-input v-model="model" type="textarea" :autosize="{ minRows: 1, maxRows: 6 }" resize="none"
-            placeholder="输入消息，Enter 发送，Shift + Enter 换行" @keydown="handleComposerKeydown" />
+            :placeholder="composerPlaceholder" @keydown="handleComposerKeydown" />
           <el-button color="#111827" :loading="props.sending" :disabled="uploadingFiles || !model.trim()"
             @click="handleSendTextMessage">
             发送
@@ -1186,6 +1209,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .date-separator {
   margin: 0 12px;
 }
@@ -1193,7 +1218,7 @@ onBeforeUnmount(() => {
 .history-loading {
   padding: 10px 12px;
   color: #909399;
-  font-size: 12px;
+  font-size: 11px;
   text-align: center;
 }
 
@@ -1209,7 +1234,7 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(17, 24, 39, 0.12);
   border-radius: 999px;
   color: #111827;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 18px;
   cursor: pointer;
@@ -1267,7 +1292,7 @@ onBeforeUnmount(() => {
 }
 
 .drop-upload-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 22px;
 }
@@ -1279,7 +1304,7 @@ onBeforeUnmount(() => {
 
 .drop-file-question {
   color: #111827;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 22px;
 }
@@ -1289,7 +1314,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 8px 12px;
   color: #6b7280;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 18px;
 }
 
@@ -1334,7 +1359,7 @@ onBeforeUnmount(() => {
 .drop-file-name {
   overflow: hidden;
   color: #111827;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 20px;
   text-overflow: ellipsis;
@@ -1346,7 +1371,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 6px;
   color: #6b7280;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 18px;
 }
 
@@ -1358,7 +1383,7 @@ onBeforeUnmount(() => {
   padding: 0 8px;
   border: 1px solid transparent;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 18px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1422,13 +1447,13 @@ onBeforeUnmount(() => {
 
 .replying-label {
   color: #6b7280;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 18px;
 }
 
 .replying-sender {
   color: #111827;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 18px;
 }
@@ -1436,7 +1461,7 @@ onBeforeUnmount(() => {
 .replying-preview {
   overflow: hidden;
   color: #4b5563;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1446,7 +1471,8 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
-@media (max-width: 768px) {
+// 这些是「小屏压缩」调整，横屏手机同样需要，所以用宽高比感知的 rp.phone。
+@include rp.phone {
   .date-separator {
     margin: 0 6px;
   }

@@ -255,12 +255,18 @@ onUnmounted(() => {
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .auth-container {
   width: 100%;
-  min-height: 100vh;
+  // --app-h 跟随地址栏/软键盘变化，移动端比 100vh 准确。
+  min-height: var(--app-h);
   display: flex;
   align-items: center;
   justify-content: center;
+  // 让开刘海与手势条，避免卡片贴到状态栏或系统手势区。
+  padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) calc(12px + var(--safe-bottom)) calc(12px + var(--safe-left));
+  box-sizing: border-box;
   background: radial-gradient(circle at top,
       var(--surface-soft),
       var(--bg-color));
@@ -279,12 +285,14 @@ onUnmounted(() => {
 .title {
   text-align: center;
   margin-bottom: 24px;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 600;
   color: var(--text-color);
 }
 
-@media (max-width: 480px) {
+// 480px 阈值保留，同时覆盖横屏手机（852x393 宽度超 480，
+// 但纵向只有 393，卡片必须收紧内边距才放得下）。
+@include rp.compact(480px) {
   .auth-card {
     margin: 0 16px;
     padding-inline: 16px;
@@ -293,7 +301,7 @@ onUnmounted(() => {
   }
 
   .title {
-    font-size: 20px;
+    font-size: 18px;
   }
 }
 </style>

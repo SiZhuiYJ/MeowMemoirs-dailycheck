@@ -50,7 +50,7 @@ function handleBlur() {
     gap: 6px;
 
     span {
-        font-size: 14px;
+        font-size: 13px;
         color: var(--text-muted);
     }
 
@@ -61,7 +61,7 @@ function handleBlur() {
         border: 1px solid var(--border-color);
         background: var(--bg-color);
         color: var(--text-color);
-        font-size: 14px;
+        font-size: 13px;
         transition: border-color 0.2s;
         box-sizing: border-box;
     }
@@ -82,7 +82,7 @@ input:focus {
 }
 
 .error-msg {
-    font-size: 12px;
+    font-size: 11px;
     color: #ef4444;
 }
 </style>

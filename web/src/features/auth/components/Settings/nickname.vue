@@ -69,7 +69,7 @@ onMounted(() => {
 
 .label {
   display: block;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--label-muted);
   margin-bottom: 8px;
 }
@@ -80,7 +80,7 @@ onMounted(() => {
   background-color: var(--bg-color);
   border-radius: 8px;
   padding: 0 12px;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--label-color);
   box-sizing: border-box;
   border: 1px solid var(--border-color);
@@ -88,14 +88,14 @@ onMounted(() => {
 
 .desc {
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--label-muted);
   margin-top: 8px;
 }
 
 .btn-save {
   border-radius: 8px;
-  font-size: 16px;
+  font-size: 15px;
   height: 44px;
   line-height: 44px;
   margin-top: 10px;

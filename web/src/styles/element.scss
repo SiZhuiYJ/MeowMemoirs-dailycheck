@@ -6,7 +6,8 @@
 }
 
 .main-error {
-    height: 100vh;
+    /* 错误页也是整屏容器：用 --app-h 才能跟随移动端地址栏/软键盘。 */
+    height: var(--app-h);
     display: flex;
 
     >div {

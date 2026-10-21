@@ -593,7 +593,7 @@ onBeforeUnmount(() => {
 
 .upload-text strong {
   color: var(--text-main);
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .info-grid {
@@ -613,12 +613,12 @@ onBeforeUnmount(() => {
 }
 
 .info-item label {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
 .info-item span {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   word-break: break-all;
 }
@@ -732,6 +732,9 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(148, 163, 184, 0.16);
 }
 
+/* 这个 style 块没有 lang="scss"，用不了 mixin。
+   紧凑样式只看宽度：横屏一律走桌面布局，而横屏手机的横向空间是够的（852 宽），
+   它的短板是高度 —— 那是 rp.short-viewport 的职责。 */
 @media (max-width: 900px) {
   .video-converter-page {
     padding: 16px;
@@ -767,10 +770,11 @@ onBeforeUnmount(() => {
   }
 }
 
+/* 同上：纯宽度阈值。 */
 @media (max-width: 640px) {
   .table-row {
     grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr);
-    font-size: 14px;
+    font-size: 13px;
   }
 
   .table-row > div {

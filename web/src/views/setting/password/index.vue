@@ -143,14 +143,14 @@ async function handleChangePassword() {
 
 .setting-title {
     margin: 0;
-    font-size: 20px;
+    font-size: 18px;
     color: var(--text-color);
 }
 
 .setting-subtitle {
     margin: 8px 0 0;
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .profile-form {
@@ -170,12 +170,12 @@ async function handleChangePassword() {
             border: 1px solid var(--border-color);
             background: var(--bg-color);
             color: var(--text-color);
-            font-size: 14px;
+            font-size: 13px;
             box-sizing: border-box;
         }
 
         span {
-            font-size: 14px;
+            font-size: 13px;
             color: var(--text-muted);
         }
     }
@@ -195,7 +195,7 @@ async function handleChangePassword() {
     gap: 6px;
     align-items: center;
     justify-content: center;
-    font-size: 13px;
+    font-size: 12px;
     color: var(--text-muted);
     padding: 6px 10px;
 }
@@ -212,7 +212,7 @@ async function handleChangePassword() {
     background: var(--bg-elevated);
     color: var(--text-color);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
     white-space: nowrap;
     display: flex;
     align-items: center;

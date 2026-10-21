@@ -333,8 +333,10 @@ watch(qualityOption, (val: string) => {
 
 <style scoped>
 .video-converter {
-    width: 100vw;
-    height: 100vh;
+    /* 100vw 在存在纵向滚动条时含滚动条宽度，会横向溢出；
+       100vh 在移动端会超出可视区（地址栏占位），故用全局 --app-h。 */
+    width: 100%;
+    height: var(--app-h);
     overflow-x: auto;
     padding: 20px;
 }
@@ -400,7 +402,7 @@ watch(qualityOption, (val: string) => {
 
 .progress-hint {
     color: #666;
-    font-size: 14px;
+    font-size: 13px;
     margin-top: 8px;
 }
 
@@ -427,7 +429,7 @@ watch(qualityOption, (val: string) => {
     padding: 12px 24px;
     border: none;
     border-radius: 6px;
-    font-size: 16px;
+    font-size: 15px;
     cursor: pointer;
     transition: all 0.3s;
 }
@@ -464,7 +466,7 @@ watch(qualityOption, (val: string) => {
 
 .file-size {
     color: #666;
-    font-size: 14px;
+    font-size: 13px;
     margin-top: 8px;
 }
 </style>

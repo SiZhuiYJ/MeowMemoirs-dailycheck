@@ -1,0 +1,203 @@
+////
+/// 响应式断点与 mixin —— 只提供变量与 mixin，自身不产生任何 CSS 输出，
+/// 因此可以安全地在任意组件的 `<style lang="scss">` 里 `@use`。
+///
+/// ## 判定规则
+///
+/// **横屏一律走桌面布局；竖屏按宽度决定。**
+///
+/// | 视口 | 尺寸 | 方向 | 布局 |
+/// | --- | --- | --- | --- |
+/// | 手机竖屏 iPhone 15 | 393x852 | 竖屏 | 手机 |
+/// | 手机横屏 iPhone 15 | 852x393 | 横屏 | 桌面 |
+/// | 竖屏平板 iPad | 820x1180 | 竖屏 | 桌面（宽 820 > 768） |
+/// | 桌面窗口被拉窄 | 700x1200 | 竖屏 | 手机（宽 700 <= 768） |
+/// | 被拖扁的电脑窗口 | 700x400 | 横屏 | 桌面 |
+///
+/// 展开成两条：
+///
+/// 1. 横屏（width > height）→ 桌面。横过来后横向空间足够放下桌面结构
+///    （例如聊天的 300px 会话列表 + 消息面板），继续用手机单栏反而浪费宽度。
+/// 2. 竖屏 → 宽度 <= 768px 走手机布局，否则桌面。
+///    竖屏下必须「宽度满足手机像素宽度」才算手机 —— 820x1180 的竖屏平板虽然「高 > 宽」，
+///    但宽度不是手机像素宽度，仍然走桌面布局。
+///
+/// 这两条与 src/utils/device-layout.ts 的 classifyViewport() 一一对应，
+/// 改任意一边都要同步另一边，否则 JS 判定与 CSS 判定会打架。
+////
+
+// —— 断点常量（CSS 像素）——
+// 必须与 src/utils/device-layout.ts 的 DEVICE_LAYOUT_BREAKPOINTS 保持一致。
+$bp-phone-portrait-width: 480px !default; // 竖屏手机宽度上限（仅用于 phone-portrait）
+$bp-phone-short-side: 480px !default; // 手机短边上限（仅用于几何识别，不切换布局）
+$bp-phone-long-side: 960px !default; // 手机长边上限（仅用于几何识别，不切换布局）
+$bp-narrow: 768px !default; // 竖屏下走手机布局的宽度上限
+$bp-tablet-long-side: 1366px !default; // 平板长边上限（供后续分级使用）
+$bp-compact-height: 560px !default; // 视口过矮：压缩纵向留白
+// 「小窗口」：桌面布局还能用，但已经很挤（本项目的桌面结构要 ~1024px 才舒展：
+// 计划页 260px 侧栏 + 日历、聊天 300px 列表 + 消息面板）。
+// 低于它即使是桌面布局，也应该套用紧凑密度（按移动端那套间距/字号），
+// 只是**布局结构仍保持桌面**。
+$bp-small-window: 1024px !default;
+
+// —— 设备档位（三档）的边界 ——
+// 必须与 src/utils/device-layout.ts 的 DEVICE_LAYOUT_BREAKPOINTS.phoneMaxWidth / pcWidth 一致。
+//
+// 与 $bp-narrow(768) 的区别：768 是**布局结构**的分界（旧页面用 mobile/desktop 两档），
+// 这里切的是**设备档位**（聊天页用 phone/tablet/desktop 三档）。
+$bp-phone-max: 600px !default; // <= 该宽度 → tier: phone（单栏 + 24px 控件）
+$bp-pc: 1200px !default; // > 该宽度 → tier: desktop（大屏电脑端，32px 控件 + 12px 间距）
+
+/// 用于构造「大于某断点」的媒体查询。
+/// 不直接写 768.02，避免与 JS 的 < / <= 语义对不齐。
+$bp-epsilon: 0.02px;
+
+////
+/// 手机布局：**竖屏** 且 宽度 <= 768px。
+///
+/// 注意必须带 orientation: portrait —— 横屏一律走桌面布局，
+/// 哪怕宽度只有 667（iPhone SE 横屏）也不用手机布局。
+////
+@mixin phone {
+  @media (orientation: portrait) and (max-width: $bp-narrow) {
+    @content;
+  }
+}
+
+////
+/// 桌面布局（phone 的严格取反）
+///
+/// NOT(竖屏 且 宽 <= 768) = 横屏 或 宽 > 768
+///
+/// 注意这是**两档**的旧轴，只有「手机结构 / 桌面结构」；
+/// 聊天页那套「手机 / 平板 / 大屏电脑」用下面的 device-* 三档 mixin。
+////
+@mixin desktop {
+  @media (orientation: landscape) {
+    @content;
+  }
+
+  @media (min-width: $bp-narrow + $bp-epsilon) {
+    @content;
+  }
+}
+
+////
+/// 设备档位（三档，只看**宽度**）—— 与上面的 phone / desktop 是两条独立的轴。
+///
+/// | 档位 | 宽度 | 聊天页结构 | 控件 / 间距 |
+/// | --- | --- | --- | --- |
+/// | phone | <= 600 | 单栏（会话列表 / 聊天界面二选一） | 24px / 6px |
+/// | tablet | 600 < 宽 <= 1200 | 双栏同时展示 | 24px / 6px |
+/// | desktop | > 1200 | 双栏（常规布局） | 32px / 12px |
+///
+/// 三档正好铺满视口宽度，互不重叠、也无空档 —— 与 classifyViewport() 的
+/// `tier` 判定一一对应（verify-device-layout.mjs 会做全矩阵比对）。
+///
+/// @example
+///   // 手机单栏
+///   @include rp.device-phone { .layout { grid-template-columns: 1fr; } }
+///   // 手机 + 平板共用的紧凑密度
+///   @include rp.device-mobile { .chat-page { --chat-gap: 6px; } }
+////
+@mixin device-phone {
+  @media (max-width: $bp-phone-max) {
+    @content;
+  }
+}
+
+@mixin device-tablet {
+  @media (min-width: $bp-phone-max + $bp-epsilon) and (max-width: $bp-pc) {
+    @content;
+  }
+}
+
+@mixin device-desktop {
+  @media (min-width: $bp-pc + $bp-epsilon) {
+    @content;
+  }
+}
+
+/// 移动端档位（手机 + 平板）：24px 控件 + 6px 间距那一套。
+@mixin device-mobile {
+  @media (max-width: $bp-pc) {
+    @content;
+  }
+}
+
+////
+/// 竖屏 且 宽度 <= 480px —— 即「高 > 宽，且宽度满足手机像素宽度」。
+/// 比 phone 更窄一档，用于只该出现在小屏竖屏上的微调。
+////
+@mixin phone-portrait {
+  @media (orientation: portrait) and (max-width: $bp-phone-portrait-width) {
+    @content;
+  }
+}
+
+////
+/// 窄视口（纯宽度判定，不看方向）。
+/// 仅在「确实只关心横向空间」时使用；布局切换请用 phone / desktop。
+////
+@mixin narrow {
+  @media (max-width: $bp-narrow) {
+    @content;
+  }
+}
+
+////
+/// 紧凑密度：宽度 <= $max-width **或** 视口过矮（<= 560px）。
+///
+/// 「布局结构」与「紧凑密度」是两条**独立**的轴，不要混在一起：
+///
+/// - 横屏手机（852x393）走的是**桌面结构**（横屏一律桌面），
+///   但它只有 393px 高 —— 间距、字号、内外边距必须按小屏收，
+///   否则 300px 的会话列表加上大间距会把消息区挤没。
+/// - 桌面窗口被拖扁（1440x500）同理，也需要紧凑密度。
+///
+/// 所以这里同时看「窄」和「矮」两个维度。
+///
+/// @example
+///   @include rp.compact(768px) { .notice { padding: 8px; font-size: 13px; } }
+////
+@mixin compact($max-width) {
+  @media (max-width: $max-width), (max-height: $bp-compact-height) {
+    @content;
+  }
+}
+
+/// 视口偏矮：横屏手机（852x393）、被拉扁的桌面窗口、分屏窗口。
+/// 与 compact() 的「矮」分支同一阈值，用于只想针对「矮」调整的场合
+/// （压缩纵向留白、缩日历格高），不波及「窄但高」的视口。
+@mixin short-viewport {
+  @media (max-height: $bp-compact-height) {
+    @content;
+  }
+}
+
+/// 触屏（粗指针）。用于悬停态、点按反馈、最小点击区域等「输入方式相关」的调整。
+@mixin coarse-pointer {
+  @media (hover: none) and (pointer: coarse) {
+    @content;
+  }
+}
+
+/// 精确指针（鼠标）：悬停效果只在鼠标端生效，避免触屏上的「粘滞 hover」。
+@mixin fine-pointer {
+  @media (hover: hover) and (pointer: fine) {
+    @content;
+  }
+}
+
+/// 竖屏 / 横屏
+@mixin portrait {
+  @media (orientation: portrait) {
+    @content;
+  }
+}
+
+@mixin landscape {
+  @media (orientation: landscape) {
+    @content;
+  }
+}

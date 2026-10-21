@@ -39,7 +39,7 @@ function handleSendCode() {
     gap: 6px;
 
     span {
-        font-size: 14px;
+        font-size: 13px;
         color: var(--text-muted);
     }
 }
@@ -56,7 +56,7 @@ input {
     border: 1px solid var(--border-color);
     background: var(--bg-color);
     color: var(--text-color);
-    font-size: 14px;
+    font-size: 13px;
     transition: border-color 0.2s;
     box-sizing: border-box;
 }
@@ -73,7 +73,7 @@ input:focus {
     background: var(--bg-elevated);
     color: var(--text-color);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
 }
 
 .code-button:disabled {

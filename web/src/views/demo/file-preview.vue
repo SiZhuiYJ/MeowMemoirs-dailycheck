@@ -280,7 +280,8 @@ const handleClose = () => {
 
 <style scoped lang="scss">
 .file-preview-demo-page {
-  min-height: 100vh;
+  // --app-h 跟随移动端地址栏变化，比 100vh 准确。
+  min-height: var(--app-h);
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   padding: 40px 20px;
   // 滚动条纵向
@@ -298,7 +299,7 @@ const handleClose = () => {
     }
 
     .subtitle {
-      font-size: 16px;
+      font-size: 15px;
       opacity: 0.9;
       margin: 0;
     }
@@ -356,13 +357,13 @@ const handleClose = () => {
       }
 
       h3 {
-        font-size: 20px;
+        font-size: 18px;
         margin: 0 0 8px 0;
         color: #333;
       }
 
       p {
-        font-size: 14px;
+        font-size: 13px;
         color: #666;
         margin: 0;
       }
@@ -381,7 +382,7 @@ const handleClose = () => {
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 
       h2 {
-        font-size: 24px;
+        font-size: 20px;
         margin: 0 0 20px 0;
         color: #333;
       }
@@ -389,7 +390,7 @@ const handleClose = () => {
       .hint {
         margin-top: 12px;
         color: #666;
-        font-size: 14px;
+        font-size: 13px;
       }
 
       .file-grid {
@@ -429,7 +430,7 @@ const handleClose = () => {
               border-radius: 4px;
               font-weight: bold;
               color: #fff;
-              font-size: 14px;
+              font-size: 13px;
 
               &.video {
                 background: #f5576c;
@@ -452,7 +453,7 @@ const handleClose = () => {
             gap: 4px;
 
             .file-name {
-              font-size: 14px;
+              font-size: 13px;
               color: #333;
               overflow: hidden;
               text-overflow: ellipsis;
@@ -460,7 +461,7 @@ const handleClose = () => {
             }
 
             .file-action {
-              font-size: 12px;
+              font-size: 11px;
               color: #667eea;
             }
           }

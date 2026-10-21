@@ -88,14 +88,14 @@ watch(
 
 .setting-title {
     margin: 0;
-    font-size: 20px;
+    font-size: 18px;
     color: var(--text-color);
 }
 
 .setting-subtitle {
     margin: 8px 0 0;
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .profile-main {

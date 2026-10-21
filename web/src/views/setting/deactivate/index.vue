@@ -97,14 +97,14 @@ async function handleDeactivateConfirm(): Promise<void> {
 
 .setting-title {
     margin: 0;
-    font-size: 20px;
+    font-size: 18px;
     color: var(--text-color);
 }
 
 .setting-subtitle {
     margin: 8px 0 0;
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .profile-form {
@@ -124,19 +124,19 @@ async function handleDeactivateConfirm(): Promise<void> {
             border: 1px solid var(--border-color);
             background: var(--bg-color);
             color: var(--text-color);
-            font-size: 14px;
+            font-size: 13px;
             box-sizing: border-box;
         }
 
         span {
-            font-size: 14px;
+            font-size: 13px;
             color: var(--text-muted);
         }
     }
 }
 
 .warning-text {
-    font-size: 14px;
+    font-size: 13px;
     color: #ef4444;
     margin: 0;
     line-height: 1.5;
@@ -185,7 +185,7 @@ async function handleDeactivateConfirm(): Promise<void> {
     background: var(--bg-elevated);
     color: var(--text-color);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
     white-space: nowrap;
     display: flex;
     align-items: center;

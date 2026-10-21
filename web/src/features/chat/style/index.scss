@@ -1,6 +1,9 @@
 // ==============================================
 // 全局重置
 // ==============================================
+// 断点 mixin（宽度 + 宽高比判定）。必须放在最前面，@use 之前不能有其他规则。
+@use "@/styles/responsive-mixins" as rp;
+
 .el-button+.el-button {
   margin-left: 0 !important;
 }
@@ -16,7 +19,9 @@
   --chat-accent-soft: #e6f0ff;
   --chat-muted: #6b7280;
   --chat-danger: #dc2626;
-  --chat-vh: 100vh;
+  // 用全局的 --app-h（use-device-layout 写入的真实像素高度）而不是 100vh：
+  // 100vh 在移动端不随地址栏收缩，也不随软键盘变化，会把底部输入框顶出屏幕。
+  --chat-vh: var(--app-h);
 
   min-height: var(--chat-vh);
   height: var(--chat-vh);
@@ -25,15 +30,10 @@
   flex-direction: column;
   gap: 12px;
   box-sizing: border-box;
-  padding: 12px;
+  // 左右与顶部让开刘海/灵动岛，底部让开手势条，避免输入框被系统手势区压住。
+  padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) calc(12px + var(--safe-bottom)) calc(12px + var(--safe-left));
   background: var(--chat-bg);
   overflow: hidden;
-}
-
-@supports (height: 100dvh) {
-  .chat-page {
-    --chat-vh: 100dvh;
-  }
 }
 
 // ==============================================
@@ -65,7 +65,13 @@
 // ==============================================
 .layout {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  // 会话列表宽度按**占比**给，而不是写死 300px：
+  // 小窗口（横屏手机 852 宽）下 300px 会吃掉近 40% 宽度，消息区被挤得没法看。
+  // clamp 保证大屏仍是 300px、窄屏按 30% 缩、最窄不低于 180px。
+  //   1920 宽 -> 300px（上限，与原来一致）
+  //    852 宽 -> 约 248px
+  //    667 宽 -> 约 193px
+  grid-template-columns: clamp(180px, 30%, 300px) minmax(0, 1fr);
   gap: 12px;
   flex: 1;
   min-height: 0;
@@ -101,8 +107,6 @@
   @extend %flex-center;
   @extend %gap-12;
   margin-bottom: 0;
-
-  @media max-width {}
 }
 
 .push-status {
@@ -113,7 +117,7 @@
   border-radius: 12px;
   background: var(--chat-surface);
   color: var(--chat-muted);
-  font-size: 13px;
+  font-size: 12px;
   box-shadow: var(--chat-shadow);
 }
 
@@ -145,7 +149,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 18px;
+    font-size: 16px;
     line-height: 20px;
     padding-left: 6px; // (32px - 20px)/2 = 6px
   }
@@ -157,6 +161,16 @@
 
 .conversation-list {
   display: grid;
+  // 必须显式写 minmax(0, 1fr)，否则隐式的 auto 轨道会溢出。
+  //
+  // 实测症状：父级 <aside.left-panel> 宽 200px 时，ul 内容区只有 182.67px，
+  // 但 li 量到 203.69px，超出父元素。
+  //
+  // 原因：没声明 grid-template-columns 时是隐式 `auto` 轨道，而 auto 轨道的
+  // 基准尺寸取列表项的 **min-content**；会话名是 nowrap，它的 min-content
+  // 就等于整条标题的宽度 —— 轨道因此被撑到比 ul 内容区还宽。
+  // minmax(0, 1fr) 把轨道下限显式压到 0，轨道就完全由可用宽度决定。
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   margin: 0;
   padding: 100px 12px 12px;
@@ -166,6 +180,9 @@
     @extend %flex-center;
     @extend %gap-12;
     align-items: flex-start;
+    // 同上：li 是 grid item，默认 min-width: auto 同样会被 nowrap 标题顶大。
+    // 只给 li 内部的 .item 加 min-width: 0 是不够的 —— 溢出的是 li 自己。
+    min-width: 0;
     cursor: pointer;
     border: 1px solid var(--chat-border);
     border-radius: 12px;
@@ -189,7 +206,19 @@
 }
 
 .item {
-  width: 100%;
+  // 会话列表项溢出的根因修复，别改回 width: 100%。
+  //
+  // EP 的 .el-badge 是 `width: fit-content` + `display: inline-block`，
+  // 而 fit-content = max(min-content, 可用宽度)；标题是 nowrap，
+  // 它的 min-content 就等于整条标题宽度 —— 于是列表项被撑到内容宽，溢出 li。
+  // 靠调 li 的 padding 治不了根，改 width 也不稳（与 EP 同特异性，看打包顺序）。
+  //
+  // 用 flex-basis 定宽：flex 子项的主轴尺寸优先取 flex-basis（非 auto），
+  // 此时 width 根本不参与计算，因此与 EP 的 fit-content 谁在前面无关。
+  flex: 1 1 0%;
+  min-width: 0;
+  // 兜底裁剪，防止未预期内容溢出
+  overflow: hidden;
 }
 
 .title-row {
@@ -206,6 +235,9 @@
 .badge {
   min-width: 20px;
   padding: 0 6px;
+  // 未读徽标给个固定字号，否则会跟着会话标题的字号一起变大
+  font-size: 10px;
+  line-height: 16px;
   border-radius: 999px;
   background: #ef4444;
   color: #fff;
@@ -241,7 +273,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 20px;
   padding-left: 6px;
 }
@@ -259,7 +291,10 @@
 // 消息列表区域
 // ==============================================
 .message-scroll-wrap {
-  height: calc(100vh - 156px);
+  // 基准高度用 --chat-vh 而不是 100vh：
+  // 100vh 与 .chat-page 的实际高度（--app-h，含地址栏/软键盘修正）不一致，
+  // 在移动端会算出比容器还高的消息区，把输入框挤出可视范围。
+  height: calc(var(--chat-vh) - 156px);
   overflow: auto;
 }
 
@@ -325,18 +360,20 @@
 
   &.header {
     margin-bottom: 1px;
-    font-size: 12px;
+    font-size: 11px;
   }
 
   &.foot {
     margin-top: 1px;
     margin-left: auto;
-    font-size: 8px;
+    // 原本 8px，实际几乎无法辨认
+    font-size: 10px;
   }
 }
 
 .read-count {
-  font-size: 8px;
+  // 原本 8px，实际几乎无法辨认
+  font-size: 10px;
   color: var(--chat-muted);
   margin-left: 2px;
 }
@@ -385,29 +422,90 @@
 }
 
 // ==============================================
-// 移动端响应式
+// 小窗口紧凑密度
 // ==============================================
-@media (max-width: 768px) {
+// 只改间距 / 字号 / 内外边距，**不动布局结构**。
+//
+// 这里用「小窗口」而不是手机断点：本项目桌面结构要 ~1024px 才舒展
+// （300px 会话列表 + 消息面板），900x700 这类窗口虽然是**桌面布局**，
+// 但会话列表列只有约 263px，再套桌面端的 12px 间距就太挤了 ——
+// 小窗口即使是桌面布局，密度也该按移动端那套收。
+// 覆盖范围：宽 <= 1024px（含竖屏/横屏手机、小桌面窗口）或 高 <= 560px。
+@include rp.compact(rp.$bp-small-window) {
   .chat-page {
-    padding: 6px;
-    gap: 6px;
+    // 紧凑间距，但仍要让开安全区：横屏时刘海在侧边。
+    padding: calc(8px + var(--safe-top)) calc(8px + var(--safe-right)) calc(8px + var(--safe-bottom)) calc(8px + var(--safe-left));
+    gap: 8px;
+  }
+
+  .layout {
+    gap: 8px;
   }
 
   .chat-header-main,
   .create-box-item,
-  .toolbar {
-    gap: 6px;
+  .toolbar,
+  .create-box,
+  .chat-header,
+  .composer,
+  .conversation-list li {
+    gap: 8px;
   }
 
+  .create-box-item {
+    height: 24px;
+  }
+
+  .create-box,
+  .chat-header,
+  .composer {
+    padding: 8px;
+  }
+
+  .conversation-list {
+    gap: 8px;
+    // 顶部留白是给浮层工具条让位的，按同比例收
+    padding: 72px 8px 8px;
+
+    li {
+      padding: 8px;
+    }
+  }
+
+  .chat-header h3 {
+    font-size: 15px;
+  }
+
+  .message-list {
+    gap: 8px;
+    padding: 48px 8px;
+  }
+
+  .msg-item {
+    gap: 8px;
+  }
+
+  .empty {
+    padding: 16px;
+  }
+}
+
+// ==============================================
+// 手机端布局结构（单栏）
+// ==============================================
+// 用 rp.phone 而不是 @media (max-width: 768px)：必须带 orientation: portrait ——
+// 横屏一律走桌面结构（双栏），横屏小屏只在上面收间距。
+@include rp.phone {
   .push-status {
     grid-column: 1 / -1;
     order: -1;
   }
 
   .layout {
-    // 用 --chat-vh（移动端为 100dvh）而不是 100vh：
+    // 用 --chat-vh 而不是 100vh：
     // 移动浏览器地址栏会占用视口高度，100vh 会把底部输入框顶出屏幕外
     height: calc(var(--chat-vh) - 50px);
+    // 单栏：一次只显示会话列表或消息面板
     grid-template-columns: 1fr;
 
     &.mobile {
@@ -417,29 +515,8 @@
         border-radius: 4px;
         min-height: 0;
         height: 100%;
-
-        .create-box {
-          padding: 6px;
-          gap: 6px;
-        }
       }
     }
-  }
-
-  .conversation-list {
-    gap: 6px;
-    padding: 82px 6px 6px;
-
-    li {
-      padding: 6px;
-      gap: 6px;
-    }
-  }
-
-  .chat-header,
-  .composer {
-    padding: 6px;
-    gap: 6px;
   }
 
   .chat-header {
@@ -450,14 +527,8 @@
     }
   }
 
-  .message-list {
-    gap: 6px;
-    padding: 44px 6px;
-  }
-
   .msg-item {
     max-width: 88%;
-    gap: 6px;
   }
 
   .back-to-list {
@@ -465,8 +536,9 @@
   }
 
   .scroll-to-latest {
-    right: 10px;
-    bottom: 104px;
+    right: calc(10px + var(--safe-right));
+    // 底部要同时让开输入框与手势条，否则会被系统手势条压住。
+    bottom: calc(104px + var(--safe-bottom));
   }
 
   .el-scrollbar__bar.is-vertical {

@@ -78,6 +78,8 @@ function getDayStatusClass(date: Date): string {
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .mobile-calendar-page {
   padding: 12px;
 }
@@ -95,26 +97,38 @@ function getDayStatusClass(date: Date): string {
   padding: 4px 10px;
   background: var(--surface-soft);
   color: var(--text-color);
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
 }
 
 .mobile-calendar-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .mobile-edit-icon {
   margin-left: 8px;
-  font-size: 16px;
+  font-size: 15px;
   color: var(--text-muted);
+
+  // 触屏上把点击区域撑到 44x44（W3C/Apple 的最小舒适区）。
+  // 原来只有一个 16px 的字形可点，手指基本点不中。
+  @include rp.coarse-pointer {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    margin-left: 0;
+  }
 }
 
 .mobile-only {
   display: none;
 }
 
-@media (max-width: 768px) {
+// 与 MobilePlanCards 同理：需要覆盖横屏手机，不能用纯宽度的媒体查询。
+@include rp.phone {
   .mobile-only {
     display: flex;
     flex-direction: column;

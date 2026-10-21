@@ -558,7 +558,9 @@ onUnmounted(() => {
             <el-collapse-item :title="currentFile?.name" name="1">
               <template #title>
                 <div class="toolbar-left">
-                  <el-text class="file-name" :line-clamp="1">{{ currentFile?.name }}</el-text>
+                  <!-- 不用 :line-clamp（EP 的 -webkit-inline-box 会让 text-overflow: ellipsis
+                       失效），改成普通单行 + CSS 省略号，见 .file-name -->
+                  <el-text class="file-name">{{ currentFile?.name }}</el-text>
                 </div>
               </template>
 
@@ -734,6 +736,17 @@ onUnmounted(() => {
           </el-carousel-item>
         </el-carousel>
 
+        <!--
+          小屏专用：文件名单独一行。
+          工具栏 7 个按钮（折叠/放大/缩小/旋转/重置/下载/关闭）在小屏也有 248px，
+          挤在同一行时文件名只剩几十像素，怎么截断都看不出是什么文件。
+          这里让它独占一整行，工具栏那一行就只放按钮。
+          这个节点始终渲染，靠 CSS 控制只在 rp.compact 下显示（宽屏不显示，避免多占一行）。
+        -->
+        <div v-if="currentFile?.name" class="file-name-row" :title="currentFile?.name">
+          {{ currentFile?.name }}
+        </div>
+
         <!-- 加载状态 -->
         <div v-if="loading" class="loading-overlay">
           <div class="loading-spinner"></div>
@@ -757,6 +770,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .file-preview-overlay {
   position: fixed;
   top: 0;
@@ -769,33 +784,79 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
-// 顶部工具栏
+// 预览是全屏 fixed 覆盖层，顶部工具栏会压到刘海/状态栏上，
+// 所以基态就让开安全区，小屏（含横屏手机）再收紧内边距。
 .preview-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px;
+  padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) 12px calc(12px + var(--safe-left));
   background-color: rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(10px);
   color: #fff;
   z-index: 10;
 
-  @media (max-width: 768px) {
-    padding: 6px
+  // 小屏（窄或矮）都用更紧的内边距：横屏手机 852x393 也算小屏 ——
+  // 全屏看图片时工具栏占掉太多高度就没什么可看的了。
+  @include rp.compact(768px) {
+    padding: calc(6px + var(--safe-top)) calc(6px + var(--safe-right)) 6px calc(6px + var(--safe-left));
   }
 }
 
 .toolbar-left {
   padding-left: 8px;
   display: flex;
+  // 让这一侧可以在窄窗口里收缩，否则文件名会把右侧按钮挤出可视区。
+  // （本行是 flex 子项，默认 min-width: auto；工具栏是 space-between 布局。）
+  min-width: 0;
 
   .file-name {
-    font-size: 14px;
-    max-width: 400px;
+    font-size: 13px;
+    // 原本写死 max-width: 400px —— 360px 宽的手机上文件名会把工具栏顶破。
+    // 用 min() 跟视口联动：宽屏仍是 400px，窄屏按 45vw 收（360px -> 162px）。
+    max-width: min(400px, 45vw);
+    // 缺这一条时 text-overflow: ellipsis 根本不生效（文字会换行而不是省略），
+    // 而且没有空格的长文件名（IMG_20240101_123456.jpg）min-content 就是整串，
+    // 换行也救不了，会横向溢出。
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    // el-text 默认是 inline 的，省略号对 inline 元素不生效，必须是块级
+    display: block;
+    // 作为 .toolbar-left（flex）的子项要能收缩
+    min-width: 0;
   }
 }
+
+// 小屏专用文件名行：默认不显示，只在 rp.compact 下出现（见文件末尾的适配块）
+.file-name-row {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translate(-50%, 0);
+  color: var(--text-color);
+  max-width: calc(100vw - 10px);
+  padding: 0 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 5px 5px 0 0;
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-color: var(--bg-color);
+    opacity: 0.5;
+    /* 只调这一层的透明度 */
+    z-index: -1;
+    pointer-events: none;
+    /* 避免挡住点击，视情况加 */
+  }
+}
+
+
 
 .toolbar-right {
   display: flex;
@@ -954,12 +1015,12 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  padding: 0 12px 12px;
-  ;
+  // 底部同样让开手势条，避免图片被系统手势区压住。
+  padding: 0 calc(12px + var(--safe-right)) calc(12px + var(--safe-bottom)) calc(12px + var(--safe-left));
   box-sizing: border-box;
 
-  @media (max-width: 768px) {
-    padding: 0 6px 6px;
+  @include rp.compact(768px) {
+    padding: 0 calc(6px + var(--safe-right)) calc(6px + var(--safe-bottom)) calc(6px + var(--safe-left));
   }
 }
 
@@ -1030,12 +1091,15 @@ onUnmounted(() => {
 .txt-preview pre {
   margin: 0;
   font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.6;
   color: #1e1e1e;
   /* 浅灰文字 */
   white-space: pre-wrap;
   /* 自动换行 */
+  // word-wrap: break-word 对「没有任何断点的长串」（URL、日志、base64）
+  // 无效，在 pre-wrap 下依然会横向顶破容器；anywhere 允许任意位置断行。
+  overflow-wrap: anywhere;
   word-wrap: break-word;
   tab-size: 4;
   -moz-tab-size: 4;
@@ -1123,7 +1187,7 @@ onUnmounted(() => {
   }
 
   p {
-    font-size: 16px;
+    font-size: 15px;
     margin: 0;
   }
 
@@ -1134,7 +1198,7 @@ onUnmounted(() => {
     color: #fff;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 13px;
     transition: all 0.2s;
 
     &:hover {
@@ -1167,7 +1231,7 @@ onUnmounted(() => {
   }
 
   p {
-    font-size: 14px;
+    font-size: 13px;
     margin: 0;
   }
 }
@@ -1196,7 +1260,7 @@ onUnmounted(() => {
   }
 
   p {
-    font-size: 14px;
+    font-size: 13px;
     margin: 0;
   }
 
@@ -1207,7 +1271,7 @@ onUnmounted(() => {
     color: #fff;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 13px;
     transition: all 0.2s;
 
     &:hover {
@@ -1233,5 +1297,118 @@ onUnmounted(() => {
 
 :deep(.el-collapse-item__content) {
   padding-bottom: 0px !important;
+}
+
+// ==============================================
+// 移动端 / 小屏适配
+// ==============================================
+// 小屏（窄或矮）下这个组件最容易出问题的是工具栏：
+// 7 个按钮 × 36px + 6 × 8px 间距 = 300px，
+// 360px 宽的手机上只给文件名留约 40px（320px 上几乎挤没）。
+// 按钮缩到 32px（≈EP 默认按钮尺寸，触屏点得中）+ 间距 4px => 248px。
+//
+// 缩略图条本身在 el-scrollbar 里，横向溢出由它负责滚动，这里只做密度调整。
+@include rp.compact(768px) {
+  .toolbar-right {
+    gap: 4px;
+  }
+
+  .toolbar-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .toolbar-left {
+    padding-left: 4px;
+    // 小屏下把文件名从工具栏里拿出去（见下面的 .file-name-row）：
+    // 工具栏 7 个按钮（32px）就已经占 248px，同一行留给文件名只剩几十像素，
+    // 怎么截断都看不出是什么文件。隐藏后按钮这一行能铺满。
+    display: none;
+  }
+
+  // 文件名独占一行，拿满宽度，只在真正超长时才出省略号
+  .file-name-row {
+    display: block;
+    // padding: 0 calc(8px + var(--safe-right)) 4px calc(8px + var(--safe-left));
+    font-size: 12px;
+    color: var(--el-text-color-regular);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  // 缩略图缩小，一屏能多看几张
+  .thumbnail-list {
+    gap: 6px;
+    padding: 6px;
+
+    .thumbnail-item {
+      width: 44px;
+      height: 44px;
+    }
+  }
+
+  // 左右翻页按钮：让开安全区（横屏时刘海在侧边），并稍微收小
+  .nav-btn {
+    width: 44px;
+    height: 44px;
+
+    &.prev-btn {
+      left: calc(8px + var(--safe-left));
+    }
+
+    &.next-btn {
+      right: calc(8px + var(--safe-right));
+    }
+  }
+
+  // 文本预览：24px 内边距在手机上太浪费纵向空间
+  .txt-preview {
+    padding: 12px;
+    border-radius: 8px;
+
+    pre {
+      font-size: 12px;
+    }
+  }
+
+  .markdown-preview {
+    border-radius: 8px;
+
+    // Markdown 里的宽表格 / 长代码行在窄屏会顶破容器，
+    // 给它们各自的横向滚动，而不是让整个预览区溢出
+    :deep(.v-md-editor-preview) {
+      table {
+        display: block;
+        overflow-x: auto;
+      }
+
+      pre {
+        overflow-x: auto;
+      }
+    }
+  }
+
+  // Office / PDF 渲染器是桌面尺寸的，窄屏给横向滚动兜底，
+  // 否则内容会被 preview-content 的 overflow: hidden 直接裁掉
+  .document-preview,
+  .pdf-preview {
+    overflow: auto;
+  }
+
+  .unsupported-preview {
+    gap: 12px;
+    padding: 0 16px;
+
+    p {
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .download-btn {
+      padding: 10px 24px;
+    }
+  }
 }
 </style>

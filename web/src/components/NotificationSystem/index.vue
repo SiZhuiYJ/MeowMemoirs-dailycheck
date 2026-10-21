@@ -348,6 +348,8 @@ defineExpose({
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 :root {
   --item-height: 44px;
   --main-radius: 22px;
@@ -396,7 +398,9 @@ defineExpose({
   }
 }
 
-@media (max-width: 640px) {
+// 阈值仍是 640px，但额外覆盖横屏手机（852x393 宽度超 640，
+// 只按宽度会拿到桌面那套大内边距）。
+@include rp.compact(640px) {
   .notification-item {
     padding: 6px 16px;
     min-height: 40px;

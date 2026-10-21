@@ -408,14 +408,14 @@ async function toggleBind(bindName: string) {
 
 .setting-title {
     margin: 0;
-    font-size: 20px;
+    font-size: 18px;
     color: var(--text-color);
 }
 
 .setting-subtitle {
     margin: 8px 0 0;
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .bind-list {
@@ -457,21 +457,21 @@ async function toggleBind(bindName: string) {
 
 .bind-name {
     display: block;
-    font-size: 16px;
+    font-size: 15px;
     color: var(--text-color);
     margin-bottom: 4px;
 }
 
 .bind-desc {
     display: block;
-    font-size: 14px;
+    font-size: 13px;
     color: var(--text-muted);
 }
 
 .bind-btn {
     padding: 8px 16px;
     border-radius: 8px;
-    font-size: 14px;
+    font-size: 13px;
     border: none;
     margin-left: 16px;
 

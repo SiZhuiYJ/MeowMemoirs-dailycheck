@@ -50,6 +50,8 @@ defineExpose({
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .form {
     display: flex;
     flex-direction: column;
@@ -73,10 +75,11 @@ defineExpose({
     cursor: not-allowed;
 }
 
-@media (max-width: 480px) {
+// 480px 阈值保留，同时覆盖横屏手机。
+@include rp.compact(480px) {
     .submit {
         padding: 12px 0;
-        font-size: 16px;
+        font-size: 15px;
     }
 }
 </style>

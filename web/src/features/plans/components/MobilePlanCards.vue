@@ -85,6 +85,8 @@ const showEmptyState = computed(() => plansStore.PlansItems.length === 0);
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .mobile-main {
   padding: 12px;
 }
@@ -104,18 +106,18 @@ const showEmptyState = computed(() => plansStore.PlansItems.length === 0);
 }
 
 .mobile-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
 
   .mobile-description {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-muted);
   }
 }
 
 .mobile-subtitle {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 
@@ -128,7 +130,7 @@ const showEmptyState = computed(() => plansStore.PlansItems.length === 0);
 
 .mobile-progress-text {
   position: absolute;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -204,12 +206,12 @@ const showEmptyState = computed(() => plansStore.PlansItems.length === 0);
 }
 
 .mobile-stat-value {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
 }
 
 .mobile-stat-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 
@@ -232,18 +234,22 @@ const showEmptyState = computed(() => plansStore.PlansItems.length === 0);
 }
 
 .mobile-empty-text {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .mobile-only {
   display: none;
 }
 
-@media (max-width: 768px) {
+// rp.phone 同时覆盖「窄视口」与「横屏手机」（852x393 这类宽度超 768 的情况），
+// 原来的 @media (max-width: 768px) 在手机横屏时会漏掉，于是横屏时既没有桌面视图
+// 也没有手机视图，页面全空。
+@include rp.phone {
   .mobile-only {
     display: flex;
     flex-direction: column;
-    width: 100vw;
+    // 不用 100vw：桌面窄窗口出现纵向滚动条时 100vw 含滚动条宽度，会横向溢出。
+    width: 100%;
   }
 }
 </style>

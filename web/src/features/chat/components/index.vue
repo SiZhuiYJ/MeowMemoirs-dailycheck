@@ -1,19 +1,27 @@
 <!-- index.vue -->
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
+import { computed, onMounted, onBeforeUnmount } from 'vue';
 import { useChatCore } from '../composables/useChatCore';
 import ChatToolbar from './ChatToolbar.vue';
 import ConversationSidebar from './ConversationSidebar.vue';
 import MessagePanel from './MessagePanel.vue';
 import type { ConversationSummary } from '../types';
 import router from '@/routers';
+import { useDeviceLayout } from '@/composables/use-device-layout';
 
 const chat = useChatCore();
-const isMobile = ref(false);
 
-function syncViewport() {
-  isMobile.value = window.innerWidth <= 768;
-}
+/**
+ * 是否走手机端结构（单栏切换）。
+ *
+ * 原本是 `window.innerWidth <= 768`，只按宽度判定：
+ * 手机横屏（852x393）宽度超过 768，会被当成桌面端，
+ * 于是 260px 会话列表 + 消息面板并排塞进 393px 的高度里。
+ *
+ * useDeviceLayout 同时看宽度与宽高比，横屏手机也能正确识别，
+ * 并且判定结果与 CSS 用的是同一个（见 utils/device-layout.ts）。
+ */
+const { isMobile } = useDeviceLayout();
 
 const showConversationList = computed(() => {
   if (!isMobile.value) return true;
@@ -64,15 +72,13 @@ function handlePopState() {
 }
 
 onMounted(async () => {
-  syncViewport();
-  window.addEventListener('resize', syncViewport);
+  // 视口监听已由 use-device-layout 统一接管（含旋转与软键盘），这里不再自行监听 resize。
   window.addEventListener('popstate', handlePopState);
   await chat.loadConversations();
   await chat.togglePush(true); // 内部 connectRealtime 会自动订阅所有会话
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', syncViewport);
   window.removeEventListener('popstate', handlePopState);
   conversationHistoryPushed = false;
   chat.togglePush(false); // 停止推送

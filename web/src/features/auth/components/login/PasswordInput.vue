@@ -30,7 +30,7 @@ const props = withDefaults(defineProps<Props>(), {
     gap: 6px;
 
     span {
-        font-size: 14px;
+        font-size: 13px;
         color: var(--text-muted);
     }
 
@@ -41,7 +41,7 @@ const props = withDefaults(defineProps<Props>(), {
         border: 1px solid var(--border-color);
         background: var(--bg-color);
         color: var(--text-color);
-        font-size: 14px;
+        font-size: 13px;
         transition: border-color 0.2s;
         box-sizing: border-box;
     }

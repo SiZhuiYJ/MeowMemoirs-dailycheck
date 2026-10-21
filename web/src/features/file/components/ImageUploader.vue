@@ -55,7 +55,9 @@ function handleFilesChange(event: Event) {
 
     <div v-if="cropped" style="margin: 16px">
       <div style="margin-bottom: 8px; font-weight: 600">裁剪结果预览</div>
-      <img :src="cropped" alt="cropped" style="max-width: 320px; border: 1px solid #ddd" />
+      <!-- max-width 补一个 100% 上限：只写 320px 时，360px 宽的手机上
+           预览图加上外层 margin 会横向顶破容器 -->
+      <img :src="cropped" alt="cropped" style="max-width: min(320px, 100%); border: 1px solid #ddd" />
       <div style="margin-top: 8px">
         尺寸:
         <span v-if="croppedWidth !== null">{{ croppedWidth }}x{{ croppedHeight }}</span><span v-else>已生成</span>

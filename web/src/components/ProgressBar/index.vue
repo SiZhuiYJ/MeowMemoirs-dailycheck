@@ -86,7 +86,7 @@ const percentage = computed(() => Math.round(props.progress * 100))
 }
 
 .default-text {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: bold;
     color: #333;
 }

@@ -49,8 +49,10 @@ onMounted(async () => {
 
 <style scoped lang="scss">
 .main {
-  height: 100vh;
-  width: 100vw;
+  // --app-h：跟随地址栏与软键盘的真实视口高度（移动端 100vh 会把底部顶出屏幕）。
+  height: var(--app-h);
+  // 不用 100vw：存在纵向滚动条时含滚动条宽度，会横向溢出。
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;

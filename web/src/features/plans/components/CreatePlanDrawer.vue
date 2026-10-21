@@ -193,7 +193,7 @@ function removeTimeSlot(index: number) {
       </h1>
     </template>
     <el-scrollbar
-      wrap-style="max-height: calc(100vh - 80px);"
+      wrap-style="max-height: calc(var(--app-h) - 80px);"
       view-class="drawer-body"
     >
       <label class="field">
@@ -303,14 +303,14 @@ function removeTimeSlot(index: number) {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .field-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .field span,
@@ -341,7 +341,7 @@ function removeTimeSlot(index: number) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-muted);
 }
@@ -359,7 +359,7 @@ function removeTimeSlot(index: number) {
 
 .separator {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
   padding: 0 4px;
 }
 
@@ -374,7 +374,7 @@ function removeTimeSlot(index: number) {
 
 .icon-btn.danger {
   padding: 2px 8px;
-  font-size: 12px;
+  font-size: 11px;
   background: none;
   color: var(--danger-color);
   border: 1px solid var(--danger-color);
