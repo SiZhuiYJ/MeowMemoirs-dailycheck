@@ -56,6 +56,17 @@ $bp-small-window: 1024px !default;
 $bp-phone-max: 600px !default; // <= 该宽度 → tier: phone（单栏 + 24px 控件）
 $bp-pc: 1200px !default; // > 该宽度 → tier: desktop（大屏电脑端，32px 控件 + 12px 间距）
 
+// 「宽扁小屏」的宽高比阈值：宽度在手机档（<= 600）时，宽/高 超过它就按双栏排。
+// 有效阈值是 3:2 —— 手机横屏（480x320 = 1.5、568x320 = 1.78、852x393 = 2.17）全落在双栏，
+// 4:3 及更方的小窗口（500x360 = 1.39）仍是单栏。
+//
+// 为什么是 1.499 这么一个怪数字：媒体查询的 max-/min-aspect-ratio 是**闭区间**，
+// 无法表达「严格小于」。所以单栏用 `max-aspect-ratio: 1.499`（<= 1.499），
+// 双栏分支用 `min-aspect-ratio: 1.5`（>= 1.5），两者严格互补；
+// TS 侧对应 `aspectRatio > 1.499`（大于），与这里一一对应。
+// 必须与 src/utils/device-layout.ts 的 `splitAspectRatio` 保持一致。
+$bp-split-aspect: 1.499 !default;
+
 /// 用于构造「大于某断点」的媒体查询。
 /// 不直接写 768.02，避免与 JS 的 < / <= 语义对不齐。
 $bp-epsilon: 0.02px;
@@ -91,31 +102,50 @@ $bp-epsilon: 0.02px;
 }
 
 ////
-/// 设备档位（三档，只看**宽度**）—— 与上面的 phone / desktop 是两条独立的轴。
+/// 设备档位（三档，按**宽度**判，外加一条「窄但够扁 → 双栏」的宽高比分支）
+/// —— 与上面的 phone / desktop 是两条独立的轴。
 ///
-/// | 档位 | 宽度 | 聊天页结构 | 控件 / 间距 |
+/// | 档位 | 判据 | 聊天页结构 | 控件 / 间距 |
 /// | --- | --- | --- | --- |
-/// | phone | <= 600 | 单栏（会话列表 / 聊天界面二选一） | 24px / 6px |
-/// | tablet | 600 < 宽 <= 1200 | 双栏同时展示 | 24px / 6px |
-/// | desktop | > 1200 | 双栏（常规布局） | 32px / 12px |
+/// | phone | 宽 <= 600 且 **不够扁** | 单栏（会话列表 / 聊天界面二选一） | 24px / 6px |
+/// | tablet | 600 < 宽 <= 1200，**或** 宽 <= 600 且 宽/高 >= 1.5 | 双栏同时展示 | 24px / 6px |
+/// | desktop | 宽 > 1200 | 双栏（常规布局） | 32px / 12px |
 ///
-/// 三档正好铺满视口宽度，互不重叠、也无空档 —— 与 classifyViewport() 的
-/// `tier` 判定一一对应（verify-device-layout.mjs 会做全矩阵比对）。
+/// 那条宽高比分支是为了「屏幕很小但很扁」的情形 —— 典型就是手机横屏：
+/// 宽度只有 480/568，可宽高比 1.5~1.8，横向放两栏完全够，挤成单栏反而浪费。
+///
+/// 三档互不重叠、也无空档 —— 与 classifyViewport() 的 `tier` 判定一一对应
+/// （verify-device-layout.mjs 会做全矩阵比对）。
 ///
 /// @example
 ///   // 手机单栏
 ///   @include rp.device-phone { .layout { grid-template-columns: 1fr; } }
 ///   // 手机 + 平板共用的紧凑密度
 ///   @include rp.device-mobile { .chat-page { --chat-gap: 6px; } }
+///   // 宽扁小屏（手机横屏）单独调整双栏里侧栏的宽度
+///   @include rp.device-small-landscape { .layout { grid-template-columns: 120px minmax(0, 1fr); } }
 ////
 @mixin device-phone {
-  @media (max-width: $bp-phone-max) {
+  // 窄，但**不**够扁 —— 够扁就交给 tablet（双栏）
+  @media (max-width: $bp-phone-max) and (max-aspect-ratio: $bp-split-aspect) {
+    @content;
+  }
+}
+
+@mixin device-small-landscape {
+  // 窄但够扁：按双栏排（它归在 tablet 档，所以 device-tablet 也会命中）
+  @media (max-width: $bp-phone-max) and (min-aspect-ratio: #{$bp-split-aspect + 0.001}) {
     @content;
   }
 }
 
 @mixin device-tablet {
   @media (min-width: $bp-phone-max + $bp-epsilon) and (max-width: $bp-pc) {
+    @content;
+  }
+
+  // 窄但够扁的小屏同样算双栏（与 device-small-landscape 同一条判据）
+  @media (max-width: $bp-phone-max) and (min-aspect-ratio: #{$bp-split-aspect + 0.001}) {
     @content;
   }
 }
@@ -127,6 +157,7 @@ $bp-epsilon: 0.02px;
 }
 
 /// 移动端档位（手机 + 平板）：24px 控件 + 6px 间距那一套。
+/// 只看宽度 —— 宽扁小屏（<= 600）也属于这一档，密度同样是 24px / 6px。
 @mixin device-mobile {
   @media (max-width: $bp-pc) {
     @content;

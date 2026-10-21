@@ -370,6 +370,8 @@ watch(isBlocked, (blocked) => {
 </script>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .file-upload-button {
   position: relative;
   display: inline-flex;
@@ -416,6 +418,14 @@ watch(isBlocked, (blocked) => {
 
   &:disabled {
     cursor: not-allowed;
+  }
+
+  // 移动端（手机/平板）按钮只有 24px（见 features/chat/style/index.scss 的
+  // --chat-control-h），而触屏最小可点区是 44px —— 这里按同一公式反算外扩量，
+  // 视觉尺寸不变、命中区仍是 44px。
+  //   (44px - 24px) / 2 = 10px
+  @include rp.device-mobile {
+    inset: calc((44px - var(--chat-control-h, 24px)) / -2);
   }
 }
 </style>

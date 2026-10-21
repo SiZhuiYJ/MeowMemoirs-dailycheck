@@ -1212,11 +1212,11 @@ onBeforeUnmount(() => {
 @use "@/styles/responsive-mixins" as rp;
 
 .date-separator {
-  margin: 0 12px;
+  margin: 0 var(--chat-pad, 12px);
 }
 
 .history-loading {
-  padding: 10px 12px;
+  padding: 10px var(--chat-pad, 12px);
   color: #909399;
   font-size: 11px;
   text-align: center;
@@ -1225,7 +1225,9 @@ onBeforeUnmount(() => {
 .scroll-to-latest {
   position: absolute;
   right: 18px;
-  bottom: 96px;
+  // 浮在输入区之上：输入区高度由全局 --chat-bar-h 给出
+  // （大屏 32px 控件 + 12px 内边距 = 56px；移动端 24px 控件 + 6px 内边距 = 36px）
+  bottom: calc(var(--chat-bar-h, 56px) + var(--chat-gap, 12px));
   z-index: 15;
   display: inline-flex;
   align-items: center;
@@ -1252,6 +1254,8 @@ onBeforeUnmount(() => {
     min-width: 0;
   }
 
+  // 输入框高度 = line-height + 上下内边距。与按钮同高：
+  //   大屏：20 + 6*2 = 32px；移动端：20 + 2*2 = 24px（见下方 device-mobile）
   :deep(.el-textarea__inner) {
     padding: 6px 10px;
     line-height: 20px;
@@ -1410,14 +1414,14 @@ onBeforeUnmount(() => {
 
 .composer {
   display: grid;
-  gap: 8px;
+  gap: var(--chat-gap, 8px);
   align-items: stretch;
 }
 
 .composer-main {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--chat-gap, 6px);
 
   .el-input {
     min-width: 0;
@@ -1428,8 +1432,8 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: var(--chat-gap, 12px);
+  padding: var(--chat-pad, 12px);
   border-left: 3px solid #111827;
   border-radius: 8px;
   background: rgba(243, 244, 246, 0.94);
@@ -1471,12 +1475,33 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
-// 这些是「小屏压缩」调整，横屏手机同样需要，所以用宽高比感知的 rp.phone。
-@include rp.phone {
-  .date-separator {
-    margin: 0 6px;
+// ==============================================
+// 移动端（手机 + 平板）：24px 控件 / 6px 间距
+// ==============================================
+// 与全局 --chat-control-h 对齐：输入框高度 = 行高 20 + 上下内边距 2*2 = 24px，
+// 正好和 24px 的按钮、圆形文件按钮齐平。
+@include rp.device-mobile {
+  .composer-main :deep(.el-textarea__inner) {
+    padding: 2px 8px;
+    line-height: 20px;
   }
 
+  .date-separator {
+    margin: 0 var(--chat-pad, 6px);
+  }
+
+  .scroll-to-latest {
+    right: 8px;
+    padding: 5px 10px;
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .reply-action+.reply-action {
+    margin-left: 6px;
+  }
+
+  // 「小屏压缩」：拖拽上传的提示框、引用条、拖拽文件列表都按窄屏收
   .drop-upload-indicator {
     min-width: 150px;
     padding: 22px 24px;
@@ -1484,7 +1509,8 @@ onBeforeUnmount(() => {
 
   .replying-banner {
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: 6px;
+    padding: 6px;
   }
 
   .replying-cancel {

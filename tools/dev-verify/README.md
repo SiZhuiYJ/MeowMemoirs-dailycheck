@@ -25,6 +25,8 @@ node tools/dev-verify/run-all.mjs
 
 > `verify-device-layout*.mjs` 两个套件是**纯前端逻辑验证**，不需要后端 / MySQL / Redis，
 > 也不读写数据库，可以随时单独跑。
+> `verify-chat-layout.mjs` 用**真实 chromium** 量布局，需要 dev server（默认 5173）、
+> 可伪造的开发令牌与 chromium 本体；缺任何一个都只打 `SKIP` 并返回 0。
 
 ## 运行
 
@@ -46,8 +48,9 @@ node tools/dev-verify/verify-device-layout-dom.mjs
 | `verify-auth-model.mjs` | 是 | 长令牌不能访问业务接口、多端并存、并发/重复刷新不再判失效、令牌 `typ`/`iat`/有效期、全端登出 `logout-all` 即时生效 |
 | `verify-device-logout.mjs` | 是 | **只登出当前设备**（另一台不受影响）、刷新沿用同一 `sid`、账号级撤销仍可全端下线 |
 | `verify-pin-mute.mjs` | 是 | 普通成员可切换置顶/免打扰（曾因误判为「改群资料」被 403）、改群名仍被拒、群主可改 |
-| `verify-device-layout.mjs` | 否 | 布局判定纯函数（规则：**横屏一律桌面，竖屏按宽度**）：横屏手机 852x393/667x375 必须走桌面、竖屏平板 820x1180 走桌面、窄竖屏窗口 700x1200 走手机、边界值、软键盘；**全矩阵**校验 JS 判定与 SCSS mixin 一致、`@mixin desktop` 是 `@mixin phone` 的严格取反、`@mixin phone` 带 `orientation: portrait`、断点常量无漂移；**防回归**校验 `@mixin compact` 同时覆盖「窄」与「矮」、聊天/计划页侧栏用 `clamp` 占比而非写死 px、全局小屏层收窄了 EP 弹层内边距 |
-| `verify-device-layout-dom.mjs` | 否 | 「判定结果 → `<html>` 属性 / CSS 变量」契约：横屏手机写 `data-layout=desktop`（同时 `data-phone=true`、`data-short=true`）、旋转成竖屏后布局翻转为 mobile、软键盘只改 `--app-h` 不改布局判定、`installDeviceLayout` 幂等 |
+| `verify-device-layout.mjs` | 否 | 布局判定纯函数（规则 A：**横屏一律桌面，竖屏按宽度**；规则 B：**设备档位三档（宽度为主 + 宽扁小屏破格双栏）**）：横屏手机 852x393/667x375 必须走桌面、竖屏平板 820x1180 走桌面、窄竖屏窗口 700x1200 走手机、边界值、软键盘；三档档位归属（<=600 手机 / 600~1200 平板 / >1200 大屏电脑）、**宽扁小屏破格双栏**（宽<=600 但宽/高>=1.5，如手机横屏 480x320/568x320）与 600/601/1200/1201 四个边界；**全矩阵**校验 JS 判定与 SCSS mixin 一致（`phone`/`desktop` 两档 + `device-phone/tablet/desktop` 三档互斥完备）、`@mixin desktop` 是 `@mixin phone` 的严格取反、`@mixin phone` 带 `orientation: portrait`、断点常量无漂移；**防回归**校验聊天页三档（手机单栏 / 平板双栏 / 移动端 24px 控件 + 6px 间距）、`@mixin compact` 同时覆盖「窄」与「矮」、聊天/计划页侧栏用 `clamp` 占比而非写死 px、全局小屏层收窄了 EP 弹层内边距 |
+| `verify-chat-layout.mjs` | 是（dev server + chromium） | 用 CDP 驱动 headless chromium 打开真实 `/chat`，逐视口量 `getBoundingClientRect`：大屏电脑端（>1200）双栏 + 32px 控件/12px 间距、平板端（600~1200）**双栏** + 24px/6px、手机端（<=600）**单栏** + 24px/6px；含 600/601/1200/1201 四个边界、横屏手机 852x393 走平板档、**宽扁小屏 480x320/568x320/600x400 走双栏而 480x400 仍单栏**、无横向溢出、手机档有「会话列表」返回按钮。缺 chromium / dev server / 令牌时 `SKIP` |
+| `verify-device-layout-dom.mjs` | 否 | 「判定结果 → `<html>` 属性 / CSS 变量」契约：横屏手机写 `data-layout=desktop` 且 `data-device=tablet`（同时 `data-phone=true`、`data-short=true`）、旋转成竖屏后布局翻转为 mobile 且档位翻转为 phone、竖屏平板 768x1024 是 tablet 档（不是单栏手机）、软键盘只改 `--app-h` 不改布局判定、`installDeviceLayout` 幂等 |
 
 > 这两个套件用最小 DOM 桩在 Node 里直接跑（`registerHooks` 补 `@/` 别名解析），
 > 断言的正是 CSS 侧依赖的那些属性与变量 —— 契约断了会有近百项断言直接变红。
@@ -57,3 +60,5 @@ node tools/dev-verify/verify-device-layout-dom.mjs
 - 会向 conversation 10 发送若干条测试消息（内容形如 `e2e-peer-<时间戳>`）。
 - `verify-pin-mute` 会切换并复原 user 11 的置顶/免打扰。
 - 鉴权类套件使用 user 14，并在结束时清理 `revoked_sid:*` / `auth_revoked_before:*`，不影响你正在用的登录状态。
+- `verify-chat-layout` 会给 user 8 写一份 `access_token:8`（与 e2e 套件相同，只写 Redis 不改库），
+  并在结束时杀掉自己启动的 chromium（临时 profile 目录一并删除）。

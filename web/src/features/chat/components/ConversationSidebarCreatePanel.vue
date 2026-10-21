@@ -436,10 +436,17 @@ const {
 .create-box-stack {
   display: flex;
   align-items: center;
+  // 与全局 --chat-gap 同步（大屏电脑端 12px / 平板与手机 6px）
+  gap: var(--chat-gap, 12px);
 }
 
 .member-select {
-  width: 100%;
+  // 占满剩余宽度但能收缩：el-select 自带 width: 100%，
+  // 不让它缩的话，「好友选择器 + 发起聊天按钮」在手机档（24px 控件）下
+  // 会把按钮挤出侧栏。
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
 }
 
 .member-select-item {

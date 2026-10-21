@@ -100,6 +100,11 @@ check("useDeviceLayout().isMobile 为 false", api.isMobile.value === false);
 check("useDeviceLayout().isDesktop 为 true", api.isDesktop.value === true);
 check("useDeviceLayout().isPhoneLandscape 为 true", api.isPhoneLandscape.value === true);
 check("useDeviceLayout().isShortViewport 为 true", api.isShortViewport.value === true);
+// 设备档位（三档）：横屏手机宽 852 → 平板档（双栏 + 24px 控件）
+check("横屏手机写入 data-device=tablet", attributes.get("data-device") === "tablet", `实际 ${attributes.get("data-device")}`);
+check("横屏手机 useDeviceLayout().tier 为 tablet", api.tier.value === "tablet", `实际 ${api.tier.value}`);
+check("横屏手机 isPhoneTier 为 false（要走双栏）", api.isPhoneTier.value === false);
+check("横屏手机 isTabletTier 为 true", api.isTabletTier.value === true);
 
 // CSS 变量：CSS 侧的高度计算直接吃这些值
 check("--app-h 写入可视高度 393px", cssVars.get("--app-h") === "393px", `实际 ${cssVars.get("--app-h")}`);
@@ -122,6 +127,10 @@ check("旋转后不再是过矮视口", attributes.get("data-short") === "false"
 check("旋转后 --app-h 为 852px", cssVars.get("--app-h") === "852px", `实际 ${cssVars.get("--app-h")}`);
 check("旋转后 isMobile 翻转为 true", api.isMobile.value === true);
 check("旋转后 isPhonePortrait 为 true", api.isPhonePortrait.value === true);
+// 竖屏手机宽 393 → 手机档（单栏）：data-device 必须跟着翻
+check("旋转后 data-device 翻转为 phone", attributes.get("data-device") === "phone", `实际 ${attributes.get("data-device")}`);
+check("旋转后 isPhoneTier 为 true（单栏）", api.isPhoneTier.value === true);
+check("旋转后 isTabletTier 为 false", api.isTabletTier.value === false);
 
 // ── 3. 软键盘弹起：只影响 --app-h，不改布局判定 ──────────────────────────
 viewportSize.visualHeight = 852 - 320;
@@ -153,6 +162,8 @@ check("桌面 data-short=false", attributes.get("data-short") === "false");
 check("桌面 isMobile 为 false", api.isMobile.value === false);
 check("桌面 isDesktop 为 true", api.isDesktop.value === true);
 check("桌面 --app-h 为 900px", cssVars.get("--app-h") === "900px", `实际 ${cssVars.get("--app-h")}`);
+check("桌面写入 data-device=desktop", attributes.get("data-device") === "desktop", `实际 ${attributes.get("data-device")}`);
+check("桌面 isDesktopTier 为 true", api.isDesktopTier.value === true);
 
 // ── 4b. 小窗口：桌面布局 + 紧凑密度（用户实际场景 900x700）─────────────
 // 关键：data-compact 与 data-layout 是两条独立的轴。
@@ -167,6 +178,41 @@ check("900x700 标记为小窗口(data-compact=true)", attributes.get("data-comp
 check("900x700 isSmallWindow 为 true", api.isSmallWindow.value === true);
 check("900x700 不算过矮(data-short=false)", attributes.get("data-short") === "false");
 check("900x700 不算手机", attributes.get("data-phone") === "false");
+// 900x700 是桌面布局，但宽度在平板档 —— 聊天页按「双栏 + 24px/6px」排
+check("900x700 落在平板档(data-device=tablet)", attributes.get("data-device") === "tablet", `实际 ${attributes.get("data-device")}`);
+
+// 竖屏平板（768x1024）：旧实现会判成手机单栏，现在必须是平板档双栏
+viewportSize.width = 768;
+viewportSize.height = 1024;
+viewportSize.visualHeight = 1024;
+refreshDeviceLayout();
+check("竖屏平板 768x1024 写入 data-device=tablet", attributes.get("data-device") === "tablet", `实际 ${attributes.get("data-device")}`);
+check("竖屏平板 768x1024 isPhoneTier 为 false（两个界面一起展示）", api.isPhoneTier.value === false);
+
+// 宽扁小屏（手机横屏）：宽度在手机档，但宽/高 >= 1.5 → 破格走双栏
+viewportSize.width = 568;
+viewportSize.height = 320;
+viewportSize.visualHeight = 320;
+refreshDeviceLayout();
+check("手机横屏 568x320 写入 data-device=tablet（破格双栏）", attributes.get("data-device") === "tablet", `实际 ${attributes.get("data-device")}`);
+check("手机横屏 568x320 isSmallLandscape 为 true", api.isSmallLandscape.value === true);
+check("手机横屏 568x320 isPhoneTier 为 false（双栏）", api.isPhoneTier.value === false);
+
+// 同样小，但不够扁（480x400 = 1.2）仍然是单栏
+viewportSize.width = 480;
+viewportSize.height = 400;
+viewportSize.visualHeight = 400;
+refreshDeviceLayout();
+check("小窗 480x400 写入 data-device=phone（不够扁 → 单栏）", attributes.get("data-device") === "phone", `实际 ${attributes.get("data-device")}`);
+check("小窗 480x400 isSmallLandscape 为 false", api.isSmallLandscape.value === false);
+check("小窗 480x400 isPhoneTier 为 true", api.isPhoneTier.value === true);
+
+// 大屏电脑（1600x1000）：常规密度档
+viewportSize.width = 1600;
+viewportSize.height = 1000;
+viewportSize.visualHeight = 1000;
+refreshDeviceLayout();
+check("1600x1000 写入 data-device=desktop", attributes.get("data-device") === "desktop", `实际 ${attributes.get("data-device")}`);
 
 // 大桌面：既不是小窗口，也不紧凑
 viewportSize.width = 1600;

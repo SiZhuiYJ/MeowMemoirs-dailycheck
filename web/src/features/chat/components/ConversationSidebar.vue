@@ -13,7 +13,8 @@ const createMemberUserIds = defineModel<number[]>("createMemberUserIds", {
 const props = defineProps<{
   selectedConversationId: number;
   conversations: ConversationSummary[];
-  isMobile: boolean;
+  /** 手机档单栏结构：会话列表独占一屏（平板/电脑档是双栏，恒为 false）。 */
+  isSinglePanel: boolean;
   loading?: boolean;
   friendRequestVersion: number;
   friendshipVersion: number;
@@ -30,7 +31,7 @@ const emit = defineEmits<{
     <ConversationSidebarList
       :selected-conversation-id="selectedConversationId"
       :conversations="conversations"
-      :is-mobile="isMobile"
+      :single-panel="isSinglePanel"
       :loading="props.loading"
       @select-conversation="emit('selectConversation', $event)"
     />

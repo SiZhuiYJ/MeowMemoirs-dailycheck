@@ -73,6 +73,8 @@ export interface DeviceLayoutApi {
   isTabletTier: ComputedRef<boolean>;
   /** 大屏电脑档（宽 > 1200）：双栏 + 常规密度。 */
   isDesktopTier: ComputedRef<boolean>;
+  /** 宽扁小屏（宽 <= 600 但宽/高 > 1.5，典型是手机横屏）：破格走双栏。 */
+  isSmallLandscape: ComputedRef<boolean>;
   /** 几何上是否手机（横屏也算）。与 isMobile 的区别见 device-layout.ts。 */
   isPhone: ComputedRef<boolean>;
   /** 竖屏手机：高 > 宽 且 宽度满足手机像素宽度。 */
@@ -219,6 +221,7 @@ function createApi(ref: Ref<DeviceLayout>): DeviceLayoutApi {
     isPhoneTier: computed(() => ref.value.isPhoneTier),
     isTabletTier: computed(() => ref.value.isTabletTier),
     isDesktopTier: computed(() => ref.value.isDesktopTier),
+    isSmallLandscape: computed(() => ref.value.isSmallLandscape),
     isPhone: computed(() => ref.value.isPhone),
     isPhonePortrait: computed(() => ref.value.isPhonePortrait),
     isPhoneLandscape: computed(() => ref.value.isPhoneLandscape),

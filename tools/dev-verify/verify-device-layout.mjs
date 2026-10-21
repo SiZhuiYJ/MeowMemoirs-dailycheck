@@ -4,13 +4,16 @@
  * 这个套件不需要后端 / 数据库 / Redis，纯几何计算：
  *   node tools/dev-verify/verify-device-layout.mjs
  *
- * 规则：**横屏一律桌面布局；竖屏按宽度（<=768 走手机布局）**。
+ * 规则 A（布局结构，两档）：**横屏一律桌面布局；竖屏按宽度（<=768 走手机布局）**。
+ * 规则 B（设备档位，三档）：**只看宽度** —— <=600 手机 / 600~1200 平板 / >1200 大屏电脑。
  *
- * 覆盖三件事：
- *   1. 典型机型与窗口尺寸的判定表（含横屏手机必须走桌面）；
+ * 覆盖四件事：
+ *   1. 典型机型与窗口尺寸的判定表（含横屏手机必须走桌面、三档档位归属）；
  *   2. SCSS mixin 与 TS 规则的一致性 —— 用 JS 复刻 responsive-mixins.scss 的媒体查询条件，
  *      在密集矩阵上与 classifyViewport() 逐一比对，任何一边改了都会红；
- *   3. 断点常量漂移 —— 直接解析 SCSS 里的 $bp-* 数值，与 TS 常量比对。
+ *      两套规则都验：phone/desktop（两档）与 device-phone/tablet/desktop（三档）；
+ *   3. 断点常量漂移 —— 直接解析 SCSS 里的 $bp-* 数值，与 TS 常量比对；
+ *   4. 聊天页三档样式（单栏 / 双栏 / 24px 控件 + 6px 间距）的关键声明仍在。
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -65,6 +68,53 @@ for (const [name, w, h, wantLayout, wantPhone] of CASES) {
     `期望 layout=${wantLayout} isPhone=${wantPhone}，实际 layout=${r.layout} isPhone=${r.isPhone}`,
   );
 }
+
+// ── 1b. 设备档位（三档，只看宽度）─────────────────────────────────────────
+// [名称, 宽, 高, 期望 tier]
+// 与上面的 layout 是两个概念：layout 管「结构塌不塌」（两档），
+// tier 管「聊天页按哪一档排」（三档：手机单栏 / 平板双栏 / 大屏常规密度）。
+const TIER_CASES = [
+  ["iPhone SE 竖屏",            375,  667, "phone"],
+  ["iPhone 15 竖屏",            393,  852, "phone"],
+  ["Android 常见竖屏",          360,  800, "phone"],
+  ["折叠屏展开竖屏(480)",       480, 1024, "phone"],
+  ["iPhone 15 横屏(852)",       852,  393, "tablet"],
+  ["iPhone 15 PM 横屏(932)",    932,  430, "tablet"],
+  ["iPad mini 竖屏(768)",       768, 1024, "tablet"],
+  ["iPad 竖屏(820x1180)",       820, 1180, "tablet"],
+  ["iPad 横屏(1180x820)",      1180,  820, "tablet"],
+  ["被拖窄的桌面窗口(700)",     700, 1200, "tablet"],
+  ["小笔记本(1024x600)",       1024,  600, "tablet"],
+  ["竖屏平板边界(1200)",       1200,  800, "tablet"],
+  ["大屏笔记本(1280x800)",     1280,  800, "desktop"],
+  ["笔记本(1366x768)",         1366,  768, "desktop"],
+  ["常见桌面(1920x1080)",      1920, 1080, "desktop"],
+  ["4K 桌面",                  3840, 2160, "desktop"],
+];
+
+for (const [name, w, h, wantTier] of TIER_CASES) {
+  const r = at(w, h);
+  check(
+    `档位 ${name.padEnd(26)} ${String(w).padStart(4)}x${String(h).padEnd(4)} -> ${r.tier}`,
+    r.tier === wantTier,
+    `期望 tier=${wantTier}，实际 ${r.tier}`,
+  );
+}
+
+// 三档互斥且完备：任意尺寸必须恰好命中一档
+check("档位三档互斥完备(393)", at(393, 852).isPhoneTier && !at(393, 852).isTabletTier && !at(393, 852).isDesktopTier);
+check("档位三档互斥完备(820)", !at(820, 1180).isPhoneTier && at(820, 1180).isTabletTier && !at(820, 1180).isDesktopTier);
+check("档位三档互斥完备(1920)", !at(1920, 1080).isPhoneTier && !at(1920, 1080).isTabletTier && at(1920, 1080).isDesktopTier);
+
+// 边界值：600 属于手机档、601 转平板；1200 仍平板、1201 转大屏电脑
+check("档位边界: 宽 600 仍是手机", at(600, 900).tier === "phone", `实际 ${at(600, 900).tier}`);
+check("档位边界: 宽 601 转平板", at(601, 900).tier === "tablet", `实际 ${at(601, 900).tier}`);
+check("档位边界: 宽 1200 仍是平板", at(1200, 800).tier === "tablet", `实际 ${at(1200, 800).tier}`);
+check("档位边界: 宽 1201 转大屏电脑", at(1201, 800).tier === "desktop", `实际 ${at(1201, 800).tier}`);
+
+// 头号需求：竖屏平板必须落在「双栏」这一档（平板两个界面一起展示）
+check("竖屏平板 768x1024 不是手机档（平板要双栏）", at(768, 1024).isPhoneTier === false);
+check("竖屏平板 820x1180 是平板档", at(820, 1180).tier === "tablet");
 
 // ── 2. 横屏优先：这是本套件的核心 ─────────────────────────────────────────
 // 横屏必须走桌面，哪怕宽度只有 667（旧实现按宽度判定会给出手机布局）。
@@ -149,11 +199,97 @@ for (let w = 240; w <= 2600; w += 1) {
 check("JS 判定 == SCSS @mixin phone（全矩阵）", mismatchPhone === null, mismatchPhone ?? "");
 check("@mixin desktop 是 @mixin phone 的严格取反（全矩阵）", mismatchNegation === null, mismatchNegation ?? "");
 
+// ── 7b. 三档 mixin 与 tier 的全矩阵一致性 ─────────────────────────────────
+// 复刻 responsive-mixins.scss：
+//   @mixin device-phone   -> @media (max-width: 600px) and (max-aspect-ratio: 1.499)
+//   @mixin device-tablet  -> @media (min-width: 600.02px) and (max-width: 1200px)
+//                            / @media (max-width: 600px) and (min-aspect-ratio: 1.5)
+//   @mixin device-desktop -> @media (min-width: 1200.02px)
+//   @mixin device-mobile  -> @media (max-width: 1200px)   （手机 + 平板）
+//
+// 宽高比分支（「窄但够扁 → 双栏」）两侧必须严丝合缝：
+//   SCSS 单栏 = 宽/高 <= 1.499，SCSS 双栏分支 = 宽/高 >= 1.5，
+//   TS   tier  = 宽/高 > 1.499（见 classifyViewport 的 isSmallLandscape）。
+const splitMin = BP.splitAspectRatio + 0.001; // 1.5：双栏分支的下界
+const devicePhoneByScss = (w, h) => w <= BP.phoneMaxWidth && w / h <= BP.splitAspectRatio;
+const deviceSplitByScss = (w, h) => w <= BP.phoneMaxWidth && w / h >= splitMin;
+const deviceTabletByScss = (w, h) =>
+  (w >= BP.phoneMaxWidth + 0.02 && w <= BP.pcWidth) || deviceSplitByScss(w, h);
+const deviceDesktopByScss = (w) => w >= BP.pcWidth + 0.02;
+const deviceMobileByScss = (w) => w <= BP.pcWidth;
+
+let tierMismatch = null;
+let tierOverlap = null;
+let mobileMismatch = null;
+// 宽度扫全量；高度选一批能跨过宽高比阈值（1.5）的取值，
+// 既能覆盖竖屏手机（393x852），也能覆盖各种横屏/宽扁小屏（480x320、568x320）
+const HEIGHTS = [240, 300, 320, 360, 393, 400, 430, 500, 568, 600, 667, 700, 768, 800, 900, 1024, 1180];
+for (let w = 240; w <= 2600; w += 1) {
+  for (const h of HEIGHTS) {
+    const r = at(w, h);
+    const scssPhone = devicePhoneByScss(w, h);
+    const scssTablet = deviceTabletByScss(w, h);
+    const scssDesktop = deviceDesktopByScss(w);
+
+    if (r.isPhoneTier !== scssPhone) {
+      tierMismatch ??= `${w}x${h} js=${r.tier} scss-phone=${scssPhone}`;
+    }
+    if (r.isTabletTier !== scssTablet) {
+      tierMismatch ??= `${w}x${h} js=${r.tier} scss-tablet=${scssTablet}`;
+    }
+    if (r.isDesktopTier !== scssDesktop) {
+      tierMismatch ??= `${w}x${h} js=${r.tier} scss-desktop=${scssDesktop}`;
+    }
+
+    // 三档必须恰好命中一个：既不能重叠，也不能有没命中的空档
+    const hits = [scssPhone, scssTablet, scssDesktop].filter(Boolean).length;
+    if (hits !== 1) tierOverlap ??= `${w}x${h} 命中 ${hits} 档`;
+
+    // device-mobile = 手机 + 平板（聊天页的 24px/6px 密度块）
+    if ((r.isPhoneTier || r.isTabletTier) !== deviceMobileByScss(w)) {
+      mobileMismatch ??= `宽 ${w} js=${r.tier} scss-mobile=${deviceMobileByScss(w)}`;
+    }
+  }
+}
+check("JS tier == SCSS device-* mixin（全矩阵，含宽高比分支）", tierMismatch === null, tierMismatch ?? "");
+check("device-* 三档互斥且无空档（全矩阵）", tierOverlap === null, tierOverlap ?? "");
+check("device-mobile == 手机档 + 平板档（全矩阵）", mobileMismatch === null, mobileMismatch ?? "");
+
+// 宽扁小屏：宽度在手机档但够扁时必须走双栏（这就是需求里的那条例外）
+for (const [w, h, wantTier] of [
+  [480, 320, "tablet"],  // 3:2 —— 正好卡在阈值上
+  [568, 320, "tablet"],  // iPhone SE 横屏
+  [480, 400, "phone"],   // 1.2，还是单栏
+  [500, 360, "phone"],   // 1.39，4:3 附近的窗口
+  [600, 400, "tablet"],  // 1.5，宽度上限 + 正好 3:2
+  [320, 200, "tablet"],  // 极小的宽扁窗口
+  [393, 852, "phone"],   // 竖屏手机
+]) {
+  const r = at(w, h);
+  check(
+    `宽扁小屏 ${w}x${h}（宽/高 ${(w / h).toFixed(2)}）-> ${wantTier}`,
+    r.tier === wantTier,
+    `实际 ${r.tier}（isSmallLandscape=${r.isSmallLandscape}）`,
+  );
+}
+check(
+  "宽扁小屏标记 isSmallLandscape 只在宽 <= 600 时成立",
+  at(480, 320).isSmallLandscape === true &&
+    at(568, 320).isSmallLandscape === true &&
+    at(480, 400).isSmallLandscape === false &&
+    at(820, 400).isSmallLandscape === false,
+);
+
 // ── 8. 断点常量漂移：直接解析 SCSS ────────────────────────────────────────
 const scssPath = fileURLToPath(new URL("../../web/src/styles/responsive-mixins.scss", import.meta.url));
 const scss = readFileSync(scssPath, "utf8");
 const readScssPx = (varName) => {
   const found = scss.match(new RegExp(`\\$${varName}\\s*:\\s*([0-9.]+)px`));
+  return found ? Number(found[1]) : null;
+};
+/** 读无单位数值（例如宽高比 $bp-split-aspect: 1.499）。 */
+const readScssNumber = (varName) => {
+  const found = scss.match(new RegExp(`\\$${varName}\\s*:\\s*([0-9.]+)`));
   return found ? Number(found[1]) : null;
 };
 const DRIFT = [
@@ -163,6 +299,8 @@ const DRIFT = [
   ["bp-narrow", "narrowViewportWidth"],
   ["bp-compact-height", "compactHeight"],
   ["bp-small-window", "smallWindowWidth"],
+  ["bp-phone-max", "phoneMaxWidth"],
+  ["bp-pc", "pcWidth"],
 ];
 for (const [scssName, tsName] of DRIFT) {
   const scssValue = readScssPx(scssName);
@@ -172,6 +310,25 @@ for (const [scssName, tsName] of DRIFT) {
     `scss=${scssValue} ts=${BP[tsName]}`,
   );
 }
+
+// 宽高比阈值同样不能漂移（宽扁小屏判双栏的那个 1.499）
+check(
+  "断点一致: $bp-split-aspect == splitAspectRatio",
+  readScssNumber("bp-split-aspect") === BP.splitAspectRatio,
+  `scss=${readScssNumber("bp-split-aspect")} ts=${BP.splitAspectRatio}`,
+);
+// device-phone 必须带 max-aspect-ratio 守卫，否则宽扁小屏会被判成单栏
+check(
+  "@mixin device-phone 带 max-aspect-ratio 守卫",
+  /@mixin device-phone\s*\{[^}]*max-aspect-ratio:\s*\$bp-split-aspect/s.test(scss),
+  "device-phone 缺少宽高比守卫：手机横屏（480x320 之类）会被压成单栏",
+);
+// 双栏分支（device-small-landscape / device-tablet）必须用同一阈值取反
+check(
+  "@mixin device-small-landscape 用 min-aspect-ratio 取反",
+  /@mixin device-small-landscape\s*\{[^}]*min-aspect-ratio:\s*#\{\$bp-split-aspect \+ 0\.001\}/s.test(scss),
+  "device-small-landscape 的宽高比条件与 device-phone 不是严格互补",
+);
 
 // @mixin phone 里必须带 orientation: portrait，否则横屏又会退回手机布局。
 check(
@@ -266,17 +423,89 @@ check(
   "组件尺寸没有跟随设备判定；注意竖屏手机不应降到 24px，否则触屏难以点中",
 );
 
-// ── 11. 小窗口密度 + 会话列表不再溢出（防回归）────────────────────────────
-// 两件事：
-//   1. 小窗口（<=1024px）即使是桌面布局，密度也要按移动端那套收；
-//   2. 会话列表项过去会溢出 li —— 根因是 EP 的 .el-badge 是 width: fit-content，
-//      而标题 nowrap 让 min-content 等于整条标题宽，撑破容器。
-//      修法必须让 .item 以 flex 子项身份参与收缩，不能靠调 padding。
+// ── 11. 聊天页三档样式（单栏 / 双栏 / 24px 控件 + 6px 间距）────────────────
+// 需求：正常情况只分三档 —— 大屏电脑端（常规布局）、平板端（两个界面一起展示）、
+// 手机端（只展示一个界面）；平板与手机统一 24px 控件高度 + 6px 间距。
+// 这几条都是「需求本身」，很容易被后来的改动顺手抹平，所以在源码层面钉死。
+
+/// 抠出 `@include rp.xxx { ... }` 的完整块（按大括号配对）
+function mixinBlock(source, includeName) {
+  const start = source.indexOf(`@include rp.${includeName}`);
+  if (start === -1) return "";
+  const open = source.indexOf("{", start);
+  if (open === -1) return "";
+  let depth = 0;
+  for (let i = open; i < source.length; i += 1) {
+    if (source[i] === "{") depth += 1;
+    else if (source[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(open + 1, i);
+    }
+  }
+  return "";
+}
+
+const chatTierBlocks = {
+  phone: mixinBlock(chatStyle, "device-phone"),
+  tablet: mixinBlock(chatStyle, "device-tablet"),
+  mobile: mixinBlock(chatStyle, "device-mobile"),
+  smallLandscape: mixinBlock(chatStyle, "device-small-landscape"),
+};
+
 check(
-  "聊天紧凑密度按「小窗口」而非手机断点",
-  chatStyle.includes("@include rp.compact(rp.$bp-small-window)"),
-  "chat 的紧凑密度阈值退回手机断点后，900x700 这类桌面窗口的会话列表会重新变挤",
+  "聊天页用三档 mixin（device-phone / device-tablet / device-mobile）",
+  Boolean(chatTierBlocks.phone) && Boolean(chatTierBlocks.tablet) && Boolean(chatTierBlocks.mobile),
+  "缺档位块：手机单栏 / 平板双栏 / 移动端密度 有一档没写",
 );
+// 宽扁小屏（手机横屏）仍走双栏，但侧栏明显收窄 —— 否则 480 宽的屏幕里
+// 180px 的会话列表会吃掉三分之一以上
+check(
+  "宽扁小屏（手机横屏）保持双栏并收窄侧栏",
+  Boolean(chatTierBlocks.smallLandscape) &&
+    /grid-template-columns:\s*clamp\(110px,[^)]*\)\s*minmax\(0,\s*1fr\)/.test(chatTierBlocks.smallLandscape),
+  "device-small-landscape 块缺失，或没有把侧栏收窄（宽扁小屏会挤成单栏 / 侧栏过宽）",
+);
+check(
+  "聊天页不再用旧的 rp.phone（免得分档判定与 JS 的 tier 打架）",
+  !/@include rp\.phone\b/.test(chatStyle),
+  "chat 样式里还有 @include rp.phone，它会与 tier（600/1200）边界不一致",
+);
+check(
+  "大屏电脑端仍是常规密度（32px 控件 / 12px 间距）",
+  /--chat-control-h:\s*32px/.test(chatStyle) && /--chat-gap:\s*12px/.test(chatStyle),
+  "大屏默认档的 32px 控件 / 12px 间距丢了，电脑端会变挤",
+);
+check(
+  "移动端（手机 + 平板）用 24px 控件 + 6px 间距",
+  /--chat-control-h:\s*24px/.test(chatTierBlocks.mobile) && /--chat-gap:\s*6px/.test(chatTierBlocks.mobile),
+  "device-mobile 块没把控件高度压到 24px / 间距压到 6px",
+);
+for (const name of ["phone", "tablet"]) {
+  check(
+    `${name} 档不另写密度变量（统一由 device-mobile 提供）`,
+    !/--chat-control-h:/.test(chatTierBlocks[name]) && !/--chat-gap:/.test(chatTierBlocks[name]),
+    `${name} 档自己又写了一遍密度变量：三档会变成各写各的，容易漏改`,
+  );
+}
+check(
+  "手机档是单栏（会话列表与聊天界面二选一）",
+  /grid-template-columns:\s*minmax\(0,\s*1fr\)/.test(chatTierBlocks.phone),
+  "手机档没切成单栏：要么还是双栏，要么根本没写 grid-template-columns",
+);
+check(
+  "平板档仍是双栏（两个界面一起展示）",
+  !/grid-template-columns/.test(chatTierBlocks.tablet),
+  "平板档里出现 grid-template-columns：平板必须保持双栏，不能塌成单栏",
+);
+check(
+  "控件高度由 --chat-control-h 单点驱动（不是各处写死 px）",
+  /--chat-control-h:/.test(chatStyle) && /height:\s*var\(--chat-control-h\)/.test(chatStyle),
+  "靠散落的写死高度做不到「三档只改一处」",
+);
+
+// 会话列表项过去会溢出 li —— 根因是 EP 的 .el-badge 是 width: fit-content，
+// 而标题 nowrap 让 min-content 等于整条标题宽，撑破容器。
+// 修法必须让 .item 以 flex 子项身份参与收缩，不能靠调 padding。
 
 const sidebarList = readSrc("../../web/src/features/chat/components/ConversationSidebarList.vue");
 

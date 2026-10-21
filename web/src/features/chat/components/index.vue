@@ -12,19 +12,27 @@ import { useDeviceLayout } from '@/composables/use-device-layout';
 const chat = useChatCore();
 
 /**
- * 是否走手机端结构（单栏切换）。
+ * 三档设备（正常情况只有这三档，见 features/chat/style/index.scss 文件头）：
  *
- * 原本是 `window.innerWidth <= 768`，只按宽度判定：
- * 手机横屏（852x393）宽度超过 768，会被当成桌面端，
- * 于是 260px 会话列表 + 消息面板并排塞进 393px 的高度里。
+ *   大屏电脑端（宽 > 1200）  双栏 + 32px 控件 / 12px 间距
+ *   平板端（600 ~ 1200）     双栏 + 24px 控件 / 6px 间距
+ *   手机端（宽 <= 600）      单栏 + 24px 控件 / 6px 间距
  *
- * useDeviceLayout 同时看宽度与宽高比，横屏手机也能正确识别，
- * 并且判定结果与 CSS 用的是同一个（见 utils/device-layout.ts）。
+ * 原来用 `isMobile`（竖屏 且 宽 <= 768）判单栏，会把竖屏平板（768x1024）
+ * 也判成单栏，与「平板两个界面一起展示」的预期相反。
+ * 现在统一看 tier：只有手机档才走单栏，平板档与电脑档都是双栏。
+ *
+ * 判定结果与 CSS 用的是同一组边界（utils/device-layout.ts 与
+ * styles/responsive-mixins.scss 的 device-* mixin），不会出现
+ * 「JS 判单栏、CSS 排双栏」的半吊子状态。
  */
-const { isMobile } = useDeviceLayout();
+const { isPhoneTier } = useDeviceLayout();
+
+/** 是否单栏结构（手机档）：会话列表与聊天界面二选一。 */
+const isSinglePanel = isPhoneTier;
 
 const showConversationList = computed(() => {
-  if (!isMobile.value) return true;
+  if (!isSinglePanel.value) return true;
   return !chat.selectedConversationId.value;
 });
 
@@ -49,14 +57,14 @@ function closeConversation() {
 
 async function handleSelectConversation(item: ConversationSummary) {
   await chat.selectConversation(item);
-  if (isMobile.value && chat.selectedConversationId.value) {
+  if (isSinglePanel.value && chat.selectedConversationId.value) {
     pushConversationHistory();
   }
 }
 
 function handleBackToList() {
-  // 移动端优先消费自己压入的历史记录，保证系统返回键与按钮行为一致
-  if (isMobile.value && conversationHistoryPushed) {
+  // 单栏结构优先消费自己压入的历史记录，保证系统返回键与按钮行为一致
+  if (isSinglePanel.value && conversationHistoryPushed) {
     window.history.back();
     return;
   }
@@ -101,21 +109,21 @@ const readInfoMap = computed<Map<number, { readText: string; readColor: string }
       :loading="chat.loading.value" @back="router.push('/home')" @refresh="chat.loadConversations"
       @toggle-push="chat.togglePush" />
 
-    <div class="layout" :class="{ mobile: isMobile }">
+    <div class="layout" :class="{ 'single-panel': isSinglePanel }">
       <ConversationSidebar v-show="showConversationList"
         v-model:create-title="chat.createTitle.value" v-model:create-member-user-ids="chat.createMemberUserIds.value"
         :selected-conversation-id="chat.selectedConversationId.value" :conversations="chat.conversations.value"
-        :is-mobile="isMobile" :loading="chat.loading.value && chat.conversations.value.length === 0"
+        :is-single-panel="isSinglePanel" :loading="chat.loading.value && chat.conversations.value.length === 0"
         :friend-request-version="chat.friendRequestVersion.value"
         :friendship-version="chat.friendshipVersion.value"
         @create-conversation="chat.handleCreateConversation"
         @select-conversation="handleSelectConversation" />
 
-      <MessagePanel v-if="!isMobile || !showConversationList" v-model="chat.composeText.value"
+      <MessagePanel v-if="!isSinglePanel || !showConversationList" v-model="chat.composeText.value"
         v-model:conversation-detail="chat.currentConversation.value!" :messages="chat.messages.value"
         :pending-text-messages="chat.pendingTextMessages.value" :me-user-id="chat.meUserId.value"
         :loading="chat.loading.value" :sending="chat.sending.value" :loading-more="chat.loadingMore.value"
-        :show-back-to-list="isMobile" :replying-message="chat.replyingMessage.value"
+        :show-back-to-list="isSinglePanel" :replying-message="chat.replyingMessage.value"
         :message-read-status="chat.messageReadStatus.value" :read-info-map="readInfoMap"
         :send-message-handler="chat.sendMessage" :retry-send-handler="chat.retrySendMessage"
         :discard-send-handler="chat.discardPendingTextMessage"

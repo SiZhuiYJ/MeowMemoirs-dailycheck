@@ -44,26 +44,117 @@ npm run build    # vue-tsc -b 类型检查 + vite build
 | --- | --- | --- |
 | `layout` | 该用哪套**结构**（mobile / desktop） | 组件结构切换、`.desktop-only` / `.mobile-only` |
 | `isPhone` | 几何上**是不是手机** | 埋点诊断、`data-phone`、与输入方式相关的微调 |
+| **`tier`** | **设备档位（手机 / 平板 / 大屏电脑）** | **聊天页结构 + 控件密度，见下一节** |
 
 横屏手机是 `layout: desktop` + `isPhone: true`；700×1200 的窄窗口是
 `layout: mobile` + `isPhone: false`。**`isPhone` 不参与布局切换。**
+
+### 三档设备（聊天页 / `/chat`）
+
+正常情况只分三档，**只看宽度**：
+
+| 档位 | 判据 | 聊天页结构 | 控件高度 / 间距 |
+| --- | --- | --- | --- |
+| **大屏电脑端** | 宽 `> 1200` | 双栏（会话列表 + 聊天界面）—— 常规布局 | 32px / 12px |
+| **平板端** | `600 ~ 1200`，**或** 宽 `<= 600` 且 宽/高 `>= 1.5` | **双栏，两个界面一起展示** | **24px / 6px** |
+| **手机端** | 宽 `<= 600` 且 宽/高 `<= 1.499`（不够扁） | **单栏，只展示一个界面**（会话列表 / 聊天界面二选一） | **24px / 6px** |
+
+> **「宽度虽小但够扁」也走双栏**：屏幕再小，只要宽高比够（3:2 起，手机横屏都在 1.5~2.2），
+> 横向就放得下两栏，挤成单栏反而浪费宽度、还多一次来回点击。
+> 这一类归到平板档（双栏 + 24px/6px），聊天页会把侧栏收窄到 `clamp(110px, 34%, 200px)`。
+
+| 视口 | 宽度×高度 | 宽/高 | 档位 | 结构 |
+| --- | --- | --- | --- | --- |
+| iPhone 15 竖屏 | 393×852 | 0.46 | 手机 | 单栏 |
+| iPhone SE 横屏 | 667×375 | 1.78 | 平板 | 双栏 |
+| 小屏手机横屏 | 480×320 | 1.50 | 平板 | **双栏** |
+| 手机横屏（iPhone SE 1 代） | 568×320 | 1.78 | 平板 | **双栏** |
+| 小窗口（4:3 附近） | 500×360 | 1.39 | 手机 | 单栏 |
+| 手机横屏 iPhone 15 | 852×393 | 2.17 | 平板 | 双栏 |
+| iPad mini 竖屏 | 768×1024 | 0.75 | 平板 | 双栏 |
+| iPad 竖屏 | 820×1180 | 0.69 | 平板 | 双栏 |
+| iPad 横屏 | 1180×820 | 1.44 | 平板 | 双栏 |
+| 笔记本 | 1366×768 | 1.78 | 大屏电脑 | 双栏 |
+| 桌面 | 1920×1080 | 1.78 | 大屏电脑 | 双栏 |
+
+这条宽高比分支的阈值是 `$bp-split-aspect: 1.499`（SCSS）/ `splitAspectRatio: 1.499`（TS），
+有效阈值 3:2。取 1.499 而不是 1.5 的原因：媒体查询的 `max-aspect-ratio` 是**闭区间**，
+无法表达「严格小于」，所以单栏用 `max-aspect-ratio: 1.499`、双栏用 `min-aspect-ratio: 1.5`，
+两侧严格互补（TS 用 `宽/高 > 1.499` 与之一一对应）。
+
+为什么另一条轴（`layout`）的分界是 768、而档位的分界是 600/1200：
+两者解决的问题不同 —— `layout` 管「老页面该切哪套结构」，档位管
+「横向空间够不够放两栏 / 够不够摆大间距」。竖屏平板最窄的 iPad mini 是 768，
+必须落到平板档（双栏），不能被当成手机。
+
+| 文件 | 用途 |
+| --- | --- |
+| `src/utils/device-layout.ts` | `classifyViewport().tier`（纯函数）+ `DEVICE_LAYOUT_BREAKPOINTS.phoneMaxWidth / pcWidth / splitAspectRatio` |
+| `src/styles/responsive-mixins.scss` | `$bp-phone-max` / `$bp-pc` / `$bp-split-aspect` + `device-phone` / `device-small-landscape` / `device-tablet` / `device-desktop` / `device-mobile` |
+| `src/composables/use-device-layout.ts` | `useDeviceLayout().tier / isPhoneTier / isTabletTier / isDesktopTier / isSmallLandscape`，并写 `<html data-device="phone|tablet|desktop">` |
+
+聊天页三档只改 `.chat-page` 上的这几个变量，结构差异单独写：
+
+```scss
+.chat-page {
+  // 大屏电脑端（默认）
+  --chat-gap: 12px;        // 块间距
+  --chat-pad: 12px;        // 面板内边距
+  --chat-control-h: 32px;  // 按钮 / 输入框 / 下拉框统一高度
+}
+
+// 手机 + 平板：24px 控件 + 6px 间距（只写这一处）
+@include rp.device-mobile {
+  .chat-page {
+    --chat-gap: 6px;
+    --chat-pad: 6px;
+    --chat-control-h: 24px;
+  }
+}
+
+// 手机：单栏（平板不用写，保持默认双栏）
+// 注意 device-phone 自带「不够扁」守卫，手机横屏不会命中这里
+@include rp.device-phone {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+// 宽扁小屏（手机横屏）：仍是双栏，但侧栏要收窄
+@include rp.device-small-landscape {
+  .layout { grid-template-columns: clamp(110px, 34%, 200px) minmax(0, 1fr); }
+}
+```
+
+> **EP 控件高度必须逐个接管**：`.el-button` 写死 32px、`.el-button--small` 写死 24px、
+> `.el-select__wrapper` 写死 `min-height: 32px` —— 它们都不读 `--el-component-size`。
+> 聊天页把它们统一挂到 `var(--chat-control-h)` 上（见 `features/chat/style/index.scss`），
+> 否则会出现「输入框 24px、按钮 32px、下拉框 32px」的错位。
+
 
 ### 规则实现在哪
 
 | 文件 | 用途 |
 | --- | --- |
-| `src/utils/device-layout.ts` | JS 判定（`classifyViewport()` 是纯函数） |
+| `src/utils/device-layout.ts` | JS 判定（`classifyViewport()` 是纯函数）—— 含 `layout`（两档）与 `tier`（三档） |
 | `src/styles/responsive-mixins.scss` | CSS 判定（`$bp-*` 常量 + mixin） |
+| `src/composables/use-device-layout.ts` | 把判定写到 `<html>`：`data-layout` / `data-device` / `data-short` … 与 `--app-*` 变量 |
 
 两边**必须同步修改**。`tools/dev-verify/verify-device-layout.mjs` 会校验一致性
 （断点常量漂移、全矩阵判定、`@mixin desktop` 是否为 `@mixin phone` 的严格取反、
-`@mixin phone` 有没有带 `orientation: portrait`）；`verify-device-layout-dom.mjs`
-再校验「判定结果 → `<html>` 属性 / CSS 变量」这段契约（CSS 正是靠它切换结构的）。
-两个都不需要后端，改完响应式相关代码跑一下：
+`@mixin phone` 有没有带 `orientation: portrait`、**`tier` 与 `device-*` mixin 的全矩阵比对**、
+以及聊天页三档的关键声明）；`verify-device-layout-dom.mjs` 再校验
+「判定结果 → `<html>` 属性 / CSS 变量」这段契约（含 `data-device`）。
+这两个都不需要后端，改完响应式相关代码跑一下：
 
 ```bash
 node tools/dev-verify/verify-device-layout.mjs
 node tools/dev-verify/verify-device-layout-dom.mjs
+```
+
+想在**真实浏览器**里确认「控件真的 24px、平板真的并排两栏」，再跑一个
+（需要 dev server + chromium，缺条件会自动 SKIP）：
+
+```bash
+node tools/dev-verify/verify-chat-layout.mjs
 ```
 
 ### 写响应式样式
@@ -76,10 +167,11 @@ node tools/dev-verify/verify-device-layout-dom.mjs
 | 轴 | 管什么 | 用什么 |
 | --- | --- | --- |
 | **布局结构** | 桌面双栏 / 手机单栏 | `rp.phone` / `rp.desktop`、`.desktop-only` / `.mobile-only` |
+| **设备档位** | 大屏电脑 / 平板 / 手机（三档） | `rp.device-desktop` / `rp.device-tablet` / `rp.device-phone`（+ `rp.device-mobile`） |
 | **紧凑密度** | 间距、字号、内外边距 | `rp.compact($max)` / `rp.short-viewport` |
 
-横屏手机（852×393）是「**桌面结构 + 小屏密度**」：结构上走桌面双栏，
-但只有 393px 高，间距字号必须按小屏收，否则 300px 列表加大间距会把内容挤没。
+横屏手机（852×393）在旧轴上属「**桌面结构 + 小屏密度**」；在三档轴上它是
+**平板档**（双栏 + 24px / 6px）。聊天页已全部改用三档轴，老页面继续用旧轴。
 
 ```scss
 <style scoped lang="scss">
@@ -92,6 +184,10 @@ node tools/dev-verify/verify-device-layout-dom.mjs
   @include rp.phone {
     grid-template-columns: 1fr;
   }
+
+  // 设备档位（聊天页用法）：手机单栏、平板双栏、移动端统一 24px 控件
+  @include rp.device-phone { grid-template-columns: minmax(0, 1fr); }
+  @include rp.device-mobile { --chat-control-h: 24px; }
 
   // 紧凑密度：宽 <= 768 或 视口高 <= 560 —— 横屏手机走这里
   @include rp.compact(768px) {
@@ -143,8 +239,10 @@ grid-template-columns: clamp(150px, 22%, 260px) minmax(0, 1fr);
 }
 ```
 
-> 聊天页的紧凑密度用的就是这个阈值。以前用手机断点 768px，
-> 结果 900×700 这类窗口「桌面布局 + 桌面间距」，会话列表列只有约 263px 却吃 12px 间距。
+> 聊天页已改成更精细的**三档**（600 / 1200，见上文「三档设备」）：
+> 手机与平板统一 24px 控件 + 6px 间距，大屏电脑端才用常规密度。
+> 900×700 这类窗口现在落在平板档（双栏 + 24px/6px），
+> 不再依赖 `rp.compact` 收间距 —— 但 `.plans` 等老页面仍然用它。
 
 ### 会话列表：宽度自适应与溢出坑
 
@@ -231,7 +329,11 @@ grid-template-columns: clamp(150px, 22%, 260px) minmax(0, 1fr);
 ```ts
 import { useDeviceLayout } from "@/composables/use-device-layout";
 
-const { isMobile, isPhoneLandscape, isShortViewport, isKeyboardOpen } = useDeviceLayout();
+const {
+  tier,                                  // "phone" | "tablet" | "desktop"（三档）
+  isPhoneTier, isTabletTier, isDesktopTier,
+  isMobile, isPhoneLandscape, isShortViewport, isKeyboardOpen,
+} = useDeviceLayout();
 ```
 
 判定结果是**全局单例**，由 `installDeviceLayout()` 在 `app.mount()` 之前写入 `<html>`，
@@ -273,6 +375,10 @@ const { isMobile, isPhoneLandscape, isShortViewport, isKeyboardOpen } = useDevic
 
 **竖屏手机只走第一级**（宽度窄但高度充足）：EP 默认 32px 的输入框在触屏上已够点按，
 降到 `small` 的 24px 反而难点中。这是刻意的，改之前先想清楚。
+
+> **聊天页例外**：它按档位自己接管控件高度（大屏 32px、手机/平板 24px，
+> 见「三档设备」一节）。同步的地方有 `.el-button`、`.el-button--small`、
+> `.el-select__wrapper`、`.el-input__height` 与 composer 的 textarea 内边距。
 
 > **为什么还要显式接管按钮高度**：EP 的按钮高度是**硬编码**的
 > （`.el-button` 32px、`--small` 24px、`--large` 40px），根本不读 `--el-component-size`；

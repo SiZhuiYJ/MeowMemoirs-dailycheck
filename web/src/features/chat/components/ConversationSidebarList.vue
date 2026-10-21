@@ -14,7 +14,8 @@ import {
 const props = defineProps<{
   selectedConversationId: number;
   conversations: ConversationSummary[];
-  isMobile: boolean;
+  /** 手机档单栏结构：列表独占一屏（平板/电脑档是双栏，恒为 false）。 */
+  singlePanel: boolean;
   loading?: boolean;
 }>();
 
@@ -22,14 +23,14 @@ const emit = defineEmits<{
   selectConversation: [item: ConversationSummary];
 }>();
 
-/** 会话列表时间取最后一条消息时间，没有消息时退回会话更新时间。 */
+/** 列表项时间取最后一条消息时间，没有消息时退回会话更新时间。 */
 function getItemTime(item: ConversationSummary) {
   return formatConversationListTime(item.lastMessage?.createdAt ?? item.updatedAt);
 }
 </script>
 
 <template>
-  <el-scrollbar :view-class="isMobile ? 'mobile' : ''">
+  <el-scrollbar :view-class="singlePanel ? 'single-panel' : ''">
     <ul v-if="conversations.length > 0" class="conversation-list">
       <li v-for="item in conversations" :key="item.id" class="conversation-item"
         :class="{ active: item.id === selectedConversationId }" @click="emit('selectConversation', item)">
@@ -178,7 +179,8 @@ function getItemTime(item: ConversationSummary) {
   display: grid;
   gap: 6px;
   justify-items: center;
-  padding: 120px 16px 16px;
+  // 顶部留白让开绝对定位的创建区（手机档更矮，见下面的 device-mobile）
+  padding: calc(var(--chat-create-h, 100px) + 20px) 16px 16px;
   color: var(--chat-muted, #6b7280);
   font-size: 12px;
   text-align: center;
@@ -201,8 +203,28 @@ function getItemTime(item: ConversationSummary) {
   top: 0;
   transform: translate(-100%, -50%);
 
-  @include rp.phone {
+  @include rp.device-mobile {
     top: 4px;
   }
 }
+
+// ==============================================
+// 移动端（手机 + 平板）：24px 控件 / 6px 间距的同一档密度
+// ==============================================
+// 列表项的内边距/间距由上面的 cqi clamp 负责，但手机档的列表是全宽的
+// （比双栏时的侧栏宽得多），3.6cqi 会被 clamp 顶到 12px —— 与「移动端 6px 间距」
+// 不一致，所以这里显式压到 6px，并顺带把头像上限收到 44px
+// （全宽列表里 60px 头像显得过大，且会把文字挤到第二行）。
+@include rp.device-mobile {
+  .conversation-item {
+    --chat-item-avatar: clamp(32px, 12cqi, 44px);
+    padding: 6px;
+    gap: 6px;
+  }
+
+  .conversation-empty {
+    padding-top: calc(var(--chat-create-h, 66px) + 12px);
+  }
+}
+
 </style>

@@ -1187,8 +1187,8 @@ watch(
   font-size: 11px;
 }
 
-// 单列化调整：横屏手机（宽度可能超过 768）同样需要，故用 rp.phone。
-@include rp.phone {
+// 单列化调整：手机 / 平板档（600~1200 的横屏手机与平板）同样需要，故用 device-mobile。
+@include rp.device-mobile {
   .direct-friend-main {
     grid-template-columns: 1fr;
   }

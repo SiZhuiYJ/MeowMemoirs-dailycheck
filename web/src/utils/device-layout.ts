@@ -43,13 +43,16 @@
  * 竖屏平板（768x1024）和手机竖屏一样落到 `mobile`，
  * 而聊天页要的是「手机单栏、平板双栏、大屏电脑常规密度」三档。
  *
- * 所以额外提供一条**只看宽度**的档位轴，只按视口宽度切成三档：
+ * 所以额外提供一条**以宽度为主、宽高比为辅**的档位轴，切成三档
+ * （宽度分档 + 一条「窄但够扁 → 双栏」的例外）：
  *
  * | 视口 | 宽度 | tier | 聊天页结构 | 控件/间距 |
  * | --- | --- | --- | --- | --- |
  * | 手机竖屏 iPhone 15 | 393 | `phone` | 单栏（列表 / 聊天二选一） | 24px / 6px |
  * | 手机竖屏 iPhone 15 PM | 430 | `phone` | 单栏 | 24px / 6px |
  * | 折叠屏展开竖屏 | 480 | `phone` | 单栏 | 24px / 6px |
+ * | 小屏横屏 480x320（宽扁） | 480 | `tablet` | 双栏 | 24px / 6px |
+ * | 手机横屏 iPhone SE（宽扁） | 568 | `tablet` | 双栏 | 24px / 6px |
  * | 横屏手机 iPhone 15 | 852 | `tablet` | 双栏 | 24px / 6px |
  * | 竖屏平板 iPad mini | 768 | `tablet` | 双栏 | 24px / 6px |
  * | 竖屏平板 iPad | 820 | `tablet` | 双栏 | 24px / 6px |
@@ -57,17 +60,27 @@
  * | 笔记本 1366x768 | 1366 | `desktop` | 双栏 | 32px / 12px |
  * | 桌面 1920x1080 | 1920 | `desktop` | 双栏 | 32px / 12px |
  *
- * 两条边界：
+ * 三条边界：
  *
- * 1. `width <= phoneMaxWidth(600)` → `phone`。手机竖屏基本都在 600 以内；
+ * 1. `width > pcWidth(1200)` → `desktop`（大屏电脑端，常规密度）。
+ * 2. `width <= phoneMaxWidth(600)` → `phone`（单栏）。手机竖屏基本都在 600 以内；
  *    竖屏平板最窄的 iPad mini 也有 768，不会误判成手机。
- * 2. `width > pcWidth(1200)` → `desktop`（大屏电脑端）。
- *    中间 (600, 1200] 是 `tablet`：平板、横屏手机、以及被拖窄的桌面窗口 ——
- *    它们的共同点是「横向还放得下两栏，但没宽敞到用桌面那套大间距」。
+ * 3. **宽扁小屏例外**：宽度虽在手机档，但 `宽/高 >= 1.5`（即 `> splitAspectRatio`）时
+ *    按 `tablet`（双栏）处理 —— 屏幕再小，只要够扁，横向就放得下两栏，
+ *    继续挤成单栏反而浪费宽度。手机横屏全在这一类：
  *
- * 为什么 tier 不看方向：`layout` 那条「横屏一律桌面」是为了**结构**不塌，
- * 而 tier 关心的是「横向空间够不够放两栏 / 够不够放大间距」，
- * 这件事由宽度直接决定，横屏手机（852 宽）本来就该双栏 + 紧凑控件。
+ *    - 480x320（宽/高 1.50）→ `tablet` 双栏
+ *    - 568x320（1.78，iPhone SE 横屏）→ `tablet` 双栏
+ *    - 852x393（2.17，iPhone 15 横屏）→ `tablet` 双栏
+ *    - 500x360（1.39，4:3 附近的小窗口）→ `phone` 单栏
+ *    - 393x852（0.46，竖屏手机）→ `phone` 单栏
+ *
+ * 其余 (600, 1200] 是 `tablet`：平板、横屏手机、以及被拖窄的桌面窗口 ——
+ * 它们的共同点是「横向还放得下两栏，但没宽敞到用桌面那套大间距」。
+ *
+ * 为什么 tier 主要看宽度：`layout` 那条「横屏一律桌面」是为了**结构**不塌，
+ * 而 tier 关心的是「横向空间够不够放两栏 / 够不够放大间距」，这件事由宽度决定；
+ * 唯一的补丁就是「窄但够扁」—— 那时宽度不够、但宽度相对高度富余，双栏同样成立。
  */
 
 /** 布局模式：组件据此切换「桌面结构 / 手机结构」。 */
@@ -107,6 +120,19 @@ export const DEVICE_LAYOUT_BREAKPOINTS = {
    * 那个宽度下 32px 控件配 12px 间距会把两栏挤得很局促。
    */
   pcWidth: 1200,
+  /**
+   * 设备档位：宽扁小屏的宽高比阈值（`width > height * 该值` 即按双栏排）。
+   *
+   * 只对「宽度落在手机档（<= phoneMaxWidth）」的视口生效：屏幕再小，
+   * 只要够扁（3:2 起，手机横屏都在 1.6~2.2），横向就放得下两栏。
+   * 4:3 及更方的小窗口（500x360 = 1.39）仍然是单栏。
+   *
+   * 取值 1.499 是为了与 CSS 严格互补：`styles/responsive-mixins.scss` 里
+   * `device-phone` 用 `max-aspect-ratio: 1.499`（含等号），这里用「大于」，
+   * 两条判定刚好铺满、互不重叠（见 verify-device-layout.mjs 的全矩阵比对）。
+   * 有效阈值即 3:2 —— 480x320 这种正好 1.5 的横屏手机落在双栏。
+   */
+  splitAspectRatio: 1.499,
   /**
    * 「小窗口」宽度上限。桌面结构要 ~1024px 才舒展，
    * 低于它即使仍是桌面**布局**，也该套用紧凑**密度**（移动端那套间距/字号）。
@@ -164,6 +190,11 @@ export interface DeviceLayout {
   isTabletTier: boolean;
   /** `tier === "desktop"`：大屏电脑端，常规密度。 */
   isDesktopTier: boolean;
+  /**
+   * 「宽扁小屏」：宽度在手机档（<= 600），但宽/高 > 1.5（3:2）。
+   * 这类视口（典型是手机横屏）会**破格走双栏**，所以 isPhoneTier 为 false。
+   */
+  isSmallLandscape: boolean;
   /**
    * 几何上是否手机（含横屏）。
    * 只用于埋点诊断与「与输入方式相关」的微调，**不参与布局切换** ——
@@ -233,9 +264,13 @@ export function classifyViewport(input: ViewportInput): DeviceLayout {
   // 「小窗口」只看挤不挤，与横竖屏/布局结构无关
   const isSmallWindow = width <= bp.smallWindowWidth || isShortViewport;
 
-  // ── 设备档位（三档，只看宽度）──
+  // ── 设备档位（三档）──
   // 与上面的 isMobile 是两条独立的轴：这里关心「横向空间够不够放两栏 / 够不够放大间距」。
-  const isPhoneTier = width <= bp.phoneMaxWidth;
+  // 宽度是主判据；唯一的补充是「窄而够扁」的小屏 —— 宽度不够，但相对高度富余，
+  // 双栏同样成立（手机横屏 480x320、568x320 就是这一类）。
+  const isNarrowWidth = width <= bp.phoneMaxWidth;
+  const isSmallLandscape = isNarrowWidth && aspectRatio > bp.splitAspectRatio;
+  const isPhoneTier = isNarrowWidth && !isSmallLandscape;
   const isDesktopTier = width > bp.pcWidth;
   const isTabletTier = !isPhoneTier && !isDesktopTier;
   const tier: DeviceTier = isPhoneTier
@@ -259,6 +294,7 @@ export function classifyViewport(input: ViewportInput): DeviceLayout {
     isPhoneTier,
     isTabletTier,
     isDesktopTier,
+    isSmallLandscape,
     isPhone,
     isPhonePortrait,
     isPhoneLandscape,
