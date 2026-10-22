@@ -2,7 +2,7 @@
 export type ConversationType = "direct" | "group";
 export type MessageType = "text" | "image" | "video" | "audio" | "file" | "system";
 export type UserRole = "owner" | "admin" | "member";
-export type PendingUploadStatus = "uploading" | "processing" | "failed";
+export type PendingUploadStatus = "uploading" | "failed";
 
 export interface MessageReference {
   id: number;
@@ -64,7 +64,6 @@ export interface PendingUpload {
   replyToMessage?: MessageReference | null;
   status: PendingUploadStatus;
   progress: number;
-  confirmedMessageId?: number | null;
   fileExtra: FileExtra;
 }
 

@@ -15,8 +15,8 @@ import { Document, UploadFilled } from '@element-plus/icons-vue';
 import { useDeviceLayout } from '@/composables/use-device-layout';
 import { useAuthStore } from '@/stores';
 import MessageItem from './MessageItem.vue';
-import FileMessage from './FileMessage.vue';
 import FileUploadButton from './FileUploadButton.vue';
+import { rememberBlobUrl } from '../composables/useFileDownloader';
 import ConversationDetailDialog from './ConversationDetailDialog.vue';
 import type {
   ConversationDetail,
@@ -38,6 +38,7 @@ import {
   getMessageSenderName,
 } from '../utils/chat';
 import {
+  FILE_TYPE_LABELS,
   formatFileSize,
   getFilePreviewType,
 } from '../utils/fileMeta';
@@ -170,23 +171,6 @@ const emptyReadDisplay = { readText: '', readColor: '#909399' };
 const highlightedMessageId = ref<number | null>(null);
 let highlightTimer: ReturnType<typeof window.setTimeout> | null = null;
 
-const FILE_TYPE_LABELS: Record<ReturnType<typeof getFilePreviewType>, string> = {
-  image: '图片',
-  video: '视频',
-  audio: '音频',
-  word: 'Word 文档',
-  excel: 'Excel 表格',
-  pptx: 'PPT 演示',
-  pdf: 'PDF',
-  text: '文本',
-  md: 'Markdown',
-  doc: 'Word 文档',
-  xls: 'Excel 表格',
-  ppt: 'PPT 演示',
-  archive: '压缩包',
-  unknown: '文件',
-};
-
 function registerFileToGallery(file: GalleryFile) {
   const existingIndex = galleryFileList.value.findIndex((item) => item.url === file.url);
   if (existingIndex >= 0) {
@@ -235,27 +219,9 @@ const messageMap = computed(() => {
   return map;
 });
 
-const hiddenConfirmedMessageIds = computed(() =>
-  new Set(
-    pendingUploads.value
-      .map((pendingUpload) => pendingUpload.confirmedMessageId)
-      .filter((messageId): messageId is number => typeof messageId === 'number' && messageId > 0),
-  ),
-);
-
-const pendingMediaPreloads = computed(() =>
-  pendingUploads.value.flatMap((pendingUpload) => {
-    if (!pendingUpload.confirmedMessageId) return [];
-    const confirmedMessage = messageMap.value.get(pendingUpload.confirmedMessageId);
-    if (!confirmedMessage) return [];
-    return [{ tempId: pendingUpload.tempId, message: confirmedMessage }];
-  }),
-);
-
 const renderedItems = computed<RenderedChatItem[]>(() =>
   [
     ...props.messages
-      .filter((message) => !hiddenConfirmedMessageIds.value.has(message.id))
       .map<RenderedChatItem>((message) => ({
         kind: 'message',
         key: `message-${message.id}`,
@@ -502,7 +468,6 @@ function createPendingUpload(file: File, replyToMessageId?: number | null) {
     replyToMessage,
     status: 'uploading',
     progress: 0,
-    confirmedMessageId: null,
     fileExtra,
   });
 
@@ -517,10 +482,27 @@ function parseConfirmedFileExtra(message: MessageSummary) {
   }
 }
 
-function shouldWaitForConfirmedMedia(message: MessageSummary) {
-  if (message.messageType === 'image') return true;
-  if (message.messageType !== 'video') return false;
-  return Boolean(parseConfirmedFileExtra(message)?.thumbnailUrl);
+/**
+ * 把待发消息手里的本地 blob 交给下载缓存，并从「待发资源」里摘出来。
+ *
+ * 上传成功的这一刻，本地这份 file 就是刚发出去的东西（webp 转换 / 视频封面抽帧
+ * 都在上传前做完了），直接拿来给真实消息用，画面上与待发时**完全是同一份像素**，
+ * 既不用回头再下一次，也不会先闪一下占位图。摘出来是为了让 cleanupPendingResources
+ * 别把它 revoke 掉 —— 它现在的归属是下载缓存。
+ */
+function adoptLocalMedia(pendingUpload: PendingUpload, confirmedMessage: MessageSummary) {
+  const confirmedExtra = parseConfirmedFileExtra(confirmedMessage);
+  const local = pendingUpload.fileExtra;
+
+  const adopt = (key: string | undefined, blobUrl: string | undefined) => {
+    if (!key || !blobUrl || !blobUrl.startsWith('blob:')) return;
+    rememberBlobUrl(key, blobUrl);
+    pendingResourceMap.get(pendingUpload.tempId)?.delete(blobUrl);
+  };
+
+  // 图片：主图；视频：封面（视频本体仍按需下载，与之前一致）
+  adopt(confirmedExtra?.fileKey, local.localPreviewUrl);
+  adopt(confirmedExtra?.thumbnailUrl, local.localThumbnailUrl);
 }
 
 function isSameFileMessage(pendingUpload: PendingUpload, confirmedMessage: MessageSummary) {
@@ -541,24 +523,35 @@ function isSameFileMessage(pendingUpload: PendingUpload, confirmedMessage: Messa
   return sameName && sameSize && sameMime && closeEnough;
 }
 
+/**
+ * 上传成功、真实消息已经落地：**立刻**收掉本地待发气泡。
+ *
+ * ⚠️ 历史教训，别改回「先标 processing（界面上的『准备中』），再等一个隐藏组件回话」：
+ * 旧实现在这里把待发消息标成 processing，同时挂一个隐藏的 FileMessage 去把刚上传完的
+ * 文件**重新从服务器下一次**，下完再 emit mediaSettled 才收气泡。那条路有两个坑，
+ * 每一个都能让图片永久停在「准备中」：
+ *
+ *   1. 为了不闪出重复气泡，真实消息一落地就从列表里被摘掉（只留待发气泡），
+ *      那条消息的 FileMessage 随即**被卸载**；而 Vue 的 emit 对已卸载组件是直接
+ *      `return` 的（isUnmounted），于是「下载完成」这件事永远传不回面板；
+ *   2. 同一个 fileKey 的第二个下载请求会被下载队列**静默丢弃**
+ *      （旧 useFileDownloader 的去重是 `return` 而不是挂队等待），连回调都不会来。
+ *
+ * 现在：本地 blob 直接进缓存 → 真实消息首帧就有图（不闪、不重下）→ 待发气泡立即移除。
+ * 整个过程不依赖任何「回话」，因此不存在卡住的状态。
+ */
 function settlePendingUpload(tempId: string, confirmedMessage: MessageSummary) {
-  if (!shouldWaitForConfirmedMedia(confirmedMessage)) {
-    removePendingUpload(tempId);
-    return;
+  const pendingUpload = pendingUploads.value.find((upload) => upload.tempId === tempId);
+  if (pendingUpload) {
+    adoptLocalMedia(pendingUpload, confirmedMessage);
   }
-
-  updatePendingUpload(tempId, (upload) => ({
-    ...upload,
-    status: 'processing',
-    progress: 100,
-    confirmedMessageId: confirmedMessage.id,
-  }));
+  removePendingUpload(tempId);
 }
 
 function reconcilePendingUploads(confirmedMessages: MessageSummary[]) {
   if (pendingUploads.value.length === 0 || confirmedMessages.length === 0) return;
 
-  const availablePending = pendingUploads.value.filter((pendingUpload) => !pendingUpload.confirmedMessageId);
+  const availablePending = [...pendingUploads.value];
 
   for (const confirmedMessage of confirmedMessages) {
     const matchIndex = availablePending.findIndex((pendingUpload) =>
@@ -612,18 +605,11 @@ function markPendingFailed(tempId: string) {
   updatePendingUpload(tempId, (upload) => ({
     ...upload,
     status: 'failed',
-    confirmedMessageId: null,
   }));
 
   window.setTimeout(() => {
     removePendingUpload(tempId);
   }, 1800);
-}
-
-function handlePendingMediaSettled({ messageId }: { messageId: number; ready: boolean }) {
-  const matchedUpload = pendingUploads.value.find((upload) => upload.confirmedMessageId === messageId);
-  if (!matchedUpload) return;
-  removePendingUpload(matchedUpload.tempId);
 }
 
 function shouldPreloadInlineMedia(item: RenderedChatItem) {
@@ -1090,7 +1076,7 @@ onBeforeUnmount(() => {
               v-bind="item.kind === 'message' ? getReadDisplay(item.message.id) : emptyReadDisplay"
               @reply="emit('replyMessage', $event)" @recall="emit('recallMessage', $event)"
               @retry-send="handleRetrySend" @discard-send="handleDiscardSend"
-              @media-settled="handlePendingMediaSettled" @jump-to-message="jumpToMessage" />
+              @jump-to-message="jumpToMessage" />
           </template>
         </div>
       </el-scrollbar>
@@ -1101,11 +1087,6 @@ onBeforeUnmount(() => {
           <span>{{ unseenNewCount > 0 ? `${unseenNewCount} 条新消息` : '回到最新' }}</span>
         </button>
       </transition>
-
-      <div v-if="pendingMediaPreloads.length > 0" class="media-preload-layer" aria-hidden="true">
-        <FileMessage v-for="item in pendingMediaPreloads" :key="`preload-${item.tempId}-${item.message.id}`"
-          :message="item.message" :show-download="false" src="" @media-settled="handlePendingMediaSettled" />
-      </div>
 
       <div v-if="showDropOverlay" class="drop-upload-overlay">
         <div class="drop-upload-indicator">
@@ -1260,15 +1241,6 @@ onBeforeUnmount(() => {
     padding: 6px 10px;
     line-height: 20px;
   }
-}
-
-.media-preload-layer {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-  pointer-events: none;
-  opacity: 0;
 }
 
 .drop-upload-overlay {

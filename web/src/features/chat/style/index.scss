@@ -360,6 +360,11 @@
 // ==============================================
 .message-list {
   display: grid;
+  // 单列必须写 minmax(0, 1fr)：
+  //   默认的 auto 列宽会被子项的最小内容宽度撑开 —— 文件卡片是 300px 宽的定宽盒，
+  //   整列于是被撑到「300 + 头像 + 间距」，容器再窄也只是溢出（被 .chat-page 裁掉），
+  //   表现为「窗口缩小了，卡片却还是那么宽」。
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--chat-gap);
   // 上下留白给浮层头部 / 输入区让位
   padding: var(--chat-bar-h) var(--chat-pad);
@@ -371,6 +376,56 @@
   flex-direction: row;
   max-width: 75%;
   gap: var(--chat-gap);
+
+  // ── 文件类消息的宽度链 ────────────────────────────────────────────────
+  // 卡片（音频 / 文档）和媒体（图片 / 视频）要的宽度策略**不一样**，所以分成两个类：
+  //
+  //   .has-file   卡片：**撑满可用宽度**（最多 300px、最少 100px）——
+  //               卡片里是图标 + 文件名 + 大小，撑开才整齐，横着排得下信息。
+  //   .has-media  媒体：**贴合媒体自身尺寸**（同样夹在 300px / 100px 之间）——
+  //               图片只有 169px 宽时，气泡就该是 169px，而不是一个 300px 的透明盒子。
+  //
+  // 两者都要求 .content / .bubble-wrap 有**确定宽度**（否则媒体在窄屏里缩不下来，
+  // 见 FileMessage.vue 顶部那段关于「自循环」的注释）；差别只在 .bubble-wrap
+  // 要不要继续把 100% 往下传：
+  //
+  //   .msg-item.has-file   width: 100%（与 max-width: 75%/82%/88% 相与）
+  //     └ .content         flex: 1 1 auto; min-width: 0   → 吃掉剩余宽度（减头像和间距）
+  //         └ .bubble-wrap  width: 100%                   → 确定宽度继续往下传（卡片靠它撑开）
+  //
+  //   .msg-item.has-media  同样先给出确定宽度
+  //     └ .content         同上
+  //         └ .bubble-wrap  不写 width：按内容收缩，flex 的交叉轴会把它的上限
+  //                         夹到可用宽度 → 于是 .mine 的 align-items: flex-end
+  //                         就能把它贴到头像这一侧（这正是「自己的图片应该挨着头像」）。
+  &.has-file {
+    width: 100%;
+
+    .content {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .bubble-wrap {
+      width: 100%;
+      min-width: 0;
+    }
+  }
+
+  // 媒体：气泡贴合图片，位置由 .mine（见下）决定贴哪边
+  &.has-media {
+    width: 100%;
+
+    .content {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .bubble-wrap {
+      min-width: 0;
+      max-width: 100%;
+    }
+  }
 
   &.mine {
     flex-direction: row-reverse;

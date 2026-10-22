@@ -138,6 +138,21 @@ export function formatChatTime(value: string): string {
 }
 
 /**
+ * 完整时间：YYYY-MM-DD HH:mm。
+ *
+ * 消息气泡里只放时:分就够，但文件详情面板要回答「这份文件什么时候发来的」，
+ * 跨天的消息必须有日期，否则 10/19 和 10/21 的两份文件看起来一模一样。
+ */
+export function formatChatDateTime(value?: string | null): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const pad = (num: number) => String(num).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/**
  * 会话列表用的相对时间：今天显示时:分，昨天显示「昨天」，
  * 一周内显示星期，更早显示月/日。
  */

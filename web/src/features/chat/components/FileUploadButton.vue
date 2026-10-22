@@ -53,6 +53,7 @@ import { Paperclip } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { telemetry } from '@/libs/telemetry';
 import { prepareFilesForMessageUpload } from '../utils/fileUpload';
+import { SUPPORTED_FILE_EXTENSIONS } from '../utils/fileMeta';
 
 const props = defineProps<{
   disabled?: boolean;
@@ -67,8 +68,22 @@ const emit = defineEmits<{
   fileSelected: [files: File[]];
 }>();
 
-/** 与后端白名单一致：移动端把选择器收窄，能少一半误选。 */
-const ACCEPT = 'image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,.7z';
+/**
+ * 与后端白名单一致：移动端把选择器收窄，能少一半误选。
+ *
+ * ⚠️ 不要在这里手写扩展名列表。`accept` 是浏览器原生选择器的过滤条件：
+ * 不匹配的文件在桌面端直接置灰、点不动，手机端文档选择器也不列出来。
+ * 之前这里手写漏了 `.md`（以及 .csv/.rtf/.json/.xml/.html/.css/.js/.ts），
+ * 虽然后端 SupportedFileTypes 和前端 validateFile 都放行，用户却「选都选不了」。
+ * 现在统一从 fileMeta 的白名单拼出来，两边不会再脱节。
+ */
+const ACCEPT = [
+  // 用通配符而不是逐个列扩展名：手机端能进相册/图库选择器，而不是只弹文件管理器
+  'image/*',
+  'video/*',
+  'audio/*',
+  ...SUPPORTED_FILE_EXTENSIONS.map((extension) => `.${extension}`),
+].join(',');
 
 /** 校验 + 预处理（图片转 WebP、视频抽帧）期间，不再接受新的选择。 */
 const preparing = ref(false);

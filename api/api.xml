@@ -2795,6 +2795,35 @@
         <member name="M:api.Infrastructure.LocalFileService.SaveChatFileAsync(System.UInt64,System.UInt64,Microsoft.AspNetCore.Http.IFormFile,System.Threading.CancellationToken)">
             <inheritdoc/>
         </member>
+        <member name="M:api.Infrastructure.LocalFileService.BuildChatFileKey(System.UInt64,System.String,System.Boolean,System.String)">
+             <summary>
+             生成聊天文件的 fileKey（**带会话作用域**）。
+            
+               · 图片：{会话}_{内容哈希}            物理文件是 {fileKey}.webp（图片统一转 webp）
+               · 其它：{会话}_{内容哈希}{原始后缀}  物理文件名就是 fileKey，后缀保留下来，
+                                                   GetChatFileAsync 才能按后缀给出正确的 Content-Type
+            
+             长度：会话 id ≤ 20 位 + 下划线 + 64 位哈希 + 后缀 ≤ 10 位，远低于列的 128 上限。
+             </summary>
+        </member>
+        <member name="M:api.Infrastructure.LocalFileService.SaveChatImageAsync(Microsoft.AspNetCore.Http.IFormFile,System.String,System.Threading.CancellationToken)">
+            <summary>
+            把上传图片统一落成 webp。目标文件已存在（内容哈希相同 = 字节相同）就直接复用，
+            不再重写一遍。
+            </summary>
+        </member>
+        <member name="M:api.Infrastructure.LocalFileService.SaveChatBinaryAsync(Microsoft.AspNetCore.Http.IFormFile,System.String,System.Threading.CancellationToken)">
+            <summary>
+            非图片文件原样落盘（fileKey 就是物理文件名）。同名文件已存在则直接复用 ——
+            能落到这一步说明内容哈希一致，字节也一致。
+            </summary>
+        </member>
+        <member name="M:api.Infrastructure.LocalFileService.ReuseChatFileRecordAsync(api.Data.ChatFileRecord,Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Boolean,System.String,System.Threading.CancellationToken)">
+            <summary>
+            复用「同内容」的已有记录：补齐可能被清理掉的物理文件、复活软删除记录，
+            然后把文件信息原样返回。调用方拿到的是同一个 fileKey，发的第二条消息照样能显示。
+            </summary>
+        </member>
         <member name="T:api.Infrastructure.GlobalExceptionMiddleware">
             <summary>
             全局异常处理中间件，用于捕获并未处理的异常并记录到文件日志。

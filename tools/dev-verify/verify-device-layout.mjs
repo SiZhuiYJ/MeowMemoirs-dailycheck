@@ -445,6 +445,23 @@ function mixinBlock(source, includeName) {
   return "";
 }
 
+/// 抠出 `选择器 { ... }` 的完整块（同样按大括号配对）
+function ruleBlock(source, selector) {
+  const start = source.indexOf(selector);
+  if (start === -1) return "";
+  const open = source.indexOf("{", start);
+  if (open === -1) return "";
+  let depth = 0;
+  for (let i = open; i < source.length; i += 1) {
+    if (source[i] === "{") depth += 1;
+    else if (source[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(open + 1, i);
+    }
+  }
+  return "";
+}
+
 const chatTierBlocks = {
   phone: mixinBlock(chatStyle, "device-phone"),
   tablet: mixinBlock(chatStyle, "device-tablet"),
@@ -759,8 +776,12 @@ check(
 );
 
 // ── 16. 文件消息卡片宽度：最多 300 / 窄则收缩 / 最小 100 ──────────────────
-// 原本 .audio-message / .document-message 写死 width: 300px，
-// 窄容器里会横向顶出气泡（.file-message 的 max-width 管不到子元素）。
+// 历史：最早 .audio-message / .document-message 写死 width: 300px，窄容器里横向顶出气泡；
+// 后来改成 `width: 300px; max-width: 100%`，看似收缩，实际仍缩不动 —— 卡片的父级
+// 一路都是 fit-content，`max-width: 100%` 相对「自己撑出来的宽度」求百分比，只能退化成 auto。
+// 现在收缩能力来自 `width: 100%`（父级 .msg-item.has-file / .bubble-wrap 提供确定宽度），
+// 上限由 max-width: 300px 兜，下限仍是 min-width: 100px。
+// 真实浏览器里的量测见 verify-chat-layout.mjs / 本轮手工 CDP 验证（393 → 277、320 → 213、170 → 100）。
 const fileMessage = readSrc("../../web/src/features/chat/components/FileMessage.vue");
 const cardMixin = fileMessage.slice(
   fileMessage.indexOf("@mixin file-card-width"),
@@ -772,12 +793,12 @@ check(
   "缺少 file-card-width mixin",
 );
 check(
-  "卡片宽度上限 300px", /width:\s*300px/.test(cardMixin),
-  "缺少 width: 300px（期望宽度）",
+  "卡片宽度上限 300px", /max-width:\s*300px/.test(cardMixin),
+  "缺少 max-width: 300px（期望宽度上限）",
 );
 check(
-  "卡片可随容器收缩", /max-width:\s*100%/.test(cardMixin),
-  "缺少 max-width: 100%，窄气泡里会横向顶破容器",
+  "卡片可随容器收缩", /width:\s*100%/.test(cardMixin),
+  "缺少 width: 100%（依赖父级确定宽度收缩；max-width: 100% 在 fit-content 父级里会自循环）",
 );
 check(
   "卡片宽度下限 100px", /min-width:\s*100px/.test(cardMixin),
@@ -792,6 +813,40 @@ check(
   "卡片内部按卡片宽度自适应",
   /@container filecard \(max-width: 180px\)/.test(fileMessage),
   "缺少容器查询：100px 卡片里 48px 图标 + 12px 内边距会把文件名挤没",
+);
+// 宽度链上「确定宽度」的那一环：没有它，卡片里的 width: 100% 依旧无处可依。
+// chatStyle 已在上面（布局骨架那节）读过同一份文件，这里直接复用。
+check(
+  "文件气泡宽度链提供确定宽度",
+  // 注意窗口要给够：.msg-item 里 .has-file 之前挂着一大段解释性注释。
+  /&?\.has-file\s*\{[\s\S]{0,400}width:\s*100%/.test(chatStyle),
+  "缺少 .msg-item.has-file { width: 100% }，卡片就没有可参照的可用宽度",
+);
+// 卡片与媒体是**两条**宽度链：卡片要撑开（音频/文档），媒体要贴合（图片/视频）。
+// 混成一条的话必然二选一地坏掉 —— 要么图片被塞进 300px 透明盒子贴左边，
+// 要么文档卡片塌到 100px 下限。真实宽度量测见 verify-chat-image-upload.mjs。
+const hasFileBlock = ruleBlock(chatStyle, "&.has-file {");
+const hasMediaBlock = ruleBlock(chatStyle, "&.has-media {");
+check(
+  "卡片消息把确定宽度继续传给气泡（.has-file .bubble-wrap { width: 100% }）",
+  hasFileBlock.includes("bubble-wrap") && /(?:^|[;{\n])\s*width:\s*100%/m.test(hasFileBlock.slice(hasFileBlock.indexOf("bubble-wrap"))),
+  "缺少 .msg-item.has-file .bubble-wrap { width: 100% }，文档/音频卡片会塌到 100px 下限",
+);
+check(
+  "媒体消息不让气泡撑满（.has-media .bubble-wrap 没有 width: 100%）",
+  hasMediaBlock.length > 0
+    && !/(?:^|[;{\n])\s*width:\s*100%/m.test(hasMediaBlock.slice(hasMediaBlock.indexOf("bubble-wrap"))),
+  "媒体分支又把 width: 100% 写回去了，图片会被放进撑满的盒子、贴到左边",
+);
+check(
+  "媒体消息的气泡按内容收缩（.has-media 仍给出确定宽度上限）",
+  /width:\s*100%/.test(hasMediaBlock) && /bubble-wrap[^{]*\{[^}]*max-width:\s*100%/.test(hasMediaBlock),
+  "缺少 .msg-item.has-media 的 width: 100%（.content 没有可参照的宽度）或 .bubble-wrap 的 max-width",
+);
+check(
+  "消息列表单列不被内容撑开",
+  /\.message-list\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/.test(chatStyle),
+  "缺少 grid-template-columns: minmax(0, 1fr)，300px 宽的卡片会把整列撑开",
 );
 
 // 四种消息类型（文档/音频/图片/视频）统一宽度策略
@@ -822,6 +877,20 @@ check(
   "图片不再返回写死的 height（否则收缩时被拉扁）",
   /height:\s*'auto'/.test(fileMessage) && /aspectRatio/.test(fileMessage),
   "图片样式仍写死 height，宽度收缩后会被拉扁",
+);
+
+// 媒体气泡贴合自身尺寸：.file-message.media 不撑满，还要能把 min-width 清掉，
+// 否则 flex 子项的 min-width: auto（= 图片自身宽度）会让它在窄屏里不肯缩。
+const mediaMessageBlock = ruleBlock(fileMessage, "&.media {");
+check(
+  "图片/视频消息带 media 修饰类并贴合内容（.file-message.media { width: fit-content }）",
+  /width:\s*fit-content/.test(mediaMessageBlock),
+  "缺少 width: fit-content：图片会退回到 width: 100%，又被撑进 300px 的盒子",
+);
+check(
+  "媒体气泡可收缩（.file-message.media 有 min-width: 0 与 max-width: min(300px, 100%)）",
+  /min-width:\s*0/.test(mediaMessageBlock) && /max-width:\s*min\(300px,\s*100%\)/.test(mediaMessageBlock),
+  "缺 min-width: 0（窄屏不缩）或 max-width（不夹 300px）",
 );
 
 console.log(failures === 0 ? "\n全部通过" : `\n失败 ${failures} 项`);

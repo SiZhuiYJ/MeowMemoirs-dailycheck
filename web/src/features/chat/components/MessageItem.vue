@@ -38,7 +38,6 @@ const emit = defineEmits<{
   reply: [message: MessageSummary];
   recall: [message: MessageSummary];
   jumpToMessage: [messageId: number];
-  mediaSettled: [payload: { messageId: number; ready: boolean }];
   retrySend: [tempId: number];
   discardSend: [tempId: number];
 }>();
@@ -47,7 +46,6 @@ const RECALL_WINDOW_MS = 5 * 60 * 1000;
 
 const hasMessage = computed(() => Boolean(props.message || props.pendingText));
 const isUploading = computed(() => props.pendingUpload?.status === 'uploading');
-const isProcessing = computed(() => props.pendingUpload?.status === 'processing');
 const isFailed = computed(() => props.pendingUpload?.status === 'failed');
 
 const isTextSending = computed(() => props.pendingText?.status === 'sending');
@@ -58,6 +56,23 @@ const messageType = computed(() =>
   props.pendingUpload?.messageType ??
   props.message?.messageType ??
   'file',
+);
+/**
+ * 文件类气泡的两种宽度策略（见 features/chat/style/index.scss 里 .msg-item 的注释）：
+ *
+ *   isFileBubble  卡片（音频 / 文档）：**撑满可用宽度**（最多 300px、最少 100px）。
+ *                 卡片里是图标 + 文件名 + 元信息，撑开才排得下、也才整齐。
+ *   isMediaBubble 媒体（图片 / 视频）：**贴合媒体自身尺寸**（同样夹在 300px / 100px 之间）。
+ *                 图片只有 169px 宽时气泡就该是 169px —— 否则它会被放在一个 300px 宽的
+ *                 透明盒子里，看起来贴在左边，离自己的头像隔着一大段空白。
+ *
+ * 文本气泡两者都不挂，继续贴合文字宽度。
+ */
+const isMediaBubble = computed(() =>
+  messageType.value === 'image' || messageType.value === 'video',
+);
+const isFileBubble = computed(() =>
+  isMediaBubble.value || messageType.value === 'audio' || messageType.value === 'file',
 );
 const senderName = computed(() =>
   props.pendingText?.senderNickName ||
@@ -106,7 +121,6 @@ const headerText = computed(() => {
   if (isTextSending.value) return '发送中';
   if (isTextFailed.value) return '发送失败';
   if (isUploading.value) return '发送中';
-  if (isProcessing.value) return '准备中';
   if (isFailed.value) return '发送失败';
   if (props.message?.id) return `#${props.message.id}`;
   return '本地上传';
@@ -158,7 +172,15 @@ function handleDiscardSend() {
       <div class="system-notice-time">{{ createdAtText }}</div>
     </div>
   </div>
-  <div v-else :class="['msg-item', { mine: props.isMine, highlighted: props.highlighted, 'local-pending': isTextSending, 'local-failed': isTextFailed }]">
+  <div v-else
+    :class="['msg-item', {
+      mine: props.isMine,
+      highlighted: props.highlighted,
+      'local-pending': isTextSending,
+      'local-failed': isTextFailed,
+      'has-file': isFileBubble && !isMediaBubble,
+      'has-media': isMediaBubble,
+    }]">
     <ProgressiveAvatar class="message-avatar" :src="props.src || undefined"
       :thumbnail-src="props.thumbnailSrc || props.src || undefined" :size="40" shape="square">
       {{ senderName.slice(0, 1) }}
@@ -189,9 +211,9 @@ function handleDiscardSend() {
       </button>
 
       <div class="bubble-wrap">
-        <template v-if="['image', 'video', 'audio', 'file'].includes(messageType)">
+        <template v-if="isFileBubble">
           <FileMessage :message="props.message" :pending-upload="props.pendingUpload" :show-download="true" :src
-            :allow-inline-media-load="props.allowInlineMediaLoad" @media-settled="emit('mediaSettled', $event)" />
+            :allow-inline-media-load="props.allowInlineMediaLoad" />
         </template>
 
         <div v-else-if="messageType === 'text'" class="bubble">
@@ -221,7 +243,6 @@ function handleDiscardSend() {
             </el-button>
           </template>
           <span v-else-if="isUploading" class="client-status uploading">上传 {{ uploadProgress }}%</span>
-          <span v-else-if="isProcessing" class="client-status uploading">加载中...</span>
           <span v-else-if="isFailed" class="client-status failed">发送失败</span>
           <template v-else-if="props.message && props.meUserId && props.message.senderUserId === props.meUserId">
             <el-icon>

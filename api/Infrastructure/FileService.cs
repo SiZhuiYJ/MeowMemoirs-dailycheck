@@ -154,38 +154,32 @@ public class LocalFileService : IFileService
         Directory.CreateDirectory(root);
 
         var isImage = AllowedImageExtensions.Contains(originalExtension);
-        string fileKey, storedExtension, contentType;
-        long fileSize;
-        // 判断是否已存在fileKey 
-        if (await _db.ChatFileRecords.AnyAsync(x => x.ConversationId == conversationId && x.FileKey == file.FileName, cancellationToken))
-        {
-            throw new InvalidOperationException("文件已存在");
-        }
+        var (hash, _) = await ComputeHashAsync(file.OpenReadStream(), cancellationToken);
 
-        if (isImage)
-        {
-            // 图片统一存储为 .webp，fileKey 不带扩展名
-            var (_, keyWithoutExt) = await ComputeHashAndSaveWebpAsync(file, root, cancellationToken);
-            fileKey = keyWithoutExt;
-            storedExtension = ".webp";
-            contentType = "image/webp";
-            fileSize = new FileInfo(Path.Combine(root, fileKey + storedExtension)).Length;
-        }
-        else
-        {
-            // 非图片保留原始扩展名，fileKey 带扩展名
-            var (_, keyWithoutExt) = await ComputeHashAsync(file.OpenReadStream(), cancellationToken);
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            fileKey = $"{keyWithoutExt}_{timestamp:x}{originalExtension}";
-            storedExtension = originalExtension;
-            contentType = SupportedFileTypes[originalExtension];
+        // fileKey 必须带**会话作用域**，两个原因：
+        //   1. 物理文件本来就按会话分目录（uploads/chat/{conversationId}/）；
+        //   2. chat_file_records 上的 ux_chat_file_records_file_key 是**全局**唯一索引，
+        //      而 GetChatFileAsync 也是「按 fileKey 单键查询」—— fileKey 天生要求全局唯一。
+        //
+        // 历史缺陷（这就是本次修的 500）：图片的 fileKey 原来就是内容哈希本身，于是
+        //   · 同一张图在同一会话里发第二次 → 撞唯一索引 → 500「上传失败」；
+        //   · 同一张图发到**另一个**会话 → 一样撞索引 → 500（哪怕两份物理文件分目录存得好好的）。
+        // 顺带：原来那句「文件已存在」的预检比的是 file.FileName（用户原始文件名），
+        // 而真正入库的是哈希，两者永远不相等 —— 等于什么也没检查。
+        var fileKey = BuildChatFileKey(conversationId, hash, isImage, originalExtension);
+        var contentType = isImage ? "image/webp" : SupportedFileTypes[originalExtension];
 
-            var filePath = Path.Combine(root, fileKey);
-            await using var stream = file.OpenReadStream();
-            await using var fileStream = new FileStream(filePath, FileMode.CreateNew, FileAccess.Write);
-            await stream.CopyToAsync(fileStream, cancellationToken);
-            fileSize = fileStream.Length;
-        }
+        // 同一份字节在同一会话里再传一次是**幂等**的：复用已有记录，
+        // 既不报错，也不会多存一份物理文件、多插一条元数据。
+        var existing = await _db.ChatFileRecords
+            .FirstOrDefaultAsync(x => x.FileKey == fileKey, cancellationToken);
+        if (existing != null)
+            return await ReuseChatFileRecordAsync(existing, file, root, fileKey, isImage, contentType, cancellationToken);
+
+        var storedPath = BuildChatStoragePath(root, fileKey, isImage);
+        var fileSize = isImage
+            ? await SaveChatImageAsync(file, storedPath, cancellationToken)
+            : await SaveChatBinaryAsync(file, storedPath, cancellationToken);
 
         // 插入元数据记录
         var record = new ChatFileRecord
@@ -193,6 +187,9 @@ public class LocalFileService : IFileService
             FileKey = fileKey,
             ConversationId = conversationId,
             UploaderUserId = userId,
+            // 列里存**带扩展名的完整文件名**（用于追查是哪次上传）；返回给前端的显示名
+            // 仍沿用旧约定（不带扩展名），见 ToFileInfoResult。
+            OriginalFilename = Path.GetFileName(file.FileName),
             FileSize = (ulong)fileSize,
             ContentType = contentType,
             IsDeleted = false,
@@ -201,16 +198,112 @@ public class LocalFileService : IFileService
         };
 
         _db.ChatFileRecords.Add(record);
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // 并发上传同一份文件：唯一索引挡住了第二条记录，以库里已存在的那条为准（依旧幂等）
+            _db.Entry(record).State = EntityState.Detached;
+            var survivor = await _db.ChatFileRecords.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.FileKey == fileKey, cancellationToken);
+            if (survivor == null)
+                throw;
+
+            return ToFileInfoResult(survivor, file.FileName);
+        }
+
+        return ToFileInfoResult(record, file.FileName);
+    }
+
+    /// <summary>
+    /// 生成聊天文件的 fileKey（**带会话作用域**）。
+    ///
+    ///   · 图片：{会话}_{内容哈希}            物理文件是 {fileKey}.webp（图片统一转 webp）
+    ///   · 其它：{会话}_{内容哈希}{原始后缀}  物理文件名就是 fileKey，后缀保留下来，
+    ///                                       GetChatFileAsync 才能按后缀给出正确的 Content-Type
+    ///
+    /// 长度：会话 id ≤ 20 位 + 下划线 + 64 位哈希 + 后缀 ≤ 10 位，远低于列的 128 上限。
+    /// </summary>
+    private static string BuildChatFileKey(ulong conversationId, string hash, bool isImage, string extension) =>
+        isImage ? $"{conversationId}_{hash}" : $"{conversationId}_{hash}{extension}";
+
+    private static string BuildChatStoragePath(string root, string fileKey, bool isImage) =>
+        Path.Combine(root, isImage ? fileKey + ".webp" : fileKey);
+
+    /// <summary>
+    /// 把上传图片统一落成 webp。目标文件已存在（内容哈希相同 = 字节相同）就直接复用，
+    /// 不再重写一遍。
+    /// </summary>
+    private static async Task<long> SaveChatImageAsync(IFormFile file, string targetPath, CancellationToken cancellationToken)
+    {
+        if (!File.Exists(targetPath))
+            await SaveImageAsWebpAsync(file, targetPath, cancellationToken);
+
+        return new FileInfo(targetPath).Length;
+    }
+
+    /// <summary>
+    /// 非图片文件原样落盘（fileKey 就是物理文件名）。同名文件已存在则直接复用 ——
+    /// 能落到这一步说明内容哈希一致，字节也一致。
+    /// </summary>
+    private static async Task<long> SaveChatBinaryAsync(IFormFile file, string targetPath, CancellationToken cancellationToken)
+    {
+        if (File.Exists(targetPath))
+            return new FileInfo(targetPath).Length;
+
+        try
+        {
+            await using var sourceStream = file.OpenReadStream();
+            await using var fileStream = new FileStream(targetPath, FileMode.CreateNew, FileAccess.Write);
+            await sourceStream.CopyToAsync(fileStream, cancellationToken);
+            return fileStream.Length;
+        }
+        catch (IOException) when (File.Exists(targetPath))
+        {
+            // 并发上传同一份内容：另一路请求已经落盘，按实际文件大小记账即可
+            return new FileInfo(targetPath).Length;
+        }
+    }
+
+    /// <summary>
+    /// 复用「同内容」的已有记录：补齐可能被清理掉的物理文件、复活软删除记录，
+    /// 然后把文件信息原样返回。调用方拿到的是同一个 fileKey，发的第二条消息照样能显示。
+    /// </summary>
+    private async Task<FileInfoResult> ReuseChatFileRecordAsync(
+        ChatFileRecord record,
+        IFormFile file,
+        string root,
+        string fileKey,
+        bool isImage,
+        string contentType,
+        CancellationToken cancellationToken)
+    {
+        var storedPath = BuildChatStoragePath(root, fileKey, isImage);
+
+        var fileSize = isImage
+            ? await SaveChatImageAsync(file, storedPath, cancellationToken)
+            : await SaveChatBinaryAsync(file, storedPath, cancellationToken);
+
+        record.FileSize = (ulong)fileSize;
+        record.ContentType = contentType;
+        record.IsDeleted = false;
+        record.OriginalFilename ??= Path.GetFileName(file.FileName);
+        record.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
 
-        return new FileInfoResult
-        {
-            FileKey = fileKey,
-            OriginalFileName = Path.GetFileNameWithoutExtension(file.FileName),
-            FileSize = fileSize,
-            ContentType = contentType
-        };
+        return ToFileInfoResult(record, file.FileName);
     }
+
+    private static FileInfoResult ToFileInfoResult(ChatFileRecord record, string uploadedFileName) => new()
+    {
+        FileKey = record.FileKey,
+        // 沿用前端既有约定：展示名不带扩展名（前端按 fileUrl / fileKey 自己判断类型）
+        OriginalFileName = Path.GetFileNameWithoutExtension(uploadedFileName),
+        FileSize = (long)record.FileSize,
+        ContentType = record.ContentType
+    };
 
     public async Task<(Stream Stream, string ContentType, string FileName)?> GetChatFileAsync(ulong userId, string fileKey, CancellationToken cancellationToken = default)
     {
@@ -473,7 +566,7 @@ public class LocalFileService : IFileService
         catch
         {
             try { File.Delete(targetPath); } catch { /* ignore cleanup failures */ }
-            throw new InvalidOperationException("鍥剧墖澶勭悊澶辫触");
+            throw new InvalidOperationException("图片处理失败");
         }
     }
 

@@ -6,19 +6,30 @@ import { Download } from "@element-plus/icons-vue"
 import { notifyError } from '@/utils/notification';
 import { useFileDownloader } from '../composables/useFileDownloader';
 import type { FileExtra, MessageSummary, PendingUpload } from '../types';
-import { formatFileSize, getDocumentIconType, getFilePreviewType, getFileTypeLabel, isPreviewableFileType, parseMessageExtra } from '../utils/fileMeta';
+import {
+  formatFileSize,
+  getDocumentIconType,
+  getFilePreviewType,
+  getFileTypeLabel,
+  getFileTypeText,
+  isPreviewableFileType,
+  parseMessageExtra,
+} from '../utils/fileMeta';
+import FileMessageDetail from './FileMessageDetail.vue';
 
 const props = defineProps<{
   message?: MessageSummary | null;
   pendingUpload?: PendingUpload | null;
+  /**
+   * 是否显示下载入口。
+   *
+   * 现在只剩**图片**在用（图片右上角的下载浮层）：音频/文档卡片的下载按钮
+   * 已经撤掉，收进了点击卡片弹出的详情面板（见 FileMessageDetail.vue）。
+   */
   showDownload?: boolean;
   src: string;
   isNewMessage?: boolean;
   allowInlineMediaLoad?: boolean;
-}>();
-
-const emit = defineEmits<{
-  mediaSettled: [payload: { messageId: number; ready: boolean }];
 }>();
 
 interface GalleryFile {
@@ -48,6 +59,41 @@ const isUploading = computed(() => props.pendingUpload?.status === 'uploading');
 const isFailed = computed(() => props.pendingUpload?.status === 'failed');
 const uploadProgress = computed(() => Math.max(0, Math.min(100, props.pendingUpload?.progress ?? 0)));
 
+/**
+ * 媒体（图片 / 视频）：气泡贴合媒体自身尺寸，不像卡片那样撑满可用宽度。
+ * 宽度链的另一半在 features/chat/style/index.scss 的 .msg-item.has-media。
+ */
+const isMedia = computed(() => category.value === 'image' || category.value === 'video');
+
+/**
+ * 「文件类」消息（音频 / 文档 / 压缩包…）点开走详情面板；
+ * 图片和视频点开仍是直接预览（它们没有详情面板，也不应该有：
+ * 图片看的就是图本身，视频看的就是片子本身）。
+ */
+const hasDetailPanel = computed(() => !isMedia.value);
+
+const detailTypeLabel = computed(() => getFileTypeText(category.value));
+/** 详情面板里的缩略图 icon，与卡片上的一致；音频单独给 voice 图标（卡片就是这么用的）。 */
+const detailIconName = computed(() =>
+  category.value === 'audio' ? 'document-voice' : documentIconName.value,
+);
+/** 发送时间：本地待发消息用 pendingUpload 的时间，已确认消息用消息时间。 */
+const sentAt = computed(() => props.pendingUpload?.createdAt ?? props.message?.createdAt ?? '');
+/** 预览不可用的原因（为空表示可预览）。 */
+const previewHint = computed(() => {
+  if (!isPreviewable.value) return '该类型暂不支持在线预览，请下载后查看';
+  if (isLargeForPreview.value) return '文件较大，请下载后查看';
+  return '';
+});
+const detailPreviewDisabled = computed(() => previewHint.value !== '');
+
+/**
+ * 面板要等第一次点开才挂载：一条会话里可能有几十个文件消息，
+ * 每个都预先塞一个抽屉/对话框节点没必要，而且它们都 append-to-body。
+ */
+const detailMounted = ref(false);
+const detailVisible = ref(false);
+
 const previewUrl = ref('');
 const thumbnailUrl = ref('');
 const previewLoading = ref(false);
@@ -56,7 +102,6 @@ const hasError = ref(false);
 const loadProgress = ref(0);
 const loadStatus = ref<'idle' | 'loading' | 'error'>('idle');
 const isPrepared = ref(false);
-const settledMessageId = ref<number | null>(null);
 
 const { requestBlobUrl, requestDownload, downloadAndSaveFile } = useFileDownloader();
 
@@ -102,7 +147,6 @@ watch(
     loadProgress.value = 0;
     loadStatus.value = 'idle';
     isPrepared.value = false;
-    settledMessageId.value = null;
     loadInlineMedia();
   },
   { immediate: true },
@@ -126,15 +170,6 @@ function markPrepared() {
   loadProgress.value = 100;
   loadStatus.value = 'idle';
   isPrepared.value = true;
-}
-
-function notifyMediaSettled(ready: boolean) {
-  const messageId = props.message?.id;
-  if (!messageId || props.pendingUpload) return;
-  if (category.value !== 'image' && category.value !== 'video') return;
-  if (settledMessageId.value === messageId) return;
-  settledMessageId.value = messageId;
-  emit('mediaSettled', { messageId, ready });
 }
 
 function registerToGlobalGallery(url: string) {
@@ -188,12 +223,10 @@ function loadInlineMedia() {
         previewLoading.value = false;
         isPrepared.value = true;
         registerToGlobalGallery(blobUrl);
-        notifyMediaSettled(true);
       },
       onError: (error: Error) => {
         if (fileExtra.value?.fileKey !== fileKey) return;
         handlePreviewError(error);
-        notifyMediaSettled(false);
       },
     });
     return;
@@ -209,13 +242,11 @@ function loadInlineMedia() {
         if (fileExtra.value?.thumbnailUrl !== thumbnailKey) return;
         thumbnailUrl.value = blobUrl;
         thumbnailLoading.value = false;
-        notifyMediaSettled(true);
       },
       onError: (error: Error) => {
         if (fileExtra.value?.thumbnailUrl !== thumbnailKey) return;
         console.error('FileMessage thumbnail failed:', error);
         thumbnailLoading.value = false;
-        notifyMediaSettled(false);
       },
     });
   }
@@ -290,8 +321,27 @@ async function handleDownload() {
   await downloadAndSaveFile(fileExtra.value.fileKey, fileExtra.value.fileName);
 }
 
+/**
+ * 详情面板里的「预览」：先把面板收起来再走预览。
+ *
+ * 必须收起来 —— 预览浮层的 z-index 是 9999，抽屉/对话框的 overlay 在 2000 档，
+ * 但浮层被抽屉压住的这段时间里，用户看到的是「点了一下什么都没发生」。
+ */
+function handleDetailPreview() {
+  detailVisible.value = false;
+  void triggerPreview();
+}
+
 function handleClick() {
   if (!fileExtra.value || isUploading.value || props.pendingUpload) return;
+
+  if (hasDetailPanel.value) {
+    // 文件类消息：先看详情，预览和下载都在面板里点
+    detailMounted.value = true;
+    detailVisible.value = true;
+    return;
+  }
+
   void triggerPreview();
 }
 
@@ -338,7 +388,7 @@ function formatDuration(seconds: number): string {
 </script>
 
 <template>
-  <div class="file-message" :class="{ uploading: isUploading, failed: isFailed }" @click="handleClick">
+  <div class="file-message" :class="{ uploading: isUploading, failed: isFailed, media: isMedia }" @click="handleClick">
     <template v-if="fileExtra">
       <div class="file-item-wrap">
         <div v-if="category === 'image'" class="image-message">
@@ -449,13 +499,7 @@ function formatDuration(seconds: number): string {
               </span>
             </div>
           </div>
-
-          <el-button v-if="showDownload && !isUploading" size="small" circle class="download-btn"
-            @click.stop="handleDownload">
-            <el-icon>
-              <Download />
-            </el-icon>
-          </el-button>
+          <!-- 下载按钮已撤：点卡片弹出的详情面板里才有（见 FileMessageDetail.vue） -->
         </div>
 
         <div v-else class="document-message">
@@ -478,12 +522,7 @@ function formatDuration(seconds: number): string {
               <div class="document-upload-progress-bar" :style="documentProgressStyle"></div>
             </div>
           </div>
-          <el-button v-if="showDownload && !isUploading" size="small" circle class="download-btn"
-            @click.stop="handleDownload">
-            <el-icon>
-              <Download />
-            </el-icon>
-          </el-button>
+          <!-- 下载按钮已撤：点卡片弹出的详情面板里才有（见 FileMessageDetail.vue） -->
         </div>
 
         <transition name="status-fade">
@@ -512,26 +551,46 @@ function formatDuration(seconds: number): string {
       </el-icon>
       <span>文件信息无效</span>
     </div>
+
+    <!--
+      文件详情面板：手机从底部弹出抽屉，平板/电脑是居中对话框。
+      挂在这里而不是提到 MessagePanel：面板要用的东西（fileKey、预览状态、
+      下载器）全在本组件里，提上去就得再把状态搬一遍。
+      v-if="detailMounted" —— 没点开过的消息不生成弹层节点。
+    -->
+    <FileMessageDetail v-if="detailMounted && fileExtra" v-model="detailVisible" :file-name="fileExtra.fileName"
+      :file-size="fileExtra.fileSize" :type-label="detailTypeLabel" :icon-class="detailIconName" :sent-at="sentAt"
+      :preview-disabled="detailPreviewDisabled" :preview-hint="previewHint"
+      :download-disabled="!fileExtra.fileKey || isUploading || isFailed" @download="handleDownload"
+      @preview="handleDetailPreview" />
   </div>
 </template>
 
 <style scoped lang="scss">
 ////
 /// 文件卡片（文档 / 音频）的宽度策略：
-///   **最多 300px，容器窄于 300px 时等比收缩，最小 100px。**
+///   **最多 300px，容器窄于 300px 时随可用宽度收缩，最小 100px。**
 ///
-/// 为什么不是 `width: clamp(100px, 100%, 300px)`：
-/// 卡片的父级 `.file-item-wrap` 是 `inline-flex`（收缩到内容宽），
-/// 百分比宽度在「按内容定宽」的父级里会形成循环，浏览器只能把 100% 当 auto 处理，
-/// 结果不可预期。
-/// 而 `width: 300px` + `max-width: 100%` 对收缩容器是良性的：
-///   父级按内容的 300px 定宽（再被可用宽度夹住），
-///   子项的 max-width: 100% 再夹一次，最终 = min(300px, 可用宽度)。
-/// min-width: 100px 是下限（按需求，极窄时宁可溢出也不低于 100px）。
+/// 关键：宽度链上每一级都必须有**确定宽度**，否则百分比 max-width 会自循环。
+/// 链条（见 features/chat/style/index.scss 的 .msg-item.has-file）：
+///
+///   .msg-item.has-file      width: 100%（再被 max-width: 88%/82% 夹住）
+///     └ .content            flex: 1 1 auto; min-width: 0
+///         └ .bubble-wrap    width: 100%
+///             └ .file-message          width: 100%; max-width: 300px
+///                 └ .file-item-wrap    width: 100%
+///                     └ 卡片           width: 100%（≤ 上面传下来的宽度）
+///
+/// 历史教训：以前这里写 `width: 300px; max-width: 100%`，而上面每一级都是
+/// fit-content —— `max-width: 100%` 于是相对「自己撑出来的宽度」求百分比，
+/// 浏览器只能当 auto 处理，卡片永远 300px，窗口再窄也不缩（图片看着"能缩"，
+/// 只是因为它本身只有 200px 宽，不是因为规则生效）。
+///
+/// min-width: 100px 是需求给的下限：可用宽度不足 100px 时宁可溢出也不低于 100px。
 ////
 @mixin file-card-width {
-  width: 300px;
-  max-width: 100%;
+  width: 100%;
+  max-width: 300px;
   min-width: 100px;
   box-sizing: border-box;
   // 自身作为容器，让内部图标/徽标能按**卡片宽度**（而不是视口）自适应
@@ -553,26 +612,48 @@ function formatDuration(seconds: number): string {
 /// 又不会制造新的溢出。
 ////
 @mixin file-media-width {
+  // 父级 .file-item-wrap 现在是确定宽度（width: 100%），所以这里可以放心用
+  // max-width: 100% 表达「跟可用宽度一起缩」；上限仍是 300px。
   max-width: min(300px, 100%);
   min-width: min(100px, 100%);
   box-sizing: border-box;
 }
 
 .file-message {
-  // min(300px, 100%)：只写 300px 时，比它更窄的消息气泡里会横向顶破容器
-  max-width: min(300px, 100%);
+  // 卡片（音频 / 文档）：占满气泡宽度，再由 max-width 夹到 300px。
+  // 气泡（.bubble-wrap）在 .msg-item.has-file 下已是确定宽度，
+  // 所以 100% 有确定的参照，不会自循环。
+  width: 100%;
+  max-width: 300px;
   cursor: pointer;
   user-select: none;
 
   &.uploading {
     cursor: default;
   }
+
+  // 媒体（图片 / 视频）：**贴合媒体自身尺寸**，不带撑满。
+  //
+  // 为什么三条都要：
+  //   width: fit-content —— 不写就退回上面的 100%，图片又被放进一个撑满的盒子里；
+  //   max-width          —— 上限仍是 min(300px, 100%)：窄屏时跟着可用宽度收缩
+  //                         （100% 的参照是 .bubble-wrap，它在 .has-media 下是确定宽度）；
+  //   min-width: 0       —— flex 子项的 min-width 默认是 auto（= 图片自身的宽度），
+  //                         不清零的话图片在窄屏里不肯缩，直接顶破气泡。
+  &.media {
+    width: fit-content;
+    min-width: 0;
+    max-width: min(300px, 100%);
+  }
 }
 
 .file-item-wrap {
-  display: inline-flex;
+  // flex + width: 100%：把 .file-message 的确定宽度继续传给卡片/媒体，
+  // 它们是 flex item（align-items: flex-start → 宽度由自身 width 决定）。
+  display: flex;
   flex-direction: column;
   align-items: flex-start;
+  width: 100%;
   position: relative;
 }
 
@@ -704,11 +785,14 @@ function formatDuration(seconds: number): string {
   overflow: hidden;
   pointer-events: none;
 
+  // 灰色蒙层：上传中盖住整张图，随进度**从中心往四周让开**（见下面的 mask）。
+  // 用 62% 的蓝灰而不是接近全黑：全黑看起来像「图片坏了」，
+  // 灰色只是「还在传」，下面的图片一直看得见。
   &::before {
     content: '';
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.82);
+    background: rgba(15, 23, 42, 0.62);
     -webkit-mask-image: radial-gradient(circle at center,
         transparent 0,
         transparent var(--upload-progress),
@@ -809,6 +893,12 @@ function formatDuration(seconds: number): string {
   padding: 12px;
   background: #f5f5f5;
   border-radius: 8px;
+  // 卡片现在整体可点（点开详情面板），hover 给个同样的可点反馈
+  transition: background-color 0.2s;
+
+  &:hover {
+    background: #e8e8e8;
+  }
 
   .audio-icon {
     width: 48px;
@@ -906,10 +996,6 @@ function formatDuration(seconds: number): string {
     border-radius: 3px;
     font-size: 10px;
     background: #e0e0e0;
-  }
-
-  .download-btn {
-    flex-shrink: 0;
   }
 }
 

@@ -513,24 +513,34 @@ watch(currentIndex, (newIndex) => {
 })
 
 // 监听当前文件变化，确保 loading 状态正确
-watch(currentFile, (newFile) => {
-  if (newFile) {
-    const type = getFileType(newFile)
-    if (type === 'audio' || type === 'video') {
-      loading.value = !isFileLoaded(newFile)
-    } else if (type === 'image') {
-      loading.value = !isFileLoaded(newFile)
-    } else if (type === 'text' || type === 'md') {
-      // 调用文本加载函数
-      convertBlobUrl();
-    } else if (type === 'pdf') {
-      loading.value = !isFileLoaded(newFile)
-    } else {
-      // 其他类型（PDF、文档等）立即隐藏 loading
-      loading.value = false
+//
+// ⚠️ 必须 immediate：本组件由父级 `<FilePreview v-if="galleryVisible">` 挂载，
+// 挂载时 currentFile 已经有值 —— 不带 immediate 的 watch 只在**之后变化**时触发，
+// 于是首次打开时转换不会发生，content 一直是 null，
+// `.txt-preview` / `.markdown-preview` 里 v-if="content" 的内容永远不渲染
+// （表现为「.md / .txt 预览是空白」）。
+watch(
+  currentFile,
+  (newFile) => {
+    if (newFile) {
+      const type = getFileType(newFile)
+      if (type === 'audio' || type === 'video') {
+        loading.value = !isFileLoaded(newFile)
+      } else if (type === 'image') {
+        loading.value = !isFileLoaded(newFile)
+      } else if (type === 'text' || type === 'md') {
+        // 调用文本加载函数
+        convertBlobUrl();
+      } else if (type === 'pdf') {
+        loading.value = !isFileLoaded(newFile)
+      } else {
+        // 其他类型（PDF、文档等）立即隐藏 loading
+        loading.value = false
+      }
     }
-  }
-})
+  },
+  { immediate: true },
+)
 
 // 生命周期
 onMounted(() => {
@@ -790,7 +800,8 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) 12px calc(12px + var(--safe-left));
+  padding: 0;
+  // padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) 12px calc(12px + var(--safe-left));
   background-color: rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(10px);
   color: #fff;
@@ -799,7 +810,8 @@ onUnmounted(() => {
   // 小屏（窄或矮）都用更紧的内边距：横屏手机 852x393 也算小屏 ——
   // 全屏看图片时工具栏占掉太多高度就没什么可看的了。
   @include rp.compact(768px) {
-    padding: calc(6px + var(--safe-top)) calc(6px + var(--safe-right)) 6px calc(6px + var(--safe-left));
+    padding: 0;
+    // padding: calc(6px + var(--safe-top)) calc(6px + var(--safe-right)) 6px calc(6px + var(--safe-left));
   }
 }
 

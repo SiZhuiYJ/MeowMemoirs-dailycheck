@@ -7,7 +7,10 @@ import { readdirSync } from "node:fs";
 import { HERE, API } from "./config.mjs";
 
 const suites = readdirSync(HERE)
-  .filter((file) => file.endsWith(".mjs") && !["config.mjs", "run-all.mjs"].includes(file))
+  // `_` 开头的是共用模块（如 _fixtures.mjs），不是套件，别拿去跑
+  .filter((file) => file.endsWith(".mjs")
+    && !file.startsWith("_")
+    && !["config.mjs", "run-all.mjs"].includes(file))
   .sort();
 
 console.log(`\n目标后端: ${API}\n共 ${suites.length} 个套件\n${"=".repeat(56)}`);
