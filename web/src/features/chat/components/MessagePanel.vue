@@ -36,11 +36,13 @@ import {
   getMemberAvatarSourcesBySender,
   getMessagePreview,
   getMessageSenderName,
+  toTimestamp,
 } from '../utils/chat';
 import {
   FILE_TYPE_LABELS,
   formatFileSize,
   getFilePreviewType,
+  parseMessageExtra,
 } from '../utils/fileMeta';
 import {
   prepareFilesForMessageUpload,
@@ -241,8 +243,8 @@ const renderedItems = computed<RenderedChatItem[]>(() =>
       pendingUpload,
     })),
   ].sort((left, right) => {
-    const leftTime = Date.parse(left.createdAt) || 0;
-    const rightTime = Date.parse(right.createdAt) || 0;
+    const leftTime = toTimestamp(left.createdAt);
+    const rightTime = toTimestamp(right.createdAt);
     if (leftTime !== rightTime) return leftTime - rightTime;
     return left.key.localeCompare(right.key);
   }),
@@ -468,18 +470,29 @@ function createPendingUpload(file: File, replyToMessageId?: number | null) {
     replyToMessage,
     status: 'uploading',
     progress: 0,
+    // 消息按 id 升序维护，最后一条就是当前最大 id（空列表按 0 算）
+    baselineMessageId: props.messages[props.messages.length - 1]?.id ?? 0,
+    uploadedFileKey: null,
     fileExtra,
   });
 
   return tempId;
 }
 
+/**
+ * 解析「真实消息」里的文件元信息。
+ *
+ * ⚠️ 必须走 parseMessageExtra，不能裸 JSON.parse：服务端回包与库里的 extra 都是
+ * **PascalCase**（`{"FileName":…,"FileKey":…,"ThumbnailUrl":…}`，见 chat_messages.extra），
+ * 这里却是按 camelCase 用的。以前直接 JSON.parse，于是 `confirmedExtra.fileKey`
+ * 永远是 undefined：
+ *   · 上传落地时拿不到 fileKey → 本地那份 blob 送不进下载缓存 → 真实消息掉头把刚传完的
+ *     图**重新下一次**，中间还闪一帧「加载中」（用户看到的就是「图没了、变成空白转圈」）；
+ *   · isSameFileMessage 的比对字段全成了 undefined → SignalR 推送先到时匹配不上，
+ *     待发气泡也就收不掉。
+ */
 function parseConfirmedFileExtra(message: MessageSummary) {
-  try {
-    return message.extra ? JSON.parse(message.extra) as FileExtra : null;
-  } catch {
-    return null;
-  }
+  return parseMessageExtra(message.extra);
 }
 
 /**
@@ -489,20 +502,27 @@ function parseConfirmedFileExtra(message: MessageSummary) {
  * 都在上传前做完了），直接拿来给真实消息用，画面上与待发时**完全是同一份像素**，
  * 既不用回头再下一次，也不会先闪一下占位图。摘出来是为了让 cleanupPendingResources
  * 别把它 revoke 掉 —— 它现在的归属是下载缓存。
+ *
+ * ⚠️ 调用时机很关键：必须在 **sendMessage 之前**（见 handleFileSelected）。
+ * sendMessage 一 upsert 消息，真实气泡当场就会渲染一帧并把 FileMessage 挂起来，
+ * 那一帧就是 `loadInlineMedia` 发请求的时机 —— 缓存若还没热，它会掉头去下服务器，
+ * 用户看到的就是「上传完图没了，变成一个空白转圈」，等下载回来才重新出现。
  */
-function adoptLocalMedia(pendingUpload: PendingUpload, confirmedMessage: MessageSummary) {
-  const confirmedExtra = parseConfirmedFileExtra(confirmedMessage);
+function primeLocalMedia(tempId: string, extra: FileExtra | null) {
+  if (!extra) return;
+  const pendingUpload = pendingUploads.value.find((upload) => upload.tempId === tempId);
+  if (!pendingUpload) return;
   const local = pendingUpload.fileExtra;
 
-  const adopt = (key: string | undefined, blobUrl: string | undefined) => {
+  const adopt = (key: string | null | undefined, blobUrl: string | null | undefined) => {
     if (!key || !blobUrl || !blobUrl.startsWith('blob:')) return;
     rememberBlobUrl(key, blobUrl);
-    pendingResourceMap.get(pendingUpload.tempId)?.delete(blobUrl);
+    pendingResourceMap.get(tempId)?.delete(blobUrl);
   };
 
   // 图片：主图；视频：封面（视频本体仍按需下载，与之前一致）
-  adopt(confirmedExtra?.fileKey, local.localPreviewUrl);
-  adopt(confirmedExtra?.thumbnailUrl, local.localThumbnailUrl);
+  adopt(extra.fileKey, local.localPreviewUrl);
+  adopt(extra.thumbnailUrl, local.localThumbnailUrl);
 }
 
 function isSameFileMessage(pendingUpload: PendingUpload, confirmedMessage: MessageSummary) {
@@ -510,17 +530,35 @@ function isSameFileMessage(pendingUpload: PendingUpload, confirmedMessage: Messa
   if (pendingUpload.senderUserId !== confirmedMessage.senderUserId) return false;
   if ((pendingUpload.replyToMessageId ?? null) !== (confirmedMessage.replyToMessageId ?? null)) return false;
 
+  // 只认「上传开始之后才出现」的消息：同一张图连发两次 fileKey 是一样的，
+  // 不设这道门槛就会把上一次的老消息当成结果，待发气泡在发送途中被提前收掉。
+  if (confirmedMessage.id <= (pendingUpload.baselineMessageId ?? 0)) return false;
+
   const confirmedExtra = parseConfirmedFileExtra(confirmedMessage);
   if (!confirmedExtra) return false;
 
-  const sameName = pendingUpload.fileExtra.fileName === confirmedExtra.fileName;
+  // 待发消息的时间是浏览器本地生成的 ISO（带 Z），真实消息的是**不带时区**的服务端 UTC ——
+  // 必须两边都按 parseServerTime 归一，否则这里会差出整个时区（UTC+8 就是 8 小时），
+  // 时间窗永远不成立，图片就同时挂两个气泡（详见 utils/chat.ts 的 parseServerTime）。
+  const pendingTime = toTimestamp(pendingUpload.createdAt);
+  const confirmedTime = toTimestamp(confirmedMessage.createdAt);
+  const closeEnough = Math.abs(confirmedTime - pendingTime) <= 2 * 60 * 1000;
+  if (!closeEnough) return false;
+
+  // 首选 fileKey：上传回包里就有、会话内唯一、服务端原样回显 —— 精确，
+  // 而且不受「图片上传前被转成 webp 改名」「服务端重新编码导致字节数变化」影响。
+  if (pendingUpload.uploadedFileKey && confirmedExtra.fileKey) {
+    return pendingUpload.uploadedFileKey === confirmedExtra.fileKey;
+  }
+
+  // 兜底（理论上只在拿不到 fileKey 时会走到）：文件名主干 + 大小 + MIME。
+  // 文件名要「去后缀」再比 —— 待发是 *.webp，服务端入库时又把原始文件名去掉了后缀。
+  const stem = (name?: string | null) => (name ?? '').replace(/\.[^.]+$/, '');
+  const sameName = stem(pendingUpload.fileExtra.fileName) === stem(confirmedExtra.fileName);
   const sameSize = pendingUpload.fileExtra.fileSize === confirmedExtra.fileSize;
   const sameMime = (pendingUpload.fileExtra.mimeType || '') === (confirmedExtra.mimeType || '');
-  const pendingTime = Date.parse(pendingUpload.createdAt) || 0;
-  const confirmedTime = Date.parse(confirmedMessage.createdAt) || 0;
-  const closeEnough = Math.abs(confirmedTime - pendingTime) <= 2 * 60 * 1000;
 
-  return sameName && sameSize && sameMime && closeEnough;
+  return sameName && sameSize && sameMime;
 }
 
 /**
@@ -541,10 +579,9 @@ function isSameFileMessage(pendingUpload: PendingUpload, confirmedMessage: Messa
  * 整个过程不依赖任何「回话」，因此不存在卡住的状态。
  */
 function settlePendingUpload(tempId: string, confirmedMessage: MessageSummary) {
-  const pendingUpload = pendingUploads.value.find((upload) => upload.tempId === tempId);
-  if (pendingUpload) {
-    adoptLocalMedia(pendingUpload, confirmedMessage);
-  }
+  // 正常路径在 sendMessage 之前就 prime 过了（见 handleFileSelected），这里补一刀是给
+  // 「推送先到、上传回包里的 extra 和消息里的不一致」这类情况兜底（幂等，不会覆盖已有缓存）。
+  primeLocalMedia(tempId, parseConfirmedFileExtra(confirmedMessage));
   removePendingUpload(tempId);
 }
 
@@ -558,7 +595,9 @@ function reconcilePendingUploads(confirmedMessages: MessageSummary[]) {
       isSameFileMessage(pendingUpload, confirmedMessage),
     );
 
-    if (matchIndex === -1) continue;
+    if (matchIndex === -1) {
+      continue;
+    }
 
     const matchedUpload = availablePending[matchIndex];
     if (matchedUpload) {
@@ -777,6 +816,16 @@ async function handleFileSelected(files: File[]) {
         });
 
         updatePendingProgress(tempId, 100);
+
+        // 上传回包里就有 fileKey：先记进待发消息（下面「待发气泡 → 真实消息」的
+        // 匹配就靠它，见 isSameFileMessage），**并且在把消息发出去之前**把本地 blob
+        // 交给下载缓存 —— sendMessage 一 upsert 消息，真实气泡当场渲染那一帧就会
+        // 挂着 FileMessage 去取图；缓存没热，它就会掉头去下服务器（「图没了、转圈」）。
+        updatePendingUpload(tempId, (upload) => ({
+          ...upload,
+          uploadedFileKey: extra.fileKey ?? null,
+        }));
+        primeLocalMedia(tempId, extra);
 
         const payload: SendMessagePayload = {
           messageType,

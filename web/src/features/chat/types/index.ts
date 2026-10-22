@@ -64,6 +64,22 @@ export interface PendingUpload {
   replyToMessage?: MessageReference | null;
   status: PendingUploadStatus;
   progress: number;
+  /**
+   * 上传回包里的 fileKey（上传成功后才有）。
+   *
+   * 它让「待发气泡」与「真实消息」的对应关系变成**精确匹配**：服务端把 extra 原样回显，
+   * 而图片在上传前会被前端转成 webp（文件名从 *.png 变成 *.webp）、服务端入库时还会把
+   * 原始文件名去掉后缀 —— 靠文件名/字节数去猜根本对不上，靠 fileKey 才唯一。
+   */
+  uploadedFileKey?: string | null;
+  /**
+   * 上传开始时「已加载消息里的最大 id」。
+   *
+   * 只有**比它新**的消息才可能是这条待发改成的真实消息。不设这道门槛的话，
+   * 同一张图连发两次（fileKey 相同）时，上一次的老消息会被当成结果，
+   * 待发气泡在发送途中就被提前收掉。
+   */
+  baselineMessageId: number;
   fileExtra: FileExtra;
 }
 
