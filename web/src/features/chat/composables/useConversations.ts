@@ -9,6 +9,7 @@ import {
   updateConversation as updateConversationApi,
   updateConversationMemberRole as updateConversationMemberRoleApi,
 } from "../api/conversations";
+import { toTimestamp } from "../utils/chat";
 import { useErrorHandler } from "./useErrorHandler";
 import type {
   ConversationSummary,
@@ -69,10 +70,10 @@ export function useConversations() {
   /** 会话展示用的最近活跃时间：优先最后一条消息时间，其次会话更新时间。 */
   function getConversationActivityTime(item: ConversationSummary) {
     const lastMessageTime = item.lastMessage?.createdAt
-      ? Date.parse(item.lastMessage.createdAt)
+      ? toTimestamp(item.lastMessage.createdAt)
       : NaN;
     if (!Number.isNaN(lastMessageTime)) return lastMessageTime;
-    const updatedAt = item.updatedAt ? Date.parse(item.updatedAt) : NaN;
+    const updatedAt = item.updatedAt ? toTimestamp(item.updatedAt) : NaN;
     return Number.isNaN(updatedAt) ? 0 : updatedAt;
   }
 

@@ -16,7 +16,7 @@ import type {
   Friendship,
   GroupSearchResult,
 } from "../types";
-import { formatChatTime } from "../utils/chat";
+import { formatChatTime, toTimestamp } from "../utils/chat";
 import {
   getConversationAvatarSources as getConversationAssetSources,
   getUserAvatarSources,
@@ -153,7 +153,7 @@ export function useConversationSidebarSocial(options: {
 
   const sortedFriendRequests = computed(() =>
     [...friendRequests.value].sort(
-      (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt),
+      (left, right) => toTimestamp(right.createdAt) - toTimestamp(left.createdAt),
     ),
   );
 

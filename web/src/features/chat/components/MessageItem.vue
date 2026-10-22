@@ -14,6 +14,7 @@ import {
   getMessagePreview,
   getMessageSenderName,
   getRecalledMessageText,
+  parseServerTime,
 } from '../utils/chat';
 import FileMessage from './FileMessage.vue';
 
@@ -100,9 +101,9 @@ const canReply = computed(() => {
 });
 const isRecallWithinTimeLimit = computed(() => {
   if (!props.message) return false;
-  const createdAtTimestamp = Date.parse(props.message.createdAt);
-  if (Number.isNaN(createdAtTimestamp)) return false;
-  return Date.now() - createdAtTimestamp <= RECALL_WINDOW_MS;
+  const createdAt = parseServerTime(props.message.createdAt);
+  if (!createdAt) return false;
+  return Date.now() - createdAt.getTime() <= RECALL_WINDOW_MS;
 });
 const canRecall = computed(() => {
   const message = props.message;

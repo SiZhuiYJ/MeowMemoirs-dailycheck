@@ -17,11 +17,48 @@ import type {
 } from "../types";
 
 /**
+ * 解析服务端时间戳（**统一入口，别再直接 new Date(serverValue)**）。
+ *
+ * ⚠️ 后端的 DateTime 是 `Kind = Unspecified`，序列化出来**不带时区**：
+ *   `"createdAt": "2026-10-21T12:28:16"`（实际含义是 UTC）。
+ * 而 `new Date('…T12:28:16')` 按 ES 规范会当成**本地时间**解释 —— 在 UTC+8 下整整差 8 小时，
+ * 于是：
+ *   · 气泡里的时间比真实时间早 8 小时（待发气泡显示 13:06，落地后突然变成 05:06，就在同一条消息上）；
+ *   · `Date.now() - createdAt` 全部算错 —— 撤回窗口（5 分钟）直接失效，
+ *     「待发气泡 ↔ 真实消息」的时间窗匹配也永远不成立（图片会同时出现两个气泡）。
+ *
+ * 这里：没有时区标识就补一个 `Z` 按 UTC 读；已经带 `Z` / `+08:00` 的原样解析。
+ */
+export function parseServerTime(value?: string | Date | null): Date | null {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (!value) return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const hasClock = /\d{1,2}:\d{2}/.test(trimmed);
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(trimmed);
+  // 只写日期（YYYY-MM-DD）的字符串按规范本来就当 UTC，不用补
+  const normalized = hasClock && !hasZone
+    ? `${trimmed.replace(' ', 'T')}Z`
+    : trimmed;
+
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** 服务端时间 → 毫秒时间戳（解析不了返回 0，便于直接参与比较/排序）。 */
+export function toTimestamp(value?: string | Date | null): number {
+  return parseServerTime(value)?.getTime() ?? 0;
+}
+
+/**
  * 判断两个日期是否为同一天
  */
 export function isSameDay(date1: string | Date, date2: string | Date): boolean {
-  const d1 = new Date(date1);
-  const d2 = new Date(date2);
+  const d1 = parseServerTime(date1);
+  const d2 = parseServerTime(date2);
+  if (!d1 || !d2) return false;
   return (
     d1.getFullYear() === d2.getFullYear() &&
     d1.getMonth() === d2.getMonth() &&
@@ -106,7 +143,9 @@ function resolvePreviewMessage(
  * - 非本年：YYYY/MM/DD
  */
 export function formatDateSeparator(date: string | Date): string {
-  const d = new Date(date);
+  const parsed = parseServerTime(date);
+  if (!parsed) return '';
+  const d = parsed;
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -119,7 +158,9 @@ export function formatDateSeparator(date: string | Date): string {
  * 格式化聊天时间（仅显示时:分）
  */
 export function formatChatTimeShort(value: string): string {
-  return new Date(value).toLocaleString('zh-CN', {
+  const date = parseServerTime(value);
+  if (!date) return '';
+  return date.toLocaleString('zh-CN', {
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -129,7 +170,9 @@ export function formatChatTimeShort(value: string): string {
  * 格式化聊天时间
  */
 export function formatChatTime(value: string): string {
-  return new Date(value).toLocaleString("zh-CN", {
+  const date = parseServerTime(value);
+  if (!date) return "";
+  return date.toLocaleString("zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -145,8 +188,8 @@ export function formatChatTime(value: string): string {
  */
 export function formatChatDateTime(value?: string | null): string {
   if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
+  const date = parseServerTime(value);
+  if (!date) return '';
 
   const pad = (num: number) => String(num).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -158,8 +201,8 @@ export function formatChatDateTime(value?: string | null): string {
  */
 export function formatConversationListTime(value?: string | null): string {
   if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
+  const date = parseServerTime(value);
+  if (!date) return '';
 
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();

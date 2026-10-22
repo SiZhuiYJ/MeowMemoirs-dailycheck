@@ -42,6 +42,7 @@ import {
   getMemberAvatarSources,
   getMemberAvatarUrl,
   groupRoleMap,
+  toTimestamp,
 } from "../utils/chat";
 
 interface MuteOption {
@@ -161,7 +162,7 @@ const sortedMembers = computed(() => {
   return [...props.conversation.members].sort((left, right) => {
     const orderDiff = orderMap[left.memberRole] - orderMap[right.memberRole];
     if (orderDiff !== 0) return orderDiff;
-    return Date.parse(left.joinedAt) - Date.parse(right.joinedAt);
+    return toTimestamp(left.joinedAt) - toTimestamp(right.joinedAt);
   });
 });
 
@@ -382,7 +383,7 @@ async function handleToggleMemberRole(member: ConversationMember) {
 function isMemberMuted(member: ConversationMember) {
   if (!member.isMuted) return false;
   if (!member.mutedUntil) return true;
-  return Date.parse(member.mutedUntil) > Date.now();
+  return toTimestamp(member.mutedUntil) > Date.now();
 }
 
 function formatMuteStatus(member: ConversationMember) {
