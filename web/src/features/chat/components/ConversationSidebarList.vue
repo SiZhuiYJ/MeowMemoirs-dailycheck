@@ -79,7 +79,7 @@ function getItemTime(item: ConversationSummary) {
       <template v-if="props.loading">正在加载会话…</template>
       <template v-else>
         <div class="conversation-empty-title">还没有任何会话</div>
-        <div class="conversation-empty-hint">在上方选择好友或创建一个群聊即可开始</div>
+        <div class="conversation-empty-hint">用上方「社交操作」选择好友或发起群聊即可开始</div>
       </template>
     </div>
   </el-scrollbar>
@@ -180,7 +180,7 @@ function getItemTime(item: ConversationSummary) {
   gap: 6px;
   justify-items: center;
   // 顶部留白让开绝对定位的创建区（手机档更矮，见下面的 device-mobile）
-  padding: calc(var(--chat-create-h, 100px) + 20px) 16px 16px;
+  padding: calc(var(--chat-create-h, 56px) + 20px) 16px 16px;
   color: var(--chat-muted, #6b7280);
   font-size: 12px;
   text-align: center;
@@ -234,7 +234,7 @@ function getItemTime(item: ConversationSummary) {
   }
 
   .conversation-empty {
-    padding-top: calc(var(--chat-create-h, 66px) + 12px);
+    padding-top: calc(var(--chat-create-h, 36px) + 12px);
   }
 }
 

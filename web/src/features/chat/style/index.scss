@@ -31,7 +31,7 @@
 // 派生量（别手写数字，否则改一档就要满地找）：
 //
 //   --chat-bar-h      头部 / 输入区的高度（内边距 + 一行控件）
-//   --chat-create-h   左侧「创建会话区」的高度（两行控件 + 内边距 + 间距）
+//   --chat-create-h   左侧「创建会话区」的高度（一行控件 + 上下内边距）
 //
 // 这样「平板/手机 = 24px 控件 + 6px 间距」只写一处，其余规则自动跟随。
 
@@ -56,8 +56,9 @@
   // —— 派生量 ——
   // 头部 / 输入区：一个控件高 + 上下内边距（消息列表靠它给浮层让位）
   --chat-bar-h: calc(var(--chat-control-h) + var(--chat-pad) * 2);
-  // 会话列表顶部让位：创建区是两行控件 + 内边距 + 行间距
-  --chat-create-h: calc(var(--chat-control-h) * 2 + var(--chat-pad) * 2 + var(--chat-gap));
+  // 会话列表顶部让位：创建区只有一行控件（标题 + 社交操作），
+  // 「好友列表 / 发起群聊」已收进「社交操作」下拉菜单，不再占用创建区高度。
+  --chat-create-h: calc(var(--chat-control-h) + var(--chat-pad) * 2);
 
   --chat-bg: linear-gradient(180deg, #f7f7f5 0%, #ebeae4 100%);
   --chat-surface: rgba(255, 255, 255, 0.94);
@@ -99,7 +100,7 @@
   }
 
   // el-select 的高度写死在 .el-select__wrapper 的 `min-height: 32px` 上，
-  // 不接管就会出现「输入框 24px、下拉框 32px」的错位（聊天页的好友选择器正是它）。
+  // 不接管就会出现「输入框 24px、下拉框 32px」的错位（聊天页的好友 / 群成员选择器正是它）。
   .el-select__wrapper {
     min-height: var(--chat-control-h);
   }

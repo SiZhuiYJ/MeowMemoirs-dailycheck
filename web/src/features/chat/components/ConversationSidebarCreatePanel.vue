@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import { ArrowDown, ChatRound } from "@element-plus/icons-vue";
+import { ref } from "vue";
 import ProgressiveAvatar from "@/components/ProgressiveAvatar/index.vue";
 import { getUserAvatarUrl, getUserAvatarSources } from "@/utils/avatar";
-import { useConversationCreateForm } from "../composables/useConversationCreateForm";
-import { useConversationSidebarSocial } from "../composables/useConversationSidebarSocial";
+import {
+  useConversationCreateForm,
+  type ConversationFriendOption,
+} from "../composables/useConversationCreateForm";
+import {
+  useConversationSidebarSocial,
+  type SidebarActionCommand,
+} from "../composables/useConversationSidebarSocial";
 
 const createTitle = defineModel<string>("createTitle", {
   required: true,
@@ -78,7 +85,6 @@ const {
 const {
   friendOptions,
   isGroupConversation,
-  canCreateConversation,
   getFriendAvatarSources,
   getSelectedFriendInitial,
 } = useConversationCreateForm({
@@ -86,13 +92,51 @@ const {
   createMemberUserIds,
   friends,
 });
+
+/** 「好友列表」与「发起群聊」从创建区移入「社交操作」后，由这两个弹窗承载。 */
+const friendListDialogVisible = ref(false);
+const createGroupDialogVisible = ref(false);
+
+type CreatePanelCommand = SidebarActionCommand | "friendList" | "createGroup";
+
+function openFriendList() {
+  friendListDialogVisible.value = true;
+  void refreshFriendData(false);
+}
+
+/** 好友列表里点好友 = 直接发起单聊；创建仍在父级统一处理。 */
+function startDirectChat(item: ConversationFriendOption) {
+  createMemberUserIds.value = [item.userId];
+  friendListDialogVisible.value = false;
+  emit("createConversation");
+}
+
+function submitCreateGroup() {
+  if (!isGroupConversation.value) return;
+  createGroupDialogVisible.value = false;
+  emit("createConversation");
+}
+
+function handleSocialCommand(command: CreatePanelCommand) {
+  switch (command) {
+    case "friendList":
+      openFriendList();
+      break;
+    case "createGroup":
+      createGroupDialogVisible.value = true;
+      break;
+    default:
+      handleActionCommand(command);
+      break;
+  }
+}
 </script>
 
 <template>
   <div class="create-box">
     <div class="create-box-item">
-      <el-input v-model="createTitle" clearable placeholder="群聊标题，可选" :disabled="!isGroupConversation" />
-      <el-dropdown placement="bottom-end" trigger="click" @command="handleActionCommand">
+      <h3>会话</h3>
+      <el-dropdown placement="bottom-end" trigger="click" @command="handleSocialCommand">
         <span class="social-dropdown-trigger">
           <el-badge :value="pendingFriendRequestCount" :show-zero="false" :max="99" :offset="[-6, 6]">
             <el-button color="#111827">
@@ -105,7 +149,16 @@ const {
         </span>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item :disabled="friendSearchSubmittingId !== null" command="addFriend">
+            <el-dropdown-item command="friendList">
+              <div class="social-dropdown-item">
+                <span>好友列表</span>
+                <span class="social-dropdown-count">{{ friends.length }}</span>
+              </div>
+            </el-dropdown-item>
+            <el-dropdown-item :disabled="friends.length < 2" command="createGroup">
+              发起群聊
+            </el-dropdown-item>
+            <el-dropdown-item divided :disabled="friendSearchSubmittingId !== null" command="addFriend">
               添加好友
             </el-dropdown-item>
             <el-dropdown-item :disabled="groupJoinSubmitting" command="groupJoin">
@@ -122,35 +175,74 @@ const {
       </el-dropdown>
     </div>
 
-    <div class="create-box-item create-box-stack">
-      <el-select v-model="createMemberUserIds" class="member-select" multiple filterable clearable collapse-tags
-        collapse-tags-tooltip :loading="friendLoading" placeholder="选择好友发起聊天">
-        <el-option v-for="item in friendOptions" :key="item.userId" :label="item.label" :value="item.userId">
-          <span class="member-select-item">
-            <ProgressiveAvatar class="conversation-avatar" :src="getUserAvatarUrl(item.userId, item.avatarKey)"
-              :thumbnail-src="getUserAvatarUrl(item.userId, item.avatarKey, { thumbnail: true })" :size="20"
-              shape="square">
-              {{ item.label.slice(0, 1) }}
-            </ProgressiveAvatar>
-            {{ item.label }}({{ item.meta }})
-          </span>
-        </el-option>
-        <template #tag>
-          <ProgressiveAvatar v-for="item in createMemberUserIds" :key="item" class="conversation-avatar"
-            :src="getFriendAvatarSources(item).src" :thumbnail-src="getFriendAvatarSources(item).thumbnailSrc"
-            :size="20" shape="square">
-            {{ getSelectedFriendInitial(item) }}
-          </ProgressiveAvatar>
-        </template>
-      </el-select>
-
-      <el-button :icon="ChatRound" color="#111827" :disabled="!canCreateConversation"
-        @click="emit('createConversation')">
-        {{ isGroupConversation ? "创建群聊" : "发起聊天" }}
-      </el-button>
-    </div>
-
     <Teleport to="body">
+      <el-dialog v-model="friendListDialogVisible" title="好友列表" width="min(92vw, 560px)">
+        <div v-loading="friendLoading" class="friend-list-panel">
+          <div class="friend-list-toolbar">
+            <span class="friend-list-count">共 {{ friends.length }} 位好友</span>
+            <el-button plain :loading="friendLoading" @click="refreshFriendData(false)">
+              刷新
+            </el-button>
+          </div>
+
+          <el-empty v-if="!friendLoading && friends.length === 0" description="暂无好友，先去添加好友吧" />
+
+          <el-scrollbar v-else max-height="420px">
+            <button v-for="item in friendOptions" :key="item.userId" class="friend-list-row" type="button"
+              @click="startDirectChat(item)">
+              <ProgressiveAvatar class="conversation-avatar" :src="getUserAvatarUrl(item.userId, item.avatarKey)"
+                :thumbnail-src="getUserAvatarUrl(item.userId, item.avatarKey, { thumbnail: true })" :size="44"
+                shape="square">
+                {{ item.label.slice(0, 1) }}
+              </ProgressiveAvatar>
+              <span class="friend-list-text">
+                <strong>{{ item.label }}</strong>
+                <span class="friend-list-meta">{{ item.meta }}</span>
+              </span>
+              <span class="friend-list-action">发起聊天</span>
+            </button>
+          </el-scrollbar>
+
+          <p class="friend-list-tip">点击好友即可开始单聊；需要拉多人时用「发起群聊」。</p>
+        </div>
+      </el-dialog>
+
+      <el-dialog v-model="createGroupDialogVisible" title="发起群聊" width="min(92vw, 560px)">
+        <div class="create-group-panel">
+          <el-input v-model="createTitle" clearable placeholder="群聊标题（可选）" />
+          <el-select v-model="createMemberUserIds" class="member-select" multiple filterable clearable collapse-tags
+            collapse-tags-tooltip :loading="friendLoading" placeholder="选择至少两位好友">
+            <el-option v-for="item in friendOptions" :key="item.userId" :label="item.label" :value="item.userId">
+              <span class="member-select-item">
+                <ProgressiveAvatar class="conversation-avatar" :src="getUserAvatarUrl(item.userId, item.avatarKey)"
+                  :thumbnail-src="getUserAvatarUrl(item.userId, item.avatarKey, { thumbnail: true })" :size="20"
+                  shape="square">
+                  {{ item.label.slice(0, 1) }}
+                </ProgressiveAvatar>
+                {{ item.label }}({{ item.meta }})
+              </span>
+            </el-option>
+            <template #tag>
+              <ProgressiveAvatar v-for="item in createMemberUserIds" :key="item" class="conversation-avatar"
+                :src="getFriendAvatarSources(item).src" :thumbnail-src="getFriendAvatarSources(item).thumbnailSrc"
+                :size="20" shape="square">
+                {{ getSelectedFriendInitial(item) }}
+              </ProgressiveAvatar>
+            </template>
+          </el-select>
+          <p class="create-group-tip">选择至少两位好友即可创建群聊，群聊标题可以留空。</p>
+        </div>
+
+        <template #footer>
+          <div class="dialog-footer">
+            <el-button @click="createGroupDialogVisible = false">取消</el-button>
+            <el-button :icon="ChatRound" color="#111827" :disabled="!isGroupConversation" @click="submitCreateGroup">
+              创建群聊
+            </el-button>
+          </div>
+        </template>
+      </el-dialog>
+
       <el-dialog v-model="friendSearchDialogVisible" title="搜索好友" width="min(92vw, 560px)"
         :close-on-click-modal="canCloseFriendSearchDialog" :close-on-press-escape="canCloseFriendSearchDialog"
         :show-close="canCloseFriendSearchDialog" @closed="resetFriendSearchDialog">
@@ -433,20 +525,105 @@ const {
   background: #f9fafb;
 }
 
-.create-box-stack {
+.social-dropdown-count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.friend-list-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.friend-list-toolbar {
   display: flex;
   align-items: center;
-  // 与全局 --chat-gap 同步（大屏电脑端 12px / 平板与手机 6px）
-  gap: var(--chat-gap, 12px);
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.friend-list-count,
+.friend-list-tip,
+.create-group-tip {
+  margin: 0;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.friend-list-row {
+  box-sizing: border-box;
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border: none;
+  border-bottom: 1px solid #f3f4f6;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: #f9fafb;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #93c5fd;
+    outline-offset: -2px;
+  }
+}
+
+.friend-list-text {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+
+  strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+}
+
+.friend-list-meta {
+  overflow: hidden;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.friend-list-action {
+  flex-shrink: 0;
+  color: #2563eb;
+  font-size: 12px;
+}
+
+.create-group-panel {
+  display: grid;
+  gap: 14px;
 }
 
 .member-select {
-  // 占满剩余宽度但能收缩：el-select 自带 width: 100%，
-  // 不让它缩的话，「好友选择器 + 发起聊天按钮」在手机档（24px 控件）下
-  // 会把按钮挤出侧栏。
-  flex: 1 1 0;
+  width: 100%;
   min-width: 0;
-  width: auto;
 }
 
 .member-select-item {
