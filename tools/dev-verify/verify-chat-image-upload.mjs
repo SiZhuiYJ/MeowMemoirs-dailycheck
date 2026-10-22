@@ -87,8 +87,10 @@ try {
 
 // ── 测试用图片（内容随机：服务端按内容哈希去重，每次跑都该是新文件） ──────
 const seed = Date.now() % 997;
+/** 高熵 token：待发气泡（*.webp）和落地后（服务端给的名字不带后缀）只有它是一样的。 */
+const TOKEN = `vu${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const pngBase64 = makePng(IMG_W, IMG_H, seed).toString("base64");
-const FILE_NAME = `verify-upload-${IMG_W}x${IMG_H}-${seed}.png`;
+const FILE_NAME = `verify-upload-${TOKEN}-${IMG_W}x${IMG_H}.png`;
 
 // ── 伪造开发令牌 ──────────────────────────────────────────────────────────
 function mintToken() {
@@ -284,10 +286,24 @@ async function openChat(width, height) {
     await sleep(250);
   }
 
+  // 先把历史拉一点：首屏只加载最近 50 条，测试会话里最新的往往全是图片，
+  // 「文档 / 音频卡片能撑开」那条断言就会因为没有卡片而误报（不是功能坏了，是没数据）。
+  for (let i = 0; i < 6; i += 1) {
+    const hasCard = await cdp.evaluate(`!!document.querySelector('.message-list .msg-item.has-file')`);
+    if (hasCard) break;
+    await cdp.evaluate(`(() => {
+      // el-scrollbar 真正滚动的是 .el-scrollbar__wrap（.message-list-container 只是它的视图节点）
+      const box = document.querySelector('.el-scrollbar__wrap') || document.querySelector('.message-list-container');
+      if (box) box.scrollTop = 0;
+      return true;
+    })()`);
+    await sleep(900);
+  }
+
   // 滚到最底部：图片是懒加载的（不在视口里就不下 blob，也就没有 <img>），
   // 窄屏尤其容易漏 —— 不滚下去会误判成「没有图片消息」。
   await cdp.evaluate(`(() => {
-    const box = document.querySelector('.message-list-container') || document.querySelector('.message-list')?.parentElement;
+    const box = document.querySelector('.el-scrollbar__wrap') || document.querySelector('.message-list-container');
     if (box) box.scrollTop = box.scrollHeight;
     return true;
   })()`);
@@ -325,6 +341,8 @@ const MEASURE = `(() => {
       kind,
       mine: el.classList.contains('mine'),
       header: (el.querySelector('.header-text')?.textContent ?? '').trim(),
+      timeText: (el.querySelector('.meta.foot span')?.textContent ?? '').trim(),
+      canRecall: [...el.querySelectorAll('.header-actions .el-button')].some((b) => (b.textContent ?? '').includes('撤回')),
       wrapW: wrap ? rect(wrap).w : null,
       mediaW: media ? rect(media).w : null,
       imgW: img ? rect(img).w : null,
@@ -379,11 +397,15 @@ if (!(await openChat(DESKTOP.width, DESKTOP.height))) {
 
 const before = await cdp.evaluate(MEASURE);
 const cardWidthsBefore = (before.files ?? []).filter((f) => f.kind === "card" && f.wrapW).map((f) => f.wrapW);
-check(
-  "上传前：文档 / 音频卡片能撑开（>100px，不再是塌成最小宽度）",
-  cardWidthsBefore.length > 0 && cardWidthsBefore.every((w) => w > 120),
-  `实测 ${JSON.stringify(cardWidthsBefore)}`,
-);
+if (cardWidthsBefore.length === 0) {
+  console.log("INFO  会话里没加载到文档 / 音频卡片消息，跳过「卡片能撑开」的量测（源码契约见 verify-device-layout.mjs）");
+} else {
+  check(
+    "上传前：文档 / 音频卡片能撑开（>100px，不再是塌成最小宽度）",
+    cardWidthsBefore.every((w) => w > 120),
+    `实测 ${JSON.stringify(cardWidthsBefore)}`,
+  );
+}
 
 // 想在浏览器里"看到"上传中的动画，必须先让上传慢下来 —— 但
 //   · localhost 上 57KB 是瞬间传完的；
@@ -396,14 +418,33 @@ cdp.on("Fetch.requestPaused", (params) => {
   pausedUploadId = params.requestId;
 });
 
-// 落地那一瞬间不许出现两个同图气泡（待发气泡 + 确认消息）。
-// 用 rAF 逐帧盯：这是 16ms 级别的事，靠 200ms 轮询根本抓不到。
+// 逐帧盯两件 16ms 级别的事（200ms 轮询根本抓不到）：
+//   1. 落地那一瞬间不许出现两个同图气泡（待发气泡 + 确认消息）；
+//   2. 也不许出现「图没了、只剩转圈/占位」的帧 —— 那是「上传完又去下了一遍图」的症状
+//      （服务端 extra 是 PascalCase，读 fileKey 读到 undefined 时就会这样：
+//      本地那份 blob 送不进下载缓存，真实消息掉头重新下载）。
 await cdp.evaluate(`(() => {
-  const name = ${JSON.stringify(FILE_NAME)};
+  const token = ${JSON.stringify(TOKEN)};
   window.__dupMax = 0;
+  window.__blankFrames = 0;
+  window.__blankSample = '';
   const tick = () => {
-    const n = document.querySelectorAll('.message-list .msg-item .image-message img[alt="' + name + '"]').length;
+    // 同一条消息可能正在显示为「待发气泡（*.webp）」或「落地后的图片（无后缀）」，
+    // 两者的 alt 不一样，只有 TOKEN 一致 —— 所以按 token 子串数气泡个数。
+    const n = [...document.querySelectorAll('.message-list .msg-item')].filter((el) => {
+      const alt = el.querySelector('.image-message img')?.getAttribute('alt') ?? '';
+      return alt.includes(token);
+    }).length;
     if (n > window.__dupMax) window.__dupMax = n;
+
+    // 取「最后一条自己的文件气泡」= 刚发的这条（待发气泡和落地后的消息都算）
+    const items = [...document.querySelectorAll('.message-list .msg-item')];
+    const ours = items.filter((el) => el.classList.contains('mine') && el.querySelector('.file-message')).pop();
+    if (ours && !ours.querySelector('.image-message img')) {
+      window.__blankFrames += 1;
+      window.__blankSample = (ours.querySelector('.header-text')?.textContent ?? '').trim();
+    }
+
     window.__dupRaf = requestAnimationFrame(tick);
   };
   window.__dupRaf = requestAnimationFrame(tick);
@@ -507,11 +548,19 @@ while (Date.now() - startedAt < 20000) {
 check("上传结束后待发气泡消失（不会卡在「准备中」/「发送中」）", settled, `已过 ${pendingStuck ?? "-"}ms 仍在待发状态`);
 
 await sleep(900);
-const dupMax = await cdp.evaluate(`(() => { if (window.__dupRaf) cancelAnimationFrame(window.__dupRaf); return window.__dupMax ?? 0; })()`);
+const frames = await cdp.evaluate(`(() => {
+  if (window.__dupRaf) cancelAnimationFrame(window.__dupRaf);
+  return { dupMax: window.__dupMax ?? 0, blankFrames: window.__blankFrames ?? 0, blankSample: window.__blankSample ?? '' };
+})()`);
 check(
   "落地时不会闪出两个同图气泡（逐帧采样同一张图最多 1 个）",
-  dupMax <= 1,
-  `峰值 ${dupMax} 个气泡同时显示同一张图`,
+  frames.dupMax <= 1,
+  `峰值 ${frames.dupMax} 个气泡同时显示同一张图`,
+);
+check(
+  "落地全程不出空白/转圈帧（图片不会「消失再重新加载」）",
+  frames.blankFrames === 0,
+  `有 ${frames.blankFrames} 帧没有图（首帧状态：${frames.blankSample || "-"}）`,
 );
 
 const after = await cdp.evaluate(MEASURE);
@@ -543,11 +592,35 @@ if (myImage) {
 }
 
 const cardWidthsAfter = (after.files ?? []).filter((f) => f.kind === "card" && f.wrapW).map((f) => f.wrapW);
+if (cardWidthsAfter.length === 0) {
+  console.log("INFO  会话里没加载到文档 / 音频卡片消息，跳过「卡片仍能撑开」的量测");
+} else {
+  check(
+    "上传后：文档 / 音频卡片仍能撑开（没被媒体规则带塌）",
+    cardWidthsAfter.every((w) => w > 120),
+    `实测 ${JSON.stringify(cardWidthsAfter)}`,
+  );
+}
+// 时间显示：服务端时间戳是**不带时区**的 UTC，前端必须按 UTC 解析再转本地。
+// 解析错的话这里会差出整个时区（UTC+8 差 8 小时），撤回窗口也会跟着失效。
+if (myImage?.timeText) {
+  const [hh, mm] = myImage.timeText.split(':').map((v) => Number(v));
+  const now = new Date();
+  const shownMinutes = hh * 60 + mm;
+  const expectedMinutes = now.getHours() * 60 + now.getMinutes();
+  const diff = Math.min(Math.abs(shownMinutes - expectedMinutes), 1440 - Math.abs(shownMinutes - expectedMinutes));
+  check(
+    `消息时间按本地时区显示（显示 ${myImage.timeText}，本地现在 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}）`,
+    Number.isFinite(diff) && diff <= 5,
+    `相差 ${diff} 分钟`,
+  );
+}
 check(
-  "上传后：文档 / 音频卡片仍能撑开（没被媒体规则带塌）",
-  cardWidthsAfter.length > 0 && cardWidthsAfter.every((w) => w > 120),
-  `实测 ${JSON.stringify(cardWidthsAfter)}`,
+  "刚发出的消息可以撤回（5 分钟窗口按真实时间算）",
+  myImage?.canRecall === true,
+  "没找到撤回入口 —— 服务端时间戳多半又被当成本地时间解析了",
 );
+
 check("桌面端无横向溢出", after.overflowX <= 1, `溢出 ${after.overflowX}px`);
 check("页面没有渲染错误", cdp.consoleErrors.length === 0, cdp.consoleErrors.slice(0, 3).join(" | "));
 
