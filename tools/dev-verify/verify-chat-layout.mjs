@@ -261,6 +261,19 @@ const MEASURE = `(() => {
     mainVis,
     sideBySide,
     itemCount: document.querySelectorAll('.conversation-list li').length,
+    // 会话列表头像 vs 行高：行高由两行文字决定（40~48px），头像应该贴着它，
+    // 而不是跟着列表宽度一路缩到 32px、在行里空出一大截
+    // （见 ConversationSidebarList.vue 里 device-mobile 那段注释）。
+    listItems: [...document.querySelectorAll('.conversation-list li')].slice(0, 6).map((li) => {
+      const rect = li.getBoundingClientRect();
+      const pad = parseFloat(getComputedStyle(li).paddingTop) || 0;
+      const avatar = li.querySelector('.conversation-avatar');
+      const round1 = (n) => Math.round(n * 10) / 10;
+      return {
+        content: round1(rect.height - pad * 2),
+        avatar: avatar ? round1(avatar.getBoundingClientRect().height) : 0,
+      };
+    }),
     backBtnVisible: vis(document.querySelector('.back-to-list')),
     msgCount: document.querySelectorAll('.message-list .msg-item').length,
   };
@@ -329,6 +342,15 @@ for (const vp of VIEWPORTS) {
     console.log(`INFO  ${tag} 没有会话数据，跳过聊天界面断言（空态已通过）`);
     continue;
   }
+
+  // 头像不能比「行内容高」小太多：行里有 13~15px 空白就说明头像缩过头了
+  // （旧实现平板档侧栏 300px 时行内容高 48.5、头像只有 34.3）。
+  const worstGap = Math.max(...listState.listItems.map((it) => it.content - it.avatar));
+  check(
+    `${tag} 头像贴着行高（行内容高 - 头像 <= 8px）`,
+    listState.listItems.every((it) => it.avatar > 0 && it.content - it.avatar <= 8),
+    `最大差 ${worstGap.toFixed(1)}px（${JSON.stringify(listState.listItems)}）`,
+  );
 
   // 点开第一个会话：手机档应切到聊天界面，平板/电脑档应仍是双栏
   await cdp.evaluate(`(() => { const li = document.querySelector('.conversation-list li'); if (li) li.click(); return true; })()`);
