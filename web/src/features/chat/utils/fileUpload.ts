@@ -1,6 +1,7 @@
 import type { AxiosProgressEvent } from "axios";
 import { convertToWebP, extractVideoFrameToWebP } from "@/utils/convertToWebP";
 import { getVideoDuration } from "@/utils/mediaDuration";
+import { getVideoFileMetadata } from "@/utils/videoMetadata";
 import { getChatFileUrl, uploadChatFile } from "../api/files";
 import type { FileExtra, MessageType } from "../types";
 import {
@@ -274,7 +275,9 @@ export async function uploadFileForMessage(
 
     reportProgress(100);
 
-    const duration = await getMediaDuration(file);
+    // 一次拿全：时长 + 画面尺寸。宽高是**封面显示**要用的 ——
+    // 竖屏视频（如 720×1280）的封面若按 16:9 展示会被裁成一条横条。
+    const videoMetadata = await getVideoFileMetadata(file);
     const mimeType = file.type || videoInfo.data.contentType;
     const extra: FileExtra = {
       fileName: file.name,
@@ -283,7 +286,10 @@ export async function uploadFileForMessage(
       fileUrl: getChatFileUrl(videoInfo.data.fileKey),
       mimeType,
       thumbnailUrl: coverInfo.data.fileKey,
-      duration: duration ?? undefined,
+      duration: videoMetadata.duration ?? undefined,
+      // 封面是从这一帧抽的，比例与画面一致；只决定显示比例，不会放大
+      width: videoMetadata.width ?? undefined,
+      height: videoMetadata.height ?? undefined,
     };
 
     return { extra, messageType: "video" };

@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { useAuthStore } from "@/stores";
 import {
+  deleteMessageForMe as deleteMessageForMeApi,
   getMessageDelta as getMessageDeltaApi,
   getMessages as getMessagesApi,
   recallMessage as recallMessageApi,
@@ -294,6 +295,28 @@ export function useMessages(conversationId: () => number) {
     }
   }
 
+  /** 从本地消息列表移除一条消息（删除成功 / 其它端同步删除时使用）。 */
+  function removeMessage(messageId: number) {
+    if (!messageId) return;
+    messages.value = messages.value.filter((message) => message.id !== messageId);
+  }
+
+  /**
+   * 删除一条消息（仅自己不可见，伪删除）。
+   * 服务端只写入删除标记，不会真正删掉对方看到的消息。
+   */
+  async function deleteMessageForMe(messageId: number) {
+    clearError();
+    try {
+      await deleteMessageForMeApi(messageId);
+      removeMessage(messageId);
+      return true;
+    } catch (error: any) {
+      setError(error, "删除消息失败");
+      return false;
+    }
+  }
+
   // 清空消息（切换会话时调用）
   function resetMessages() {
     messages.value = [];
@@ -315,6 +338,8 @@ export function useMessages(conversationId: () => number) {
     retrySendMessage,
     discardPendingTextMessage,
     recallMessage,
+    deleteMessageForMe,
+    removeMessage,
     upsertMessage,
     upsertMessages,
     resetMessages,

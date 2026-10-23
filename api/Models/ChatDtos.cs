@@ -145,6 +145,14 @@ public class MessageReferenceDto
     /// </summary>
     public bool IsRecalled { get; set; }
     /// <summary>
+    /// 执行撤回的用户ID，可为空
+    /// </summary>
+    public ulong? RecalledByUserId { get; set; }
+    /// <summary>
+    /// 管理撤回提示（仅群主/管理员撤回他人消息时有值），可为空
+    /// </summary>
+    public string? RecallPrompt { get; set; }
+    /// <summary>
     /// 创建时间
     /// </summary>
     public DateTime CreatedAt { get; set; }
@@ -191,6 +199,14 @@ public class MessageSummaryDto
     /// 是否撤回
     /// </summary>
     public bool IsRecalled { get; set; }
+    /// <summary>
+    /// 执行撤回的用户ID，可为空
+    /// </summary>
+    public ulong? RecalledByUserId { get; set; }
+    /// <summary>
+    /// 管理撤回提示（仅群主/管理员撤回他人消息时有值），可为空
+    /// </summary>
+    public string? RecallPrompt { get; set; }
     /// <summary>
     /// 创建时间
     /// </summary>
@@ -437,3 +453,105 @@ public class ReadUserDto
     /// </summary>
     public DateTime ReadAt { get; set; }
 }
+
+/// <summary>
+/// 消息伪删除（仅自己不可见）结果
+/// </summary>
+public class DeleteMessageResultDto
+{
+    /// <summary>
+    /// 被隐藏的消息ID
+    /// </summary>
+    public ulong MessageId { get; set; }
+    /// <summary>
+    /// 消息所属会话ID
+    /// </summary>
+    public ulong ConversationId { get; set; }
+    /// <summary>
+    /// 是否已对该用户隐藏
+    /// </summary>
+    public bool Hidden { get; set; }
+}
+
+/// <summary>
+/// 删除会话聊天记录（仅自己）结果
+/// </summary>
+public class DeleteConversationHistoryResultDto
+{
+    /// <summary>
+    /// 会话ID
+    /// </summary>
+    public ulong ConversationId { get; set; }
+    /// <summary>
+    /// 聊天记录清除到此消息ID（含），仅对该用户生效
+    /// </summary>
+    public ulong ClearedBeforeMessageId { get; set; }
+    /// <summary>
+    /// 会话是否已从该用户的收件箱隐藏
+    /// </summary>
+    public bool Hidden { get; set; }
+}
+
+/// <summary>
+/// 用户主页信息数据传输对象
+/// </summary>
+public class UserProfileDto
+{
+    /// <summary>
+    /// 用户ID
+    /// </summary>
+    public ulong UserId { get; set; }
+    /// <summary>
+    /// 用户账号
+    /// </summary>
+    public string? UserAccount { get; set; }
+    /// <summary>
+    /// 昵称
+    /// </summary>
+    public string? NickName { get; set; }
+    /// <summary>
+    /// 头像键
+    /// </summary>
+    public string? AvatarKey { get; set; }
+    /// <summary>
+    /// 注册时间
+    /// </summary>
+    public DateTime CreatedAt { get; set; }
+    /// <summary>
+    /// 是否查看自己的主页
+    /// </summary>
+    public bool IsSelf { get; set; }
+    /// <summary>
+    /// 是否是好友
+    /// </summary>
+    public bool IsFriend { get; set; }
+    /// <summary>
+    /// 当前用户是否已把该用户拉黑
+    /// </summary>
+    public bool IsBlocked { get; set; }
+    /// <summary>
+    /// 该用户是否已把当前用户拉黑（被拉黑方仍可查看主页，但不能再互动）
+    /// </summary>
+    public bool IsBlockedByTarget { get; set; }
+    /// <summary>
+    /// 好友备注
+    /// </summary>
+    public string? FriendRemark { get; set; }
+    /// <summary>
+    /// 与当前用户的单聊会话ID（若存在）
+    /// </summary>
+    public ulong? DirectConversationId { get; set; }
+    /// <summary>
+    /// 当前用户是否已向该用户发送待处理的好友申请
+    /// </summary>
+    public bool HasPendingSentRequest { get; set; }
+    /// <summary>
+    /// 该用户是否已向当前用户发送待处理的好友申请
+    /// </summary>
+    public bool HasPendingReceivedRequest { get; set; }
+    /// <summary>
+    /// 账号状态：active=正常，frozen=冻结
+    /// </summary>
+    public string Status { get; set; } = "active";
+}
+

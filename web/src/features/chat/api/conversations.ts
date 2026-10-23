@@ -5,6 +5,7 @@ import type {
   ConversationSummary,
   CreateGroupJoinRequestPayload,
   CreateConversationPayload,
+  DeleteConversationHistoryResult,
   GroupSearchResult,
   GroupJoinRequest,
   InviteConversationMembersPayload,
@@ -12,6 +13,7 @@ import type {
   RejectGroupJoinRequestPayload,
   UpdateConversation,
   UpdateConversationMemberRolePayload,
+  UpdateConversationPreferences,
 } from "../types";
 
 export async function getConversations(config: HttpRequestConfig = {}) {
@@ -28,6 +30,35 @@ export async function createConversation(payload: CreateConversationPayload) {
 
 export async function updateConversation(id: number, payload: UpdateConversation) {
   return await http.post<ConversationDetail>(`/mm/chat/conversations/${id}`, payload);
+}
+
+/**
+ * 只更新当前用户的个人设置（置顶 / 免打扰）。
+ *
+ * 复用 UpdateConversation 接口：不传 title/avatar/isActive，
+ * 服务端就只会改动成员自己的 is_pinned / is_muted，不会误判成修改群资料。
+ */
+export async function updateConversationPreferences(
+  id: number,
+  payload: UpdateConversationPreferences,
+) {
+  return await http.post<ConversationDetail>(
+    `/mm/chat/conversations/${id}`,
+    payload,
+    { priority: true },
+  );
+}
+
+/**
+ * 删除会话聊天记录（仅自己不可见）。
+ * 服务端只在当前用户的成员记录上打标记，不物理删除会话或消息。
+ */
+export async function deleteConversationHistory(conversationId: number) {
+  return await http.post<DeleteConversationHistoryResult>(
+    `/mm/chat/conversations/${conversationId}/delete`,
+    undefined,
+    { priority: true, allowDuplicate: true },
+  );
 }
 
 export async function updateConversationMemberRole(

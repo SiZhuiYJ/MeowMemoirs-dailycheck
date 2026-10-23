@@ -153,6 +153,12 @@ function getDayStatusClass(date: Date): string {
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+
+  &:hover {
+    color: var(--theme-color-strong);
+    background: var(--theme-color-soft);
+  }
 
   // 触屏平板/触屏笔电上把点击区域撑到 44x44。
   @include rp.coarse-pointer {

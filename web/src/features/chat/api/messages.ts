@@ -1,6 +1,7 @@
 import http from "@/libs/http";
 import type { HttpRequestConfig } from "@/libs/http/type";
 import type {
+  DeleteMessageResult,
   MessageDeltaResponse,
   MessageReadStatus,
   MessageSummary,
@@ -51,6 +52,18 @@ export async function recallMessage(messageId: number) {
   return await http.post<MessageSummary>(`/mm/chat/messages/${messageId}/recall`, undefined, {
     priority: true,
   });
+}
+
+/**
+ * 删除一条消息（仅自己不可见，伪删除）。
+ * 服务端写入 (messageId, userId) 标记，对方和其它成员不受影响。
+ */
+export async function deleteMessageForMe(messageId: number) {
+  return await http.post<DeleteMessageResult>(
+    `/mm/chat/messages/${messageId}/delete`,
+    undefined,
+    { priority: true, allowDuplicate: true },
+  );
 }
 
 export async function markRead(id: number, lastReadMessageId?: number) {

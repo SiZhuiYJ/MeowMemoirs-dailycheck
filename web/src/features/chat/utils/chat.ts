@@ -76,8 +76,12 @@ export function getMessageSenderName(
 }
 
 export function getRecalledMessageText(
-  message?: Pick<MessageReference, "senderNickName" | "senderUserId"> | null,
+  message?: Pick<MessageReference, "senderNickName" | "senderUserId" | "recallPrompt"> | null,
 ): string {
+  // 群主/管理员撤回他人消息：后端把提示挂在原消息上，直接展示在原位置。
+  const recallPrompt = message?.recallPrompt?.trim();
+  if (recallPrompt) return recallPrompt;
+
   return `${getMessageSenderName(message)} 撤回了一条消息`;
 }
 

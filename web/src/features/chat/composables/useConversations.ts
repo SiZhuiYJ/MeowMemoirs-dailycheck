@@ -4,10 +4,12 @@ import { useAuthStore } from "@/stores";
 import { storeToRefs } from "pinia";
 import {
   createConversation as createConversationApi,
+  deleteConversationHistory as deleteConversationHistoryApi,
   getConversation as getConversationApi,
   getConversations as getConversationsApi,
   updateConversation as updateConversationApi,
   updateConversationMemberRole as updateConversationMemberRoleApi,
+  updateConversationPreferences as updateConversationPreferencesApi,
 } from "../api/conversations";
 import { toTimestamp } from "../utils/chat";
 import { useErrorHandler } from "./useErrorHandler";
@@ -18,6 +20,7 @@ import type {
   CreateConversationPayload,
   MessageSummary,
   UpdateConversationMemberRolePayload,
+  UpdateConversationPreferences,
 } from "../types";
 
 export function useConversations() {
@@ -262,6 +265,68 @@ export function useConversations() {
   }
 
   /**
+   * 更新当前用户的个人会话设置（置顶 / 消息免打扰）。
+   *
+   * 只提交 isPinned / isMuted：服务端 UpdateConversation 会按「字段真正变化」
+   * 判断是否属于修改群资料，因此普通成员也不会被误判成改群资料而收到 403。
+   *
+   * 先做本地乐观更新，失败再回滚，避免右键菜单点完后列表要等一个往返才动。
+   */
+  async function setConversationPreference(
+    item: ConversationSummary,
+    patch: UpdateConversationPreferences,
+  ) {
+    const previous = { isPinned: item.isPinned, isMuted: item.isMuted };
+
+    if (typeof patch.isPinned === "boolean") item.isPinned = patch.isPinned;
+    if (typeof patch.isMuted === "boolean") item.isMuted = patch.isMuted;
+    sortConversations();
+
+    try {
+      const detail = (await updateConversationPreferencesApi(item.id, patch)).data;
+      item.isPinned = detail.isPinned;
+      item.isMuted = detail.isMuted;
+
+      if (currentConversation.value?.id === item.id) {
+        currentConversation.value.isPinned = detail.isPinned;
+        currentConversation.value.isMuted = detail.isMuted;
+      }
+
+      sortConversations();
+    } catch (error: any) {
+      item.isPinned = previous.isPinned;
+      item.isMuted = previous.isMuted;
+      sortConversations();
+      setError(error, "更新会话设置失败");
+    }
+  }
+
+  /**
+   * 删除会话聊天记录（仅自己不可见，伪删除）。
+   *
+   * 服务端会隐藏该会话并把历史清除游标推到最新；本地直接把它从列表移除，
+   * 当前打开的就是它时清空 currentConversation，由上层决定是否关闭面板。
+   */
+  async function deleteConversationHistory(item: ConversationSummary) {
+    clearError();
+    try {
+      await deleteConversationHistoryApi(item.id);
+      conversations.value = conversations.value.filter(
+        (conversation) => conversation.id !== item.id,
+      );
+
+      if (currentConversation.value?.id === item.id) {
+        currentConversation.value = null;
+      }
+
+      return true;
+    } catch (error: any) {
+      setError(error, "删除会话失败");
+      return false;
+    }
+  }
+
+  /**
    * 本地应用一条新消息到会话列表（乐观更新）。
    * 用于自己刚发出的消息：立即更新预览、排序与未读数，不必整表重拉。
    */
@@ -276,9 +341,11 @@ export function useConversations() {
     const isCurrent = currentConversation.value?.id === conversationId;
     const isMine = message.senderUserId === user.value?.userId;
 
-    // 撤回消息的 id 可能小于 lastMessage，但仍需刷新预览
+    // 撤回消息的 id 可能等于 lastMessage（最后一条被撤回）——
+    // 相等时要刷新预览；但若已经有更新的消息（例如管理撤回后紧跟的系统提示），
+    // 不能再用这条旧消息把预览覆盖回去。
     const currentLastId = target.lastMessage?.id ?? 0;
-    const isStale = !message.isRecalled && message.id > 0 && message.id <= currentLastId;
+    const isStale = message.id > 0 && message.id < currentLastId;
     if (isStale) return;
 
     target.lastMessage = message;
@@ -288,7 +355,8 @@ export function useConversations() {
       target.unreadCount = 0;
     } else if (typeof options?.unreadCount === "number") {
       target.unreadCount = options.unreadCount;
-    } else if (!isMine) {
+    } else if (!isMine && !message.isRecalled && message.messageType !== "system") {
+      // 与服务端未读口径一致：撤回事件、系统提示都不算未读
       target.unreadCount = (target.unreadCount ?? 0) + 1;
     }
 
@@ -321,6 +389,8 @@ export function useConversations() {
     createConversation,
     updateConversation,
     updateConversationMemberRole,
+    setConversationPreference,
+    deleteConversationHistory,
     getDirectPeerDisplayName,
     updateConversationSummaryTitle,
     applyMessageToSummary,

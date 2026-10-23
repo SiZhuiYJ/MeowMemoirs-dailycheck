@@ -3,6 +3,7 @@ import App from "./App.vue";
 import { setupMikuCursor } from "./libs/mikuCursor";
 import { installDeviceLayout } from "./composables/use-device-layout";
 import { initTelemetry, telemetry } from "./libs/telemetry";
+import { initTheme } from "./composables/use-theme";
 
 // 埋点初始化必须最早执行：这样连「应用启动阶段」的报错都能被记下来
 initTelemetry();
@@ -17,6 +18,10 @@ import "virtual:svg-icons-register";
 import "element-plus/theme-chalk/dark/css-vars.css";
 
 const app = createApp(App);
+
+// 主题必须早于挂载初始化：先写 data-theme / .dark，页面才不会先闪一帧默认主题。
+// 实际切换动画由 Topbar 里的 toggleTheme() 触发。
+initTheme();
 
 // 路由管理 - Vue Router
 import router from "./routers";

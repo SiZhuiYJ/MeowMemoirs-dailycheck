@@ -121,9 +121,9 @@ async function uploadImage() {
   display: inline-flex;
   justify-content: center;
   align-items: center;
-  background-color: var(--accent-alt);
+  background-color: var(--theme-primary-bg);
   border-radius: 16px;
   font-size: 36px;
-  color: #fff;
+  color: var(--theme-color-contrast);
 }
 </style>

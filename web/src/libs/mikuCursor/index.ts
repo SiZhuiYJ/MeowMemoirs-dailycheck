@@ -44,6 +44,30 @@ const nativeInteractiveSelectors = [
   ".ink",
 ] as const;
 
+/**
+ * 应用内「整块可点」、但不是 `<button>`/`<a>` 的自定义元素。
+ *
+ * 为什么必须显式登记：ani-cursor 的做法是给**命中的选择器**挂一条 `cursor` 关键帧
+ * 动画，没命中的元素只能继承 html/body/#app 上的动画光标。而这些元素自己写了
+ * `cursor: pointer` —— 普通声明覆盖的是「继承来的值」，动画只挂在祖先身上、
+ * 不会作用到它们，于是光标回退成系统默认手型。在满是 Miku 光标的页面里，
+ * 鼠标一移上去就像变成了「普通的系统按钮」。
+ *
+ * 以后新增「整块可点」的自定义元素，把选择器补到这里；`<button>` / `a[href]`
+ * 已经由上面的原生列表覆盖，不用重复登记。
+ */
+const appInteractiveSelectors = [
+  // 会话列表项：li 整行可点（见 features/chat/style/index.scss 的 .conversation-list li）
+  ".conversation-item",
+  // 文件消息卡片：图片 / 视频 / 音频 / 文档共用这个根节点，整块可点打开详情。
+  // 上传中刻意保持 cursor: default（FileMessage.vue），所以排除掉这个状态。
+  ".file-message:not(.uploading)",
+  // 头像跳转：ProgressiveAvatar 的根节点是 div，只靠 CSS 给的手型
+  ".member-avatar-link",
+  ".search-result-avatar-link",
+  ".blacklist-avatar",
+] as const;
+
 const elementPlusInteractiveSelectors = [
   ".el-anchor__link",
   ".el-alert__close-btn",
@@ -249,7 +273,11 @@ const immediateCursorRules: readonly CursorRule[] = [
     hotspot: [0, 0],
   },
   {
-    selectors: [...nativeInteractiveSelectors, ...elementPlusInteractiveSelectors],
+    selectors: [
+      ...nativeInteractiveSelectors,
+      ...elementPlusInteractiveSelectors,
+      ...appInteractiveSelectors,
+    ],
     cursorUrl: linkCursorUrl,
     fallback: "pointer",
     hotspot: [8, 0],

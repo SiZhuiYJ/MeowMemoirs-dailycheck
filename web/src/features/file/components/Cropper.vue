@@ -66,12 +66,14 @@ const doCrop = () => {
 button {
   padding: 6px 12px;
   border-radius: 4px;
-  border: 1px solid #ccc;
-  background: #fff;
+  border: 1px solid var(--theme-action-bg);
+  background: var(--theme-action-bg);
+  color: var(--theme-action-contrast);
   cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 button:hover {
-  background: #f5f5f5;
+  background: var(--theme-action-hover);
 }
 </style>

@@ -1,16 +1,19 @@
 import {
   acceptFriendRequest,
   createFriendRequest,
+  getBlockedUsers,
   getFriendRequests,
   getFriends,
   rejectFriendRequest,
   searchFriendUsers,
+  unblockUser,
 } from "../api/friends";
 import {
   createGroupJoinRequest,
   searchGroupConversation,
 } from "../api/conversations";
 import type {
+  BlockedUser,
   FriendRequest,
   FriendSearchResult,
   Friendship,
@@ -23,7 +26,11 @@ import {
 } from "@/utils/avatar";
 import { computed, onMounted, ref, watch } from "vue";
 
-export type SidebarActionCommand = "groupJoin" | "addFriend" | "friendRequest";
+export type SidebarActionCommand =
+  | "groupJoin"
+  | "addFriend"
+  | "friendRequest"
+  | "blacklist";
 
 const friendRequestStatusMap: Record<FriendRequest["requestStatus"], string> = {
   pending: "待处理",
@@ -126,6 +133,10 @@ export function useConversationSidebarSocial(options: {
   const groupSearchSearched = ref(false);
   const friendLoading = ref(false);
   const friends = ref<Friendship[]>([]);
+  const blacklistDialogVisible = ref(false);
+  const blacklistLoading = ref(false);
+  const blacklist = ref<BlockedUser[]>([]);
+  const blacklistUnblockingId = ref<number | null>(null);
 
   const trimmedFriendSearchKeyword = computed(() =>
     friendSearchKeyword.value.trim(),
@@ -208,14 +219,86 @@ export function useConversationSidebarSocial(options: {
     }
   }
 
+  async function loadBlacklist(options: { silent?: boolean } = {}) {
+    const { silent = false } = options;
+    blacklistLoading.value = true;
+    try {
+      const { data } = await getBlockedUsers();
+      blacklist.value = data;
+    } catch (error) {
+      if (!silent) {
+        ElMessage.error(getErrorMessage(error, "加载黑名单失败"));
+      }
+    } finally {
+      blacklistLoading.value = false;
+    }
+  }
+
   async function refreshFriendData(
     includeRequests = friendRequestDialogVisible.value,
   ) {
-    const tasks: Promise<unknown>[] = [loadFriends()];
+    const tasks: Promise<unknown>[] = [
+      loadFriends(),
+      loadBlacklist({ silent: true }),
+    ];
     if (includeRequests) {
       tasks.push(loadRequests());
     }
     await Promise.all(tasks);
+  }
+
+  async function openBlacklistDialog() {
+    blacklistDialogVisible.value = true;
+    await loadBlacklist();
+  }
+
+  async function handleUnblockUser(item: BlockedUser) {
+    if (blacklistUnblockingId.value !== null) return;
+
+    try {
+      await ElMessageBox.confirm(
+        `解除拉黑后，${getBlockedUserLabel(item)} 可以重新添加你为好友、与你聊天，并在搜索中找到你。`,
+        "解除拉黑",
+        {
+          type: "warning",
+          confirmButtonText: "解除拉黑",
+          cancelButtonText: "取消",
+        },
+      );
+    } catch {
+      return;
+    }
+
+    blacklistUnblockingId.value = item.userId;
+    try {
+      await unblockUser(item.userId);
+      ElMessage.success("已解除拉黑");
+      await Promise.all([
+        loadBlacklist({ silent: true }),
+        loadFriends(),
+        loadRequests({ silent: true }),
+      ]);
+    } catch (error) {
+      ElMessage.error(getErrorMessage(error, "解除拉黑失败"));
+    } finally {
+      blacklistUnblockingId.value = null;
+    }
+  }
+
+  function getBlockedUserLabel(item: BlockedUser) {
+    return item.nickName?.trim() || item.userAccount?.trim() || String(item.userId);
+  }
+
+  function getBlockedUserMeta(item: BlockedUser) {
+    return item.userAccount?.trim() || `ID: ${item.userId}`;
+  }
+
+  function getBlockedUserAvatar(item: BlockedUser) {
+    return getUserAvatarSources(item.userId, item.avatarKey);
+  }
+
+  function formatBlockedAt(createdAt: string) {
+    return formatChatTime(createdAt);
   }
 
   async function openFriendRequestDialog() {
@@ -461,12 +544,16 @@ export function useConversationSidebarSocial(options: {
       case "friendRequest":
         void openFriendRequestDialog();
         break;
+      case "blacklist":
+        void openBlacklistDialog();
+        break;
     }
   }
 
   onMounted(() => {
     void loadFriends();
     void loadRequests({ silent: true });
+    void loadBlacklist({ silent: true });
   });
 
   watch(
@@ -486,6 +573,10 @@ export function useConversationSidebarSocial(options: {
   return {
     friendLoading,
     friends,
+    blacklistDialogVisible,
+    blacklistLoading,
+    blacklist,
+    blacklistUnblockingId,
     pendingFriendRequestCount,
     friendSearchDialogVisible,
     friendSearchLoading,
@@ -527,6 +618,13 @@ export function useConversationSidebarSocial(options: {
     formatFriendRequestTime,
     handleAcceptRequest,
     handleRejectRequest,
+    loadBlacklist,
+    openBlacklistDialog,
+    handleUnblockUser,
+    getBlockedUserLabel,
+    getBlockedUserMeta,
+    getBlockedUserAvatar,
+    formatBlockedAt,
     resetGroupJoinDialog,
     executeGroupSearch,
     handleSubmitGroupJoin,

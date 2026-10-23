@@ -6,6 +6,7 @@ import { computed, ref, watch } from "vue";
 import { ElMessageBox } from "element-plus";
 import { storeToRefs } from "pinia";
 import { useAuthStore } from "@/stores";
+import router from "@/routers";
 import IsPin from "./IsPin.vue";
 import type {
   ConversationDetail,
@@ -44,6 +45,7 @@ import {
   groupRoleMap,
   toTimestamp,
 } from "../utils/chat";
+import { buildUserHomeRoute } from "../utils/navigation";
 
 interface MuteOption {
   value: string;
@@ -213,6 +215,12 @@ function applyConversationDetail(detail: ConversationDetail) {
 
 function getMemberName(member: ConversationMember) {
   return member.nickName || member.userAccount || String(member.userId);
+}
+
+/** 群聊详情里点击成员头像：进入该用户的主页，并带上当前会话供「返回聊天」原路返回。 */
+function openUserProfile(userId: number) {
+  if (!userId) return;
+  void router.push(buildUserHomeRoute(userId, props.conversation.id));
 }
 
 function resetFriendRemarkEditor() {
@@ -647,7 +655,7 @@ watch(
           </ProgressiveAvatar>
 
           <div v-if="isGroupConversation" class="avatar-actions">
-            <el-button color="#111827" plain :loading="uploadingAvatar" :disabled="!canChangeGroupAvatar"
+            <el-button type="primary" plain :loading="uploadingAvatar" :disabled="!canChangeGroupAvatar"
               @click="openAvatarPicker">
               更换群头像
             </el-button>
@@ -674,15 +682,15 @@ watch(
         </div>
         <div class="management-actions">
           <el-badge :value="conversation.pendingJoinRequestCount" :show-zero="false" :offset="[-6, 4]">
-            <el-button color="#111827" plain :disabled="!canManageJoinRequests" :loading="joinRequestLoading"
+            <el-button type="primary" plain :disabled="!canManageJoinRequests" :loading="joinRequestLoading"
               @click="openJoinRequestDialog">
               加群申请
             </el-button>
           </el-badge>
-          <el-button color="#111827" plain :disabled="!canInviteMembers" :loading="inviting" @click="openInviteDialog">
+          <el-button type="primary" plain :disabled="!canInviteMembers" :loading="inviting" @click="openInviteDialog">
             邀请成员
           </el-button>
-          <el-button color="#dc2626" plain :disabled="!canDisbandConversation" :loading="disbanding"
+          <el-button type="danger" plain :disabled="!canDisbandConversation" :loading="disbanding"
             @click="handleDisbandConversation">
             解散群聊
           </el-button>
@@ -699,8 +707,11 @@ watch(
 
         <div class="direct-friend-card">
           <div class="direct-friend-main">
-            <ProgressiveAvatar class="direct-friend-avatar" :src="getMemberAvatarUrl(directPeer)" :is-preview=true
-              :thumbnail-src="getMemberAvatarSources(directPeer).thumbnailSrc" :size="56" shape="square">
+            <ProgressiveAvatar class="direct-friend-avatar member-avatar-link" :src="getMemberAvatarUrl(directPeer)"
+              :thumbnail-src="getMemberAvatarSources(directPeer).thumbnailSrc" :size="56" shape="square"
+              :data-user-id="directPeer.userId" :title="`查看 ${getMemberName(directPeer)} 的主页`" role="button"
+              tabindex="0" @click.stop="openUserProfile(directPeer.userId)"
+              @keydown.enter.prevent="openUserProfile(directPeer.userId)">
               {{ getMemberName(directPeer).slice(0, 1) }}
             </ProgressiveAvatar>
             <div class="direct-friend-text">
@@ -722,11 +733,11 @@ watch(
               :disabled="savingFriendRemark || deletingFriend || !isDirectFriend"
               @keyup.enter="handleSaveFriendRemark" />
             <div class="direct-friend-actions">
-              <el-button color="#111827" plain :loading="savingFriendRemark" :disabled="!canSaveFriendRemark"
+              <el-button type="primary" plain :loading="savingFriendRemark" :disabled="!canSaveFriendRemark"
                 @click="handleSaveFriendRemark">
                 保存备注
               </el-button>
-              <el-button color="#dc2626" plain :loading="deletingFriend" :disabled="!isDirectFriend"
+              <el-button type="danger" plain :loading="deletingFriend" :disabled="!isDirectFriend"
                 @click="handleDeleteFriend">
                 删除好友
               </el-button>
@@ -747,8 +758,10 @@ watch(
         <div class="member-list">
           <div v-for="item in sortedMembers" :key="item.userId" class="member-row">
             <div class="member-main">
-              <ProgressiveAvatar class="conversation-avatar" :src="getMemberAvatarUrl(item)" :is-preview=true
-                :thumbnail-src="getMemberAvatarSources(item).thumbnailSrc" :size="48" shape="square">
+              <ProgressiveAvatar class="conversation-avatar member-avatar-link" :src="getMemberAvatarUrl(item)"
+                :thumbnail-src="getMemberAvatarSources(item).thumbnailSrc" :size="48" shape="square"
+                :data-user-id="item.userId" :title="`查看 ${getMemberName(item)} 的主页`" role="button" tabindex="0"
+                @click.stop="openUserProfile(item.userId)" @keydown.enter.prevent="openUserProfile(item.userId)">
                 {{ (item.nickName || item.userAccount || String(item.userId)).slice(0, 1) }}
               </ProgressiveAvatar>
               <div class="member-text">
@@ -769,7 +782,7 @@ watch(
 
             <div class="member-ops">
               <el-button v-if="canManageMemberRoles && item.memberRole !== 'owner' && item.userId !== user?.userId"
-                size="small" color="#111827" plain :loading="roleUpdatingUserId === item.userId"
+                size="small" type="primary" plain :loading="roleUpdatingUserId === item.userId"
                 @click="handleToggleMemberRole(item)">
                 {{ item.memberRole === "admin" ? "设为普通成员" : "设为管理员" }}
               </el-button>
@@ -795,7 +808,7 @@ watch(
           <Bell v-else />
         </el-icon>
         <IsPin v-model:is-pinned="conversation.isPinned" @toggle-pinned="togglePinned" />
-        <el-button color="#111827" class="load-more" @click="emit('load-more')">加载更早消息</el-button>
+        <el-button type="primary" class="load-more" @click="emit('load-more')">加载更早消息</el-button>
       </div>
     </div>
   </el-dialog>
@@ -820,7 +833,7 @@ watch(
     <template #footer>
       <div class="dialog-footer">
         <el-button :disabled="inviting" @click="resetInviteDialog">取消</el-button>
-        <el-button color="#111827" :loading="inviting" :disabled="!inviteSelection.length" @click="submitInviteMembers">
+        <el-button type="primary" :loading="inviting" :disabled="!inviteSelection.length" @click="submitInviteMembers">
           确认邀请
         </el-button>
       </div>
@@ -877,7 +890,7 @@ watch(
     <template #footer>
       <div class="dialog-footer">
         <el-button :disabled="muteConfirmLoading" @click="resetMuteDialog">取消</el-button>
-        <el-button color="#111827" :loading="muteConfirmLoading" :disabled="!selectedMuteOptionValue"
+        <el-button type="primary" :loading="muteConfirmLoading" :disabled="!selectedMuteOptionValue"
           @click="confirmMuteMember">
           确认禁言
         </el-button>
@@ -1058,6 +1071,22 @@ watch(
   align-items: center;
   gap: 12px;
   min-width: 0;
+}
+
+// 群成员头像可点击进入用户主页：给出明确的指针与键盘焦点反馈。
+.member-avatar-link {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(17, 24, 39, 0.16);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #111827;
+    outline-offset: 2px;
+  }
 }
 
 .member-text {

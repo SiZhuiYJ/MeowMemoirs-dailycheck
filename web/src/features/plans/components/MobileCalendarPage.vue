@@ -95,10 +95,16 @@ function getDayStatusClass(date: Date): string {
   border-radius: 999px;
   border: none;
   padding: 4px 10px;
-  background: var(--surface-soft);
-  color: var(--text-color);
+  background: var(--theme-color-soft);
+  color: var(--theme-color-strong);
   font-size: 12px;
   cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+
+  &:hover {
+    background: var(--theme-primary-bg);
+    color: var(--theme-color-contrast);
+  }
 }
 
 .mobile-calendar-title {

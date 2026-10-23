@@ -135,6 +135,22 @@ export const staticRouter: RouteRecordRaw[] = [
     },
   },
   {
+    // 聊天页右键头像「查看主页」打开的用户主页（需要登录）
+    path: "/user/:userId(\\d+)",
+    name: "user-home",
+    component: () => import("@/views/user/home.vue"),
+    meta: {
+      title: "用户主页",
+      enName: "User Home",
+      icon: "User",
+      isHide: "1",
+      isLink: "",
+      isKeepAlive: "0",
+      isFull: "1",
+      isAffix: "0",
+    },
+  },
+  {
     path: "/gsap",
     name: "gsap",
     component: () => import("@/views/gsap/index.vue"),

@@ -80,7 +80,7 @@ const sentAtText = computed(() => formatChatDateTime(props.sentAt));
         </el-icon>
         <span>下载</span>
       </el-button>
-      <el-button class="file-detail-action" color="#111827" :disabled="previewDisabled" @click="emit('preview')">
+      <el-button class="file-detail-action" type="primary" :disabled="previewDisabled" @click="emit('preview')">
         <el-icon>
           <View />
         </el-icon>

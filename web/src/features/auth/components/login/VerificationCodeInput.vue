@@ -69,11 +69,17 @@ input:focus {
 .code-button {
     width: 100px;
     border-radius: 8px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-elevated);
-    color: var(--text-color);
+    border: 1px solid var(--theme-color-muted);
+    background: var(--theme-color-soft);
+    color: var(--theme-color-strong);
     cursor: pointer;
     font-size: 11px;
+    transition: background-color 0.2s ease, color 0.2s ease;
+
+    &:hover:not(:disabled) {
+        background: var(--theme-primary-bg);
+        color: var(--theme-color-contrast);
+    }
 }
 
 .code-button:disabled {

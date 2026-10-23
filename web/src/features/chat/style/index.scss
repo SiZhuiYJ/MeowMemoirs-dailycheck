@@ -56,15 +56,28 @@
   // —— 派生量 ——
   // 头部 / 输入区：一个控件高 + 上下内边距（消息列表靠它给浮层让位）
   --chat-bar-h: calc(var(--chat-control-h) + var(--chat-pad) * 2);
-  // 会话列表顶部让位：创建区只有一行控件（标题 + 社交操作），
-  // 「好友列表 / 发起群聊」已收进「社交操作」下拉菜单，不再占用创建区高度。
+  // 会话列表顶部让位：创建区只有一行控件（回到主页 + 标题 + 更多），
+  // 「好友列表 / 发起群聊」与原顶部工具栏（状态 / 刷新 / 推送）都收进了
+  // 「更多」下拉菜单，不再占用创建区高度。
   --chat-create-h: calc(var(--chat-control-h) + var(--chat-pad) * 2);
 
   --chat-bg: linear-gradient(180deg, #f7f7f5 0%, #ebeae4 100%);
   --chat-surface: rgba(255, 255, 255, 0.94);
   --chat-border: rgba(17, 24, 39, 0.08);
   --chat-shadow: 0 18px 40px rgba(17, 24, 39, 0.08);
-  --chat-accent-soft: #e6f0ff;
+  // 聊天页是固定的浅色面，使用浅色主题下的强调色，
+  // 不跟随全局暗色 token（否则浅底上会变成过淡的粉）。
+  --chat-accent: #9a4f8d;
+  --chat-accent-soft: #f7e8f4;
+  // 引用卡片：左侧消息用中性变种，自己消息用主题色变种。
+  // 这样「左侧普通气泡 + 中性引用」「右侧主题气泡 + 主题引用」各自成对。
+  --chat-reply-bg: #e9ecef;
+  --chat-reply-hover: #e1e5e9;
+  --chat-reply-border: #9ca3af;
+  --chat-reply-self-bg: color-mix(in srgb, var(--chat-accent) 18%, #fff);
+  --chat-reply-self-hover: color-mix(in srgb, var(--chat-accent) 24%, #fff);
+  // 点击引用跳转时的闪烁提示
+  --chat-highlight-bg: color-mix(in srgb, var(--chat-accent) 22%, #fff);
   --chat-muted: #6b7280;
   --chat-danger: #dc2626;
   // 用全局的 --app-h（use-device-layout 写入的真实像素高度）而不是 100vh：
@@ -97,6 +110,16 @@
   // 一起拉成 24/32px 会把每条消息的元信息行撑高。
   .el-button:not(.is-link) {
     height: var(--chat-control-h);
+  }
+
+  // 圆形按钮的**宽度**必须和高度一起接管，否则就是个椭圆：
+  //   - 高度：上面接管成 --chat-control-h（桌面 32px）
+  //   - 宽度：EP 的 `.el-button--small.is-circle` 写死成 `--el-button-size`（24px），
+  //     只有无 size 的 `.el-button.is-circle` 才是 32px
+  // 图片消息 hover 出来的下载按钮正是 `size="small" + circle` → 24×32。
+  // 移动端的同名规则在下面 device-mobile 块里（那边还要压 padding）。
+  .el-button.is-circle {
+    width: var(--chat-control-h);
   }
 
   // el-select 的高度写死在 .el-select__wrapper 的 `min-height: 32px` 上，
@@ -160,33 +183,6 @@
 
 .main-panel {
   padding: 0;
-}
-
-// ==============================================
-// 顶部工具栏
-// ==============================================
-.toolbar {
-  @extend %flex-center;
-  gap: var(--chat-gap);
-  // 极窄屏（320px）时宁可换行，也不要把按钮挤出屏幕
-  flex-wrap: wrap;
-
-  // 状态输入框吃掉剩余宽度，但必须能收缩到 0：
-  // .el-input 自带 width: 100%，而 flex 子项的 min-width: auto 取内容最小宽
-  // （输入框的 min-content 约等于默认字符宽度），不让它缩就会把按钮顶出屏幕。
-  >.el-input {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-
-  >.el-button {
-    flex: 0 0 auto;
-  }
-}
-
-.error {
-  margin: 0 0 10px;
-  color: var(--chat-danger);
 }
 
 // ==============================================
@@ -257,7 +253,7 @@
       background-color 160ms ease;
 
     &.active {
-      border-color: #9bbcff;
+      border-color: var(--chat-accent);
       background: var(--chat-accent-soft);
     }
 
@@ -630,9 +626,9 @@
       font-size: 12px;
     }
 
-    // 圆形按钮（发送文件的回形针）EP 写死 width: 32px，必须一起接管
+    // 圆形按钮：桌面那一档在 .chat-page 基类里已经接管控件的宽高，
+    // 这里只补移动端特有的 padding（上面那条 0 10px 会把圆按钮撑成椭圆内容区）。
     .el-button.is-circle {
-      width: var(--chat-control-h);
       padding: 0;
     }
 

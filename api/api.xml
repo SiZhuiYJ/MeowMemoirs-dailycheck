@@ -715,13 +715,47 @@
             <returns>发送成功的消息概要信息。</returns>
         </member>
         <member name="M:api.Controllers.ChatController.RecallMessage(System.UInt64)">
-            <summary>
-            撤回已发送的消息。
-            仅消息发送者可在发送后5分钟内撤回。
-            撤回后消息内容将被清空，并标记为已撤回状态。
-            </summary>
-            <param name="messageId">要撤回的消息ID。</param>
-            <returns>撤回后的消息概要信息。</returns>
+             <summary>
+             撤回消息。
+            
+             规则：
+               · 自己的消息：发送后 5 分钟内可撤回；
+               · 群聊里的其他成员消息：群主可撤回管理员/成员的消息，管理员仅可撤回成员的消息；
+                 命中这条「管理撤回」时，提示会直接挂在被撤回的消息上，在原来的位置展示：
+                 {群内身份} {操作人昵称} 撤回了 {被撤回消息的成员昵称} 的消息；
+               · 没有权限时直接 403；前端的右键菜单也不会显示「撤回」。
+            
+             撤回后消息内容会被清空，并标记为已撤回状态；管理撤回的提示保存在 recall_prompt，
+             不会再在会话底部追加一条系统消息。
+             </summary>
+             <param name="messageId">要撤回的消息ID。</param>
+             <returns>撤回后的消息概要信息。</returns>
+        </member>
+        <member name="M:api.Controllers.ChatController.DeleteMessageForMe(System.UInt64)">
+             <summary>
+             删除一条消息（仅自己不可见，伪删除）。
+            
+             真正的消息记录仍然保留在 chat_messages 中，对方、其它成员都不受影响；
+             仅在 chat_message_deletions 写入一条 (messageId, userId) 标记，
+             之后当前用户拉取消息、会话预览与未读数时都会把它过滤掉。
+             </summary>
+             <param name="messageId">要隐藏的消息ID。</param>
+             <returns>隐藏结果。</returns>
+        </member>
+        <member name="M:api.Controllers.ChatController.DeleteConversationHistory(System.UInt64)">
+             <summary>
+             删除会话聊天记录（仅自己不可见，伪删除）。
+            
+             这里不物理删除会话、也不删除消息，而是在当前用户的成员记录上打两个标记：
+               · is_hidden = true：会话从当前用户的收件箱消失；
+               · history_cleared_before_message_id = 当前最新消息ID：
+                 旧消息对当前用户不可见，对方的记录不受影响。
+            
+             之后若收到新消息，is_hidden 会被自动清掉、会话重新出现，
+             而 history_cleared_before_message_id 保持不变，旧记录仍然看不到。
+             </summary>
+             <param name="conversationId">会话ID。</param>
+             <returns>删除结果。</returns>
         </member>
         <member name="M:api.Controllers.ChatController.GetMessages(System.UInt64,System.Nullable{System.UInt64},System.Int32)">
             <summary>
@@ -782,6 +816,17 @@
             <param name="conversationId">会话ID。</param>
             <param name="userId">当前用户ID。</param>
             <returns>会话详情对象，若不存在或无权限则返回null。</returns>
+        </member>
+        <member name="M:api.Controllers.ChatController.IsBlockedBy(System.UInt64,System.UInt64)">
+            <summary>
+            blockerUserId 是否拉黑了 blockedUserId。
+            </summary>
+        </member>
+        <member name="M:api.Controllers.ChatController.UnhideConversationForMembers(System.UInt64,System.DateTime)">
+            <summary>
+            收到新内容时，把「被用户删除后隐藏」的会话重新放回收件箱。
+            只清 is_hidden，历史的清除游标保留。
+            </summary>
         </member>
         <member name="M:api.Controllers.ChatController.GetUserId">
             <summary>
@@ -1377,6 +1422,36 @@
             <param name="friendUserId">要删除的好友ID。</param>
             <returns>操作结果。</returns>
         </member>
+        <member name="M:api.Controllers.FriendsController.GetMyBlacklist">
+            <summary>
+            获取当前用户的黑名单列表（我拉黑的用户）。
+            按拉黑时间倒序返回被拉黑用户的昵称、账号与头像。
+            </summary>
+            <returns>黑名单列表。</returns>
+        </member>
+        <member name="M:api.Controllers.FriendsController.BlockUser(api.Models.BlockUserRequest)">
+             <summary>
+             拉黑指定用户。
+            
+             拉黑后：
+               · 对方无法再向你发送好友申请、发起单聊、查看你的主页或搜索到你；
+               · 对方的好友列表中不再显示你，但好友关系本身不会删除；
+               · 你仍然可以查看对方主页；
+               · 共同群聊不受影响。
+            
+             重复拉黑是幂等的，不会产生重复记录。
+             </summary>
+             <param name="request">包含被拉黑用户ID的请求对象。</param>
+             <returns>黑名单中的用户信息。</returns>
+        </member>
+        <member name="M:api.Controllers.FriendsController.UnblockUser(System.UInt64)">
+            <summary>
+            解除拉黑。解除后对方可以重新向你发起好友申请、单聊与查看主页；
+            已经取消的好友申请不会自动恢复。
+            </summary>
+            <param name="blockedUserId">被拉黑用户ID。</param>
+            <returns>无内容。</returns>
+        </member>
         <member name="M:api.Controllers.FriendsController.GetMyFriendRequests(System.String)">
             <summary>
             获取我的好友申请列表。
@@ -1417,6 +1492,11 @@
             <param name="requestId">申请ID。</param>
             <param name="request">包含拒绝原因的请求对象。</param>
             <returns>处理后的申请详情。</returns>
+        </member>
+        <member name="M:api.Controllers.FriendsController.HasBlockBetween(System.UInt64,System.UInt64)">
+            <summary>
+            两个用户之间是否存在任意方向的拉黑关系。
+            </summary>
         </member>
         <member name="T:api.Controllers.PlansController">
             <summary>
@@ -1689,6 +1769,38 @@
             <param name="level">按级别过滤，例如 error。</param>
             <param name="category">按分类过滤，例如 auth / file / app。</param>
         </member>
+        <member name="T:api.Controllers.UsersController">
+             <summary>
+             用户资料相关接口。
+            
+             目前只提供聊天页「查看主页」所需的最小信息：昵称、账号、头像、
+             注册时间、好友关系以及是否已有单聊会话。
+             </summary>
+        </member>
+        <member name="M:api.Controllers.UsersController.#ctor(api.Data.DailyCheckDbContext)">
+             <summary>
+             用户资料相关接口。
+            
+             目前只提供聊天页「查看主页」所需的最小信息：昵称、账号、头像、
+             注册时间、好友关系以及是否已有单聊会话。
+             </summary>
+        </member>
+        <member name="M:api.Controllers.UsersController.GetUserProfile(System.UInt64)">
+            <summary>
+            获取指定用户的主页信息。
+            已登录用户可查看任意未注销用户（包括被对方拉黑的情况）；
+            不会返回邮箱、密码等敏感字段。
+            </summary>
+            <param name="userId">目标用户ID。</param>
+            <returns>用户主页信息。</returns>
+        </member>
+        <member name="M:api.Controllers.UsersController.GetUserId">
+            <summary>
+            从JWT令牌中提取当前登录用户的ID。
+            支持多种Claim类型以确保兼容性。
+            </summary>
+            <returns>用户唯一标识（ulong）。</returns>
+        </member>
         <member name="T:api.Data.ChatConversation">
             <summary>
             聊天会话主表（支持群管理扩展）
@@ -1857,6 +1969,29 @@
         <member name="P:api.Data.ChatConversationMember.IsMuted">
             <summary>
             是否消息免打扰：1是，0否
+            </summary>
+        </member>
+        <member name="P:api.Data.ChatConversationMember.IsHidden">
+             <summary>
+             是否对该用户隐藏会话（伪删除标记）。
+            
+             用户在会话列表里执行「删除」时置为 true：会话从该用户的收件箱消失，
+             但会话本身和对方的记录都保留。收到新消息时会重新置为 false，
+             让会话重新出现在列表里。
+             </summary>
+        </member>
+        <member name="P:api.Data.ChatConversationMember.HistoryClearedBeforeMessageId">
+             <summary>
+             聊天记录清除到此消息ID（含该消息），仅对该用户生效。
+            
+             删除会话时写入当时的最新消息ID；之后拉取消息、
+             计算未读与会话预览时都只认大于这个游标的记录。
+             与 IsHidden 分开保存，所以「收到新消息重新出现」时旧记录仍然不可见。
+             </summary>
+        </member>
+        <member name="P:api.Data.ChatConversationMember.HistoryClearedAt">
+            <summary>
+            聊天记录清除时间（仅该用户）
             </summary>
         </member>
         <member name="P:api.Data.ChatConversationMember.LastReadMessageId">
@@ -2089,6 +2224,18 @@
             撤回时间
             </summary>
         </member>
+        <member name="P:api.Data.ChatMessage.RecalledByUserId">
+            <summary>
+            执行撤回的用户ID。
+            自己撤回时为发送者本人；群主/管理员撤回他人消息时为操作人。
+            </summary>
+        </member>
+        <member name="P:api.Data.ChatMessage.RecallPrompt">
+            <summary>
+            管理撤回提示（仅群主/管理员撤回他人消息时有值），
+            在该消息原来的位置直接展示，而不是在底部追加一条系统消息。
+            </summary>
+        </member>
         <member name="P:api.Data.ChatMessage.CreatedAt">
             <summary>
             发送时间
@@ -2097,6 +2244,45 @@
         <member name="P:api.Data.ChatMessage.UpdatedAt">
             <summary>
             更新时间
+            </summary>
+        </member>
+        <member name="P:api.Data.ChatMessage.ChatMessageDeletions">
+            <summary>
+            按用户伪删除的标记（仅删除者本人看不到这条消息）。
+            </summary>
+        </member>
+        <member name="T:api.Data.ChatMessageDeletion">
+             <summary>
+             聊天消息按用户伪删除标记表。
+            
+             一条消息在同一会话里对「别人」仍然正常可见，只有执行删除的用户看不到它。
+             这里保存的每一行就是一枚「删除标记」：<c>(message_id, user_id)</c> 唯一，
+             查询消息时用 NOT EXISTS 过滤即可，不会物理删除 <c>chat_messages</c> 里的数据。
+             </summary>
+        </member>
+        <member name="P:api.Data.ChatMessageDeletion.Id">
+            <summary>
+            主键ID
+            </summary>
+        </member>
+        <member name="P:api.Data.ChatMessageDeletion.MessageId">
+            <summary>
+            被隐藏的消息ID
+            </summary>
+        </member>
+        <member name="P:api.Data.ChatMessageDeletion.UserId">
+            <summary>
+            执行隐藏的用户ID（仅该用户不可见）
+            </summary>
+        </member>
+        <member name="P:api.Data.ChatMessageDeletion.Reason">
+            <summary>
+            删除原因说明
+            </summary>
+        </member>
+        <member name="P:api.Data.ChatMessageDeletion.DeletedAt">
+            <summary>
+            删除（隐藏）时间
             </summary>
         </member>
         <member name="T:api.Data.ChatMessageReceipt">
@@ -2434,6 +2620,11 @@
             username更新时间
             </summary>
         </member>
+        <member name="P:api.Data.User.ChatMessageDeletions">
+            <summary>
+            该用户按「仅自己不可见」方式删除的消息标记。
+            </summary>
+        </member>
         <member name="T:api.Data.UserActivity">
             <summary>
             用户行为埋点日志表
@@ -2512,6 +2703,40 @@
         <member name="P:api.Data.UserBlacklistRecord.OccurredAt">
             <summary>
             操作发生时间
+            </summary>
+        </member>
+        <member name="T:api.Data.UserBlock">
+             <summary>
+             用户拉黑关系表（按拉黑方方向存储）。
+            
+             语义：<see cref="P:api.Data.UserBlock.UserId"/> 拉黑了 <see cref="P:api.Data.UserBlock.BlockedUserId"/>。
+             只影响被拉黑方对拉黑方的社交行为（加好友、单聊、搜索），
+             主页仍可查看；好友关系与群聊成员关系都不做删除。
+             </summary>
+        </member>
+        <member name="P:api.Data.UserBlock.Id">
+            <summary>
+            主键ID
+            </summary>
+        </member>
+        <member name="P:api.Data.UserBlock.UserId">
+            <summary>
+            拉黑方用户ID
+            </summary>
+        </member>
+        <member name="P:api.Data.UserBlock.BlockedUserId">
+            <summary>
+            被拉黑用户ID
+            </summary>
+        </member>
+        <member name="P:api.Data.UserBlock.CreatedAt">
+            <summary>
+            拉黑时间
+            </summary>
+        </member>
+        <member name="P:api.Data.UserBlock.UpdatedAt">
+            <summary>
+            更新时间
             </summary>
         </member>
         <member name="T:api.Data.UserFriendRequest">
@@ -3577,6 +3802,16 @@
             是否撤回
             </summary>
         </member>
+        <member name="P:api.Models.MessageReferenceDto.RecalledByUserId">
+            <summary>
+            执行撤回的用户ID，可为空
+            </summary>
+        </member>
+        <member name="P:api.Models.MessageReferenceDto.RecallPrompt">
+            <summary>
+            管理撤回提示（仅群主/管理员撤回他人消息时有值），可为空
+            </summary>
+        </member>
         <member name="P:api.Models.MessageReferenceDto.CreatedAt">
             <summary>
             创建时间
@@ -3630,6 +3865,16 @@
         <member name="P:api.Models.MessageSummaryDto.IsRecalled">
             <summary>
             是否撤回
+            </summary>
+        </member>
+        <member name="P:api.Models.MessageSummaryDto.RecalledByUserId">
+            <summary>
+            执行撤回的用户ID，可为空
+            </summary>
+        </member>
+        <member name="P:api.Models.MessageSummaryDto.RecallPrompt">
+            <summary>
+            管理撤回提示（仅群主/管理员撤回他人消息时有值），可为空
             </summary>
         </member>
         <member name="P:api.Models.MessageSummaryDto.CreatedAt">
@@ -3888,6 +4133,166 @@
         <member name="P:api.Models.ReadUserDto.ReadAt">
             <summary>
             已读时间
+            </summary>
+        </member>
+        <member name="T:api.Models.DeleteMessageResultDto">
+            <summary>
+            消息伪删除（仅自己不可见）结果
+            </summary>
+        </member>
+        <member name="P:api.Models.DeleteMessageResultDto.MessageId">
+            <summary>
+            被隐藏的消息ID
+            </summary>
+        </member>
+        <member name="P:api.Models.DeleteMessageResultDto.ConversationId">
+            <summary>
+            消息所属会话ID
+            </summary>
+        </member>
+        <member name="P:api.Models.DeleteMessageResultDto.Hidden">
+            <summary>
+            是否已对该用户隐藏
+            </summary>
+        </member>
+        <member name="T:api.Models.DeleteConversationHistoryResultDto">
+            <summary>
+            删除会话聊天记录（仅自己）结果
+            </summary>
+        </member>
+        <member name="P:api.Models.DeleteConversationHistoryResultDto.ConversationId">
+            <summary>
+            会话ID
+            </summary>
+        </member>
+        <member name="P:api.Models.DeleteConversationHistoryResultDto.ClearedBeforeMessageId">
+            <summary>
+            聊天记录清除到此消息ID（含），仅对该用户生效
+            </summary>
+        </member>
+        <member name="P:api.Models.DeleteConversationHistoryResultDto.Hidden">
+            <summary>
+            会话是否已从该用户的收件箱隐藏
+            </summary>
+        </member>
+        <member name="T:api.Models.UserProfileDto">
+            <summary>
+            用户主页信息数据传输对象
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.UserId">
+            <summary>
+            用户ID
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.UserAccount">
+            <summary>
+            用户账号
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.NickName">
+            <summary>
+            昵称
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.AvatarKey">
+            <summary>
+            头像键
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.CreatedAt">
+            <summary>
+            注册时间
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.IsSelf">
+            <summary>
+            是否查看自己的主页
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.IsFriend">
+            <summary>
+            是否是好友
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.IsBlocked">
+            <summary>
+            当前用户是否已把该用户拉黑
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.IsBlockedByTarget">
+            <summary>
+            该用户是否已把当前用户拉黑（被拉黑方仍可查看主页，但不能再互动）
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.FriendRemark">
+            <summary>
+            好友备注
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.DirectConversationId">
+            <summary>
+            与当前用户的单聊会话ID（若存在）
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.HasPendingSentRequest">
+            <summary>
+            当前用户是否已向该用户发送待处理的好友申请
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.HasPendingReceivedRequest">
+            <summary>
+            该用户是否已向当前用户发送待处理的好友申请
+            </summary>
+        </member>
+        <member name="P:api.Models.UserProfileDto.Status">
+            <summary>
+            账号状态：active=正常，frozen=冻结
+            </summary>
+        </member>
+        <member name="T:api.Models.BlockUserRequest">
+            <summary>
+            拉黑用户的请求参数。
+            </summary>
+        </member>
+        <member name="P:api.Models.BlockUserRequest.UserId">
+            <summary>
+            要被拉黑的用户ID。
+            </summary>
+        </member>
+        <member name="T:api.Models.BlockedUserDto">
+            <summary>
+            黑名单中的用户信息。
+            </summary>
+        </member>
+        <member name="P:api.Models.BlockedUserDto.Id">
+            <summary>
+            拉黑记录ID。
+            </summary>
+        </member>
+        <member name="P:api.Models.BlockedUserDto.UserId">
+            <summary>
+            被拉黑用户ID。
+            </summary>
+        </member>
+        <member name="P:api.Models.BlockedUserDto.UserAccount">
+            <summary>
+            用户账号。
+            </summary>
+        </member>
+        <member name="P:api.Models.BlockedUserDto.NickName">
+            <summary>
+            昵称。
+            </summary>
+        </member>
+        <member name="P:api.Models.BlockedUserDto.AvatarKey">
+            <summary>
+            头像键。
+            </summary>
+        </member>
+        <member name="P:api.Models.BlockedUserDto.CreatedAt">
+            <summary>
+            拉黑时间。
             </summary>
         </member>
         <member name="T:api.Models.DailyCheckinRequest">

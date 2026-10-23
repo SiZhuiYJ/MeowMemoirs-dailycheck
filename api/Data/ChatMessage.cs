@@ -54,6 +54,18 @@ public partial class ChatMessage
     public DateTime? RecalledAt { get; set; }
 
     /// <summary>
+    /// 执行撤回的用户ID。
+    /// 自己撤回时为发送者本人；群主/管理员撤回他人消息时为操作人。
+    /// </summary>
+    public ulong? RecalledByUserId { get; set; }
+
+    /// <summary>
+    /// 管理撤回提示（仅群主/管理员撤回他人消息时有值），
+    /// 在该消息原来的位置直接展示，而不是在底部追加一条系统消息。
+    /// </summary>
+    public string? RecallPrompt { get; set; }
+
+    /// <summary>
     /// 发送时间
     /// </summary>
     public DateTime CreatedAt { get; set; }
@@ -64,6 +76,11 @@ public partial class ChatMessage
     public DateTime UpdatedAt { get; set; }
 
     public virtual ICollection<ChatGroupActionLog> ChatGroupActionLogs { get; set; } = new List<ChatGroupActionLog>();
+
+    /// <summary>
+    /// 按用户伪删除的标记（仅删除者本人看不到这条消息）。
+    /// </summary>
+    public virtual ICollection<ChatMessageDeletion> ChatMessageDeletions { get; set; } = new List<ChatMessageDeletion>();
 
     public virtual ICollection<ChatMessageReceipt> ChatMessageReceipts { get; set; } = new List<ChatMessageReceipt>();
 

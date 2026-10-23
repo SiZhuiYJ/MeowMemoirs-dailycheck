@@ -137,6 +137,12 @@ export function useChatCore() {
         { unreadCount: payload.unreadCount },
       );
     },
+    onMessageDeleted: ({ conversationId, messageId }) => {
+      // 同一账号的另一台设备删除了消息：当前会话同步移除
+      if (conversationId === conversationsModule.selectedConversationId.value) {
+        messagesModule.removeMessage(messageId);
+      }
+    },
     onFriendRequestsUpdated: () => {
       friendRequestVersion.value += 1;
     },
@@ -312,6 +318,52 @@ export function useChatCore() {
     return recalledMessage;
   }
 
+  /**
+   * 删除一条消息（仅自己不可见，伪删除）。
+   * 删除后重新拉一次会话列表：如果删掉的是最后一条，列表预览要换成上一条。
+   */
+  async function handleDeleteMessage(messageId: number) {
+    const deleted = await messagesModule.deleteMessageForMe(messageId);
+    if (!deleted) return false;
+
+    if (replyingMessage.value?.id === messageId) {
+      clearReplyingMessage();
+    }
+
+    await conversationsModule.loadConversations({ silent: true });
+    return true;
+  }
+
+  /** 会话列表右键：置顶 / 取消置顶。 */
+  async function toggleConversationPin(item: ConversationSummary) {
+    await conversationsModule.setConversationPreference(item, {
+      isPinned: !item.isPinned,
+    });
+  }
+
+  /** 会话列表右键：消息免打扰 / 取消免打扰。 */
+  async function toggleConversationMute(item: ConversationSummary) {
+    await conversationsModule.setConversationPreference(item, {
+      isMuted: !item.isMuted,
+    });
+  }
+
+  /** 会话列表右键：删除会话聊天记录（仅自己不可见）。 */
+  async function deleteConversation(item: ConversationSummary) {
+    const wasCurrent = conversationsModule.currentConversation.value?.id === item.id;
+
+    const deleted = await conversationsModule.deleteConversationHistory(item);
+    if (!deleted) return false;
+
+    if (wasCurrent) {
+      clearReplyingMessage();
+      messagesModule.resetMessages();
+      readModule.clearReadStatus();
+    }
+
+    return true;
+  }
+
   async function handleConversationDetailUpdate(
     options?: ConversationDetailUpdateOptions,
   ) {
@@ -366,6 +418,10 @@ export function useChatCore() {
     retrySendMessage,
     discardPendingTextMessage: messagesModule.discardPendingTextMessage,
     recallMessage: handleRecallMessage,
+    deleteMessage: handleDeleteMessage,
+    toggleConversationPin,
+    toggleConversationMute,
+    deleteConversation,
     markRead: markCurrentConversationRead,
     syncLatestMessages: messagesModule.syncLatest,
     setReplyingMessage,

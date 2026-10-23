@@ -12,6 +12,85 @@ npm run build    # vue-tsc -b 类型检查 + vite build
 
 ---
 
+## 主题切换（日间 / 夜间）
+
+默认主题色（种子色）是 **`#e3c0df`**，以 `src/config/index.ts` 的 `DEFAULT_THEME` 为准。
+`src/styles/theme-colors.scss` 把种子色展开成全局色板，品牌色一律引用变量，
+不再在各组件里写蓝色 / 靛色 / 紫色：
+
+| 变量 | 日间 | 夜间 | 用途 |
+| --- | --- | --- | --- |
+| `--theme-color` | `#e3c0df` | `#e3c0df` | 种子色：波纹、浅色底、装饰 |
+| `--theme-color-strong` | `#9a4f8d` | `#e3c0df` | 可读强调：链接、文字、焦点、描边 |
+| `--theme-color-deep` | `#7a3a6f` | `#f0cdea` | hover / active |
+| `--theme-color-soft` | `#f7e8f4` | 半透明主题色 | 选中态、tag、浅底 |
+| `--theme-color-contrast` | `#2b1428` | `#2b1428` | 种子色 / 浅色底上的文字 |
+| `--theme-primary-bg` | `#e3c0df` | `#e3c0df` | 浅色主题底（次级按钮 / 展示块） |
+| `--theme-action-bg` | `#9a4f8d` | `#7e617a` | 深色动作按钮底（主操作） |
+| `--theme-action-contrast` | `#ffffff` | `#ffffff` | 深色动作按钮文字（白） |
+| `--theme-gradient` | 深梅 → 暗梅 | 同左 | 登录 / 确认按钮渐变 |
+
+深色动作按钮的底色是种子的深色变体（不是 `#e3c0df` 本身）：
+白字落在 `#e3c0df` 上只有 1.6:1 对比度，落在 `--theme-action-bg` 上约 5.4:1。
+浅色底上的文字由 `use-theme.ts` 的 `pickOnColor()` 按 WCAG 对比度自动挑白 / 深梅色；
+当前种子色会挑深梅色，主题色变深时自动切白。
+
+Element Plus 的 primary 也映射到同一色板：日间 `--el-color-primary: #9a4f8d`，
+夜间回到种子色；实心 primary 按钮统一用 `--theme-action-bg` + 白字，
+plain / link 版本仍用浅底 + 可读强调色字。success / warning / danger 等语义色保持
+Element Plus 默认值，不参与主题色替换。
+
+> 聊天页是固定的浅色面，使用自己的 `--chat-accent: #9a4f8d` / `--chat-accent-soft`，
+> 不跟随全局暗色 token，否则选中态在白色聊天面上会变成过淡的粉。
+
+切换入口是顶栏的太阳 / 月亮按钮（`Topbar.vue` → `useTheme().toggleTheme()`）。
+点击后不是全局瞬间换色，而是以**视口中心**为圆心扩散一圈环形波纹：
+
+1. 支持 View Transitions 的浏览器（Chrome / Edge / Safari 18+ 等）：
+   旧、新主题各拍一张快照，新的那张按 `circle()` 从圆心向外揭开；
+   波纹环是一个独立的 `view-transition-name: theme-ripple` 组，
+   由 `theme-ripple-ring` 关键帧从圆心放大到视口对角线，并带主题色描边与发光。
+   整页文字、面板、背景都会随波纹一起更新，不只是背景色。
+2. 不支持时：给 `<html>` 临时挂 `.theme-colors-transitioning`，
+   对颜色相关属性做 720ms transition；同一枚波纹退化为真实 DOM 元素播放缩放动画。
+3. 系统开启 `prefers-reduced-motion: reduce` 时，程序化 `setTheme` 默认直接生效；
+   但顶栏按钮是用户主动点击的明确反馈，`toggleTheme` 会 `force` 播放波纹，
+   避免出现「点了按钮却只是瞬切」的无反馈状态。
+
+### 按钮统一规则
+
+| 场景 | 写法 | 颜色 |
+| --- | --- | --- |
+| 主操作（发送 / 保存 / 确认 / 新建） | `type="primary"` 或 action token | 深色主题变体底 + 白字 |
+| 次级 / 取消 / 返回 | 不写 `type` | 主题浅底 + 可读强调色字 |
+| 文字 / 链接操作 | `link` / `text` | 透明底 + 可读强调色字 |
+| 危险操作（删除 / 撤回 / 解散） | `type="danger"` | Element Plus 红色语义（故意不主题化） |
+| 成功 / 警告（审批 / 禁言） | `type="success"` / `warning` | Element Plus 语义色 |
+
+- 主按钮（含 `.create`）使用 `--theme-action-bg` / `--theme-action-contrast`；
+  浅色主题底仍用 `--theme-color-soft` / `--theme-color-strong`。
+- **不要再给 `el-button` 写 `color="#111827"` 之类的硬编码颜色**：
+  它会生成内联 CSS 变量，覆盖全局主题规则。需要实心主按钮就写 `type="primary"`。
+- 聊天页 / 用户主页是固定浅色面：挂载时给 `<html>` 加 `.theme-light-surface`，
+  连同 Element Plus 的基础变量、语义色一起切到浅色。这样 Teleport 到 body 的
+  聊天弹窗、下拉层也拿到正确色板，不会在夜间模式下变成「浅粉字 + 深色底」。
+- 设置菜单、聊天操作行、文件预览工具栏等原生 `<button>` 也统一引用主题变量；
+  语义型的危险 / 警告按钮保留红 / 黄。
+
+| 文件 | 作用 |
+| --- | --- |
+| `src/composables/use-theme.ts` | 主题状态、localStorage、View Transition / 降级动画、快速连点合并 |
+| `src/styles/theme-colors.scss` | 全局主题色板 + Element Plus 按钮 / 表单控件 / 固定浅色面覆盖 |
+| `src/styles/theme-transition.scss` | 圆形揭开、波纹环、降级颜色过渡 |
+| `index.html` | 首屏内联脚本，先写 `data-theme` / `.dark`，避免夜间用户先闪一帧日间 |
+| `tools/dev-verify/verify-theme-transition.mjs` | 真实 chromium 验证色板、两条动画路径、快速连点与减少动态效果 |
+
+> 波纹的结束半径会按视口对角线换算成 `circle()` 的百分比写进
+> `--theme-ripple-end-radius`，保证「揭开的圆边」和「波纹环」始终重合。
+> 改动画时长时改 `use-theme.ts` 的 `THEME_TRANSITION_MS`（CSS 会读取同一个值）。
+
+---
+
 ## 响应式适配约定（重要）
 
 ### 判定规则：横屏一律桌面，竖屏按宽度

@@ -99,6 +99,29 @@ public partial class ChatConversationMember
     public bool IsMuted { get; set; }
 
     /// <summary>
+    /// 是否对该用户隐藏会话（伪删除标记）。
+    ///
+    /// 用户在会话列表里执行「删除」时置为 true：会话从该用户的收件箱消失，
+    /// 但会话本身和对方的记录都保留。收到新消息时会重新置为 false，
+    /// 让会话重新出现在列表里。
+    /// </summary>
+    public bool IsHidden { get; set; }
+
+    /// <summary>
+    /// 聊天记录清除到此消息ID（含该消息），仅对该用户生效。
+    ///
+    /// 删除会话时写入当时的最新消息ID；之后拉取消息、
+    /// 计算未读与会话预览时都只认大于这个游标的记录。
+    /// 与 IsHidden 分开保存，所以「收到新消息重新出现」时旧记录仍然不可见。
+    /// </summary>
+    public ulong? HistoryClearedBeforeMessageId { get; set; }
+
+    /// <summary>
+    /// 聊天记录清除时间（仅该用户）
+    /// </summary>
+    public DateTime? HistoryClearedAt { get; set; }
+
+    /// <summary>
     /// 最后已读消息ID（逻辑引用）
     /// </summary>
     public ulong? LastReadMessageId { get; set; }

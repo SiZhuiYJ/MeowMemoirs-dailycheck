@@ -84,8 +84,8 @@ defineExpose({
     padding: 12px;
     border-radius: 8px;
     border: none;
-    background: linear-gradient(to right, var(--accent-color), var(--accent-alt));
-    color: #fff;
+    background: var(--theme-gradient);
+    color: var(--theme-action-contrast);
     font-weight: 600;
     cursor: pointer;
     transition: opacity 0.2s;

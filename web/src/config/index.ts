@@ -19,7 +19,7 @@ export const CACHE_PREFIX: string = "MM-";
 // Svg本地图片使用 - 开头才会生效
 export const SVG_PREFIX: string = "mm-";
 
-// 默认主题颜色
+// 默认主题颜色（--theme-color / --accent-color / 日夜间切换波纹）
 export const DEFAULT_THEME: string = "#e3c0df";
 
 // 路由白名单地址[本地存在的路由 staticRouter.ts 中]

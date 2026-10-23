@@ -101,7 +101,8 @@ export const notifyWarning = (content: string, duration?: number) => {
 export const notifyInfo = (content: string, duration?: number) => {
   notify({
     content,
-    color: "#3b82f6", // Blue 500
+    // 全局主题强调色（浅色主题下的 strong），不再使用蓝色
+    color: "#9a4f8d",
     direction: "rtl",
     duration,
   });

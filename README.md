@@ -50,11 +50,18 @@
 ```bash
 mysql -u root -e "CREATE DATABASE dailycheck CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 mysql -u root dailycheck < sql/dailycheck_2026-05-19_140753（本地化更新）.sql
+# 聊天页右键菜单所需的增量表/字段（消息伪删除、按用户清除会话记录）
+mysql -u root dailycheck < sql/2026-10-22_chat_context_menu.sql
+# 群聊管理撤回提示落在原消息位置（chat_messages.recalled_by_user_id / recall_prompt）
+mysql -u root dailycheck < sql/2026-10-22_chat_moderation_recall.sql
 ```
 
 > `sql/` 下的导出文件来自 MySQL 8。导入 MariaDB 时注意两点：
 > 1. 全文替换 `utf8mb4_0900_ai_ci` → `utf8mb4_unicode_ci`（MariaDB 不支持前者）；
 > 2. 删除 `SET @@GLOBAL.GTID_PURGED=...` 一行（MariaDB 无此变量）。
+>
+> 已经初始化过数据库的环境，按顺序执行这两个增量脚本：
+> `sql/2026-10-22_chat_context_menu.sql`、`sql/2026-10-22_chat_moderation_recall.sql`。
 
 ### 2. Redis
 
@@ -119,7 +126,7 @@ npm run dev
 | 认证 Auth | 邮箱验证码注册、账号/密码登录、邮箱验证码登录、微信登录与绑定、JWT 刷新、改密、注销账户 |
 | 打卡计划 Plans | 计划的增删改查、时间段（time slots）配置、启用/停用 |
 | 打卡记录 Checkins | 打卡（需 1–3 张图片）、补卡、按计划的日历与详情 |
-| 好友 Friends | 好友申请、好友列表、黑名单 |
+| 好友 Friends | 好友申请、好友列表、用户拉黑 / 黑名单（拉黑后禁止对方加好友、单聊与搜索；主页仍可查看，群聊不受影响） |
 | 聊天 Chat | 会话/群聊、成员与角色、入群申请、消息收发、已读回执、文件消息、SignalR 实时推送 |
 | 文件 Files | 上传、预览、下载（图片转 WebP、SHA256 去重） |
 

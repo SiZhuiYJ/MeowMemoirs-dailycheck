@@ -1,0 +1,173 @@
+////
+/// 日间 / 夜间主题切换动画。
+///
+/// 视觉：以视口中心为圆心的环形波纹向外扩散，波纹扫过的区域由旧主题
+/// 平滑过渡到新主题。波纹颜色取自 --theme-color（DEFAULT_THEME，#e3c0df）。
+///
+/// 实现：
+/// - 支持 View Transitions 时，旧 / 新主题各一张快照，用 circle() 裁切
+///   新快照完成「揭开」；theme-ripple 命名组单独画发光的圆环。
+/// - 不支持时，JS 给 <html> 挂 .theme-colors-transitioning 做颜色过渡，
+///   波纹层退化成真实 DOM 动画元素（.is-rippling）。
+////
+
+:root {
+  // JS 会写入同样的值（composables/use-theme.ts），这里只是首帧兜底
+  --theme-transition-duration: 720ms;
+  --theme-transition-ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+// ==============================================
+// 波纹层
+// ==============================================
+// 一个覆盖视口对角线的大圆。平时完全透明，仅作为 View Transition
+// 的命名元素；降级路径下才会被 JS 加上 .is-rippling 并播放缩放动画。
+.theme-ripple-ring {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: var(--theme-ripple-diameter, 150vmax);
+  height: var(--theme-ripple-diameter, 150vmax);
+  // 用负 margin 居中而不是 transform：降级动画要独占 transform
+  margin-left: calc(var(--theme-ripple-diameter, 150vmax) / -2);
+  margin-top: calc(var(--theme-ripple-diameter, 150vmax) / -2);
+  border-radius: 50%;
+  background: transparent;
+  pointer-events: none;
+  z-index: 2147483000;
+  opacity: 1;
+  transform: scale(1);
+  transform-origin: 50% 50%;
+}
+
+// 只有切换期间才命名，避免影响将来别的 View Transition
+html.theme-switching .theme-ripple-ring {
+  view-transition-name: theme-ripple;
+}
+
+html.theme-switching .theme-ripple-ring,
+.theme-ripple-ring.is-rippling {
+  will-change: transform, opacity;
+}
+
+// 降级路径：真实的环形光波
+.theme-ripple-ring.is-rippling {
+  opacity: 0;
+  border: 2px solid var(--theme-color);
+  background: radial-gradient(
+    circle closest-side,
+    transparent 0 93%,
+    rgba(var(--theme-color-rgb), 0.14) 96%,
+    rgba(var(--theme-color-rgb), 0.38) 99.7%,
+    transparent 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.5),
+    0 0 24px 6px rgba(var(--theme-color-rgb), 0.5),
+    inset 0 0 26px rgba(var(--theme-color-rgb), 0.42);
+}
+
+// ==============================================
+// View Transitions：整页圆形揭开
+// ==============================================
+html.theme-switching::view-transition-old(root),
+html.theme-switching::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+// 旧主题在底层保持完整，新主题在上层按圆裁切
+html.theme-switching::view-transition-old(root) {
+  z-index: 1;
+}
+
+html.theme-switching::view-transition-new(root) {
+  z-index: 2;
+  clip-path: circle(0% at 50% 50%);
+  animation: theme-root-reveal var(--theme-transition-duration)
+    var(--theme-transition-ease) both;
+}
+
+@keyframes theme-root-reveal {
+  0% {
+    clip-path: circle(0% at 50% 50%);
+    // 圆心处先淡入，避免第一帧出现生硬的实心点
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    // JS 会按「视口对角线一半」把结束半径换算成百分比，和圆环严丝合缝
+    clip-path: circle(var(--theme-ripple-end-radius, 76%) at 50% 50%);
+    opacity: 1;
+  }
+}
+
+// ==============================================
+// View Transitions：波纹圆环
+// ==============================================
+html.theme-switching::view-transition-group(theme-ripple) {
+  z-index: 3;
+  animation: none;
+}
+
+html.theme-switching::view-transition-old(theme-ripple) {
+  display: none;
+}
+
+html.theme-switching::view-transition-new(theme-ripple) {
+  border: 2px solid var(--theme-color);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle closest-side,
+    transparent 0 93%,
+    rgba(var(--theme-color-rgb), 0.14) 96%,
+    rgba(var(--theme-color-rgb), 0.38) 99.7%,
+    transparent 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.5),
+    0 0 24px 6px rgba(var(--theme-color-rgb), 0.5),
+    inset 0 0 26px rgba(var(--theme-color-rgb), 0.42);
+  mix-blend-mode: normal;
+  transform-origin: 50% 50%;
+  animation: theme-ripple-ring var(--theme-transition-duration)
+    var(--theme-transition-ease) both;
+}
+
+@keyframes theme-ripple-ring {
+  0% {
+    transform: scale(0.02);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.9;
+  }
+  62% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+// ==============================================
+// 降级路径：全局颜色平滑过渡
+// ==============================================
+// 仅在浏览器不支持 View Transitions 时由 JS 临时添加，动画结束后移除。
+// 限制在颜色相关属性上，不动 transform / size，避免打乱页面自己的动画。
+html.theme-colors-transitioning *,
+html.theme-colors-transitioning *::before,
+html.theme-colors-transitioning *::after {
+  transition-property: background-color, color, border-color, outline-color,
+    fill, stroke, box-shadow, text-shadow !important;
+  transition-duration: var(--theme-transition-duration) !important;
+  transition-timing-function: ease !important;
+  transition-delay: 0ms !important;
+}
+
+// 注意：这里刻意不写 @media (prefers-reduced-motion: reduce) 来关闭动画。
+// 程序化切换已在 use-theme.ts 里直接生效；顶栏点击是用户主动反馈，
+// toggleTheme 会 force 播放波纹，CSS 再关掉就会退回无反馈瞬切。

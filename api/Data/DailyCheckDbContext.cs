@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Pomelo.EntityFrameworkCore.MySql.Scaffolding.Internal;
@@ -28,6 +28,8 @@ public partial class DailyCheckDbContext : DbContext
 
     public virtual DbSet<ChatMessage> ChatMessages { get; set; }
 
+    public virtual DbSet<ChatMessageDeletion> ChatMessageDeletions { get; set; }
+
     public virtual DbSet<ChatMessageReceipt> ChatMessageReceipts { get; set; }
 
     public virtual DbSet<Checkin> Checkins { get; set; }
@@ -45,6 +47,8 @@ public partial class DailyCheckDbContext : DbContext
     public virtual DbSet<UserActivity> UserActivities { get; set; }
 
     public virtual DbSet<UserBlacklistRecord> UserBlacklistRecords { get; set; }
+
+    public virtual DbSet<UserBlock> UserBlocks { get; set; }
 
     public virtual DbSet<UserFriendRequest> UserFriendRequests { get; set; }
 
@@ -202,6 +206,16 @@ public partial class DailyCheckDbContext : DbContext
             entity.Property(e => e.IsPinned)
                 .HasComment("是否置顶会话：1是，0否")
                 .HasColumnName("is_pinned");
+            entity.Property(e => e.IsHidden)
+                .HasComment("是否对该用户隐藏会话（伪删除标记）")
+                .HasColumnName("is_hidden");
+            entity.Property(e => e.HistoryClearedBeforeMessageId)
+                .HasComment("聊天记录清除到此消息ID（含），仅对该用户生效")
+                .HasColumnName("history_cleared_before_message_id");
+            entity.Property(e => e.HistoryClearedAt)
+                .HasComment("聊天记录清除时间（仅该用户）")
+                .HasColumnType("datetime")
+                .HasColumnName("history_cleared_at");
             entity.Property(e => e.JoinedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasComment("加入时间")
@@ -512,6 +526,8 @@ public partial class DailyCheckDbContext : DbContext
 
             entity.HasIndex(e => e.ReplyToMessageId, "idx_chat_messages_reply");
 
+            entity.HasIndex(e => e.RecalledByUserId, "idx_chat_messages_recalled_by");
+
             entity.HasIndex(e => e.SenderUserId, "idx_chat_messages_sender");
 
             entity.Property(e => e.Id)
@@ -545,6 +561,13 @@ public partial class DailyCheckDbContext : DbContext
                 .HasComment("撤回时间")
                 .HasColumnType("datetime")
                 .HasColumnName("recalled_at");
+            entity.Property(e => e.RecalledByUserId)
+                .HasComment("执行撤回的用户ID")
+                .HasColumnName("recalled_by_user_id");
+            entity.Property(e => e.RecallPrompt)
+                .HasMaxLength(255)
+                .HasComment("管理撤回提示（在原消息位置展示）")
+                .HasColumnName("recall_prompt");
             entity.Property(e => e.ReplyToMessageId)
                 .HasComment("引用回复的消息ID")
                 .HasColumnName("reply_to_message_id");
@@ -570,6 +593,46 @@ public partial class DailyCheckDbContext : DbContext
             entity.HasOne(d => d.SenderUser).WithMany(p => p.ChatMessages)
                 .HasForeignKey(d => d.SenderUserId)
                 .HasConstraintName("fk_chat_messages_sender");
+        });
+
+        modelBuilder.Entity<ChatMessageDeletion>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PRIMARY");
+
+            entity
+                .ToTable("chat_message_deletions", tb => tb.HasComment("聊天消息按用户伪删除标记表（仅删除者不可见）"))
+                .UseCollation("utf8mb4_unicode_ci");
+
+            entity.HasIndex(e => e.UserId, "idx_chat_message_deletions_user");
+
+            entity.HasIndex(e => new { e.MessageId, e.UserId }, "ux_chat_message_deletions_message_user").IsUnique();
+
+            entity.Property(e => e.Id)
+                .HasComment("主键ID")
+                .HasColumnName("id");
+            entity.Property(e => e.MessageId)
+                .HasComment("被隐藏的消息ID")
+                .HasColumnName("message_id");
+            entity.Property(e => e.UserId)
+                .HasComment("执行隐藏的用户ID（仅该用户不可见）")
+                .HasColumnName("user_id");
+            entity.Property(e => e.Reason)
+                .HasMaxLength(255)
+                .HasComment("删除原因说明")
+                .HasColumnName("reason");
+            entity.Property(e => e.DeletedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasComment("删除（隐藏）时间")
+                .HasColumnType("datetime")
+                .HasColumnName("deleted_at");
+
+            entity.HasOne(d => d.Message).WithMany(p => p.ChatMessageDeletions)
+                .HasForeignKey(d => d.MessageId)
+                .HasConstraintName("fk_chat_message_deletions_message");
+
+            entity.HasOne(d => d.User).WithMany(p => p.ChatMessageDeletions)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("fk_chat_message_deletions_user");
         });
 
         modelBuilder.Entity<ChatMessageReceipt>(entity =>
@@ -1014,6 +1077,49 @@ public partial class DailyCheckDbContext : DbContext
             entity.Property(e => e.UserId)
                 .HasComment("用户ID（匿名操作可为空）")
                 .HasColumnName("user_id");
+        });
+
+        modelBuilder.Entity<UserBlock>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PRIMARY");
+
+            entity
+                .ToTable("user_blocks", tb => tb.HasComment("用户拉黑关系表（按拉黑方方向存储）"))
+                .UseCollation("utf8mb4_unicode_ci");
+
+            entity.HasIndex(e => e.BlockedUserId, "idx_user_blocks_blocked");
+
+            entity.HasIndex(e => new { e.UserId, e.BlockedUserId }, "ux_user_blocks_user_blocked").IsUnique();
+
+            entity.Property(e => e.Id)
+                .HasComment("主键ID")
+                .HasColumnName("id");
+            entity.Property(e => e.BlockedUserId)
+                .HasComment("被拉黑用户ID")
+                .HasColumnName("blocked_user_id");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasComment("拉黑时间")
+                .HasColumnType("datetime")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasComment("更新时间")
+                .HasColumnType("datetime")
+                .HasColumnName("updated_at");
+            entity.Property(e => e.UserId)
+                .HasComment("拉黑方用户ID")
+                .HasColumnName("user_id");
+
+            entity.HasOne(d => d.BlockedUser).WithMany()
+                .HasForeignKey(d => d.BlockedUserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_user_blocks_blocked");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_user_blocks_user");
         });
 
         modelBuilder.Entity<UserBlacklistRecord>(entity =>

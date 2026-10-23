@@ -84,10 +84,15 @@ function handleCreate(): void {
   border-radius: 999px;
   border: none;
   padding: 4px 10px;
-  background: var(--accent-alt);
-  color: #fff;
+  background: var(--theme-action-bg);
+  color: var(--theme-action-contrast);
   font-size: 12px;
   cursor: pointer;
+  transition: background-color 0.2s ease;
+
+  &:hover {
+    background: var(--theme-action-hover);
+  }
 }
 
 .plan-list {

@@ -377,7 +377,7 @@ async function toggleBind(bindName: string) {
                     <el-button v-if="hasProviderBind(binding.provider)" type="danger" plain>
                         解绑
                     </el-button>
-                    <el-button v-else type="success" dashed>
+                    <el-button v-else type="primary" dashed>
                         绑定
                     </el-button>
                 </div>
@@ -434,7 +434,7 @@ async function toggleBind(bindName: string) {
     }
 
     &:hover {
-        background-color: rgb(223, 223, 223);
+        background-color: var(--theme-color-soft);
     }
 }
 
@@ -478,9 +478,9 @@ async function toggleBind(bindName: string) {
 }
 
 .bind-btn-primary {
-    background-color: var(--theme-primary);
-    color: var(--accent-alt);
-    border: 1px solid var(--accent-alt);
+    background-color: var(--theme-action-bg);
+    color: var(--theme-action-contrast);
+    border: 1px solid var(--theme-action-bg);
 }
 
 .unbind-btn {

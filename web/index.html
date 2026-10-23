@@ -4,6 +4,27 @@
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <!-- 首屏主题：在 CSS 和 Vue 之前先把 data-theme 写到 <html>，
+       否则记住夜间模式的用户会先看到一帧日间主题。
+       逻辑与 src/composables/use-theme.ts 保持一致（存储键 "theme"）。 -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("theme");
+        var theme = saved === "dark" ? "dark" : "light";
+        var root = document.documentElement;
+        root.setAttribute("data-theme", theme);
+        if (theme === "dark") root.classList.add("dark");
+      } catch (error) {
+        /* 存储不可用时保持默认日间主题 */
+        try {
+          document.documentElement.setAttribute("data-theme", "light");
+        } catch (nestedError) {
+          /* documentElement 不可用：交给后续脚本 */
+        }
+      }
+    })();
+  </script>
   <!-- viewport-fit=cover：让页面铺满刘海屏/灵动岛，配合 env(safe-area-inset-*)
         （styles/responsive.scss 的 --safe-* 变量）把内容推回安全区内。 -->
   <meta name="viewport"

@@ -114,6 +114,11 @@ public partial class User
 
     public virtual ICollection<ChatMessage> ChatMessages { get; set; } = new List<ChatMessage>();
 
+    /// <summary>
+    /// 该用户按「仅自己不可见」方式删除的消息标记。
+    /// </summary>
+    public virtual ICollection<ChatMessageDeletion> ChatMessageDeletions { get; set; } = new List<ChatMessageDeletion>();
+
     public virtual ICollection<CheckinPlan> CheckinPlans { get; set; } = new List<CheckinPlan>();
 
     public virtual ICollection<Checkin> Checkins { get; set; } = new List<Checkin>();

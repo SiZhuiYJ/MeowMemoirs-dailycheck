@@ -267,9 +267,12 @@ onUnmounted(() => {
   // 让开刘海与手势条，避免卡片贴到状态栏或系统手势区。
   padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) calc(12px + var(--safe-bottom)) calc(12px + var(--safe-left));
   box-sizing: border-box;
-  background: radial-gradient(circle at top,
-      var(--surface-soft),
-      var(--bg-color));
+  // 顶部带一点主题色，和登录卡片/按钮的粉色系统一
+  background: radial-gradient(
+    circle at top,
+    color-mix(in srgb, var(--theme-color) 16%, var(--bg-color)),
+    var(--bg-color)
+  );
 }
 
 .auth-card {

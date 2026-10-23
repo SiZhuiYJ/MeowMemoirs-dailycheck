@@ -1,15 +1,25 @@
 <!-- index.vue -->
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount } from 'vue';
+import { useRoute } from 'vue-router';
 import { useChatCore } from '../composables/useChatCore';
-import ChatToolbar from './ChatToolbar.vue';
 import ConversationSidebar from './ConversationSidebar.vue';
 import MessagePanel from './MessagePanel.vue';
 import type { ConversationSummary } from '../types';
+import { CHAT_CONVERSATION_QUERY, parseConversationId } from '../utils/navigation';
 import router from '@/routers';
 import { useDeviceLayout } from '@/composables/use-device-layout';
+import { useLightSurface } from '@/composables/use-light-surface';
 
 const chat = useChatCore();
+const route = useRoute();
+
+/**
+ * 聊天页是固定浅色面。挂载时给 <html> 加 theme-light-surface，
+ * 让按钮 / 标签 / 下拉层（含 Teleport 到 body 的弹窗）都继承浅色色阶，
+ * 而不是夜间模式那套浅粉文字。
+ */
+useLightSurface();
 
 /**
  * 三档设备（正常情况只有这三档，见 features/chat/style/index.scss 文件头）：
@@ -79,10 +89,36 @@ function handlePopState() {
   }
 }
 
+/**
+ * 打开 URL 里带回来的会话（用户主页「发消息」/「返回聊天」）。
+ *
+ * 只有同时满足下面两个条件才真的切换会话：
+ *   1. conversationId 是合法正整数；
+ *   2. 它仍在该用户当前的会话列表里（可能已被删除、退出群聊或本来就不属于自己）。
+ * 任一条件不满足就「什么都不动」，保持现有界面原样。
+ */
+async function restoreConversationFromQuery() {
+  const targetConversationId = parseConversationId(
+    route.query[CHAT_CONVERSATION_QUERY],
+  );
+  if (!targetConversationId) return;
+
+  const target = chat.conversations.value.find(
+    (item) => item.id === targetConversationId,
+  );
+  if (!target) return;
+
+  await handleSelectConversation(target);
+}
+
 onMounted(async () => {
   // 视口监听已由 use-device-layout 统一接管（含旋转与软键盘），这里不再自行监听 resize。
   window.addEventListener('popstate', handlePopState);
   await chat.loadConversations();
+
+  // 会话列表加载完成后再校验 URL 里的会话：列表是判断「会话是否仍属于当前用户」的唯一依据。
+  await restoreConversationFromQuery();
+
   await chat.togglePush(true); // 内部 connectRealtime 会自动订阅所有会话
 });
 
@@ -105,10 +141,6 @@ const readInfoMap = computed<Map<number, { readText: string; readColor: string }
 <template>
   <div class="chat-page">
 
-    <ChatToolbar :status-text="chat.statusText.value" :polling="chat.polling.value || chat.realtimeConnected.value"
-      :loading="chat.loading.value" @back="router.push('/home')" @refresh="chat.loadConversations"
-      @toggle-push="chat.togglePush" />
-
     <div class="layout" :class="{ 'single-panel': isSinglePanel }">
       <ConversationSidebar v-show="showConversationList"
         v-model:create-title="chat.createTitle.value" v-model:create-member-user-ids="chat.createMemberUserIds.value"
@@ -116,8 +148,14 @@ const readInfoMap = computed<Map<number, { readText: string; readColor: string }
         :is-single-panel="isSinglePanel" :loading="chat.loading.value && chat.conversations.value.length === 0"
         :friend-request-version="chat.friendRequestVersion.value"
         :friendship-version="chat.friendshipVersion.value"
+        :status-text="chat.statusText.value" :polling="chat.polling.value || chat.realtimeConnected.value"
+        :push-loading="chat.loading.value" @back="router.push('/home')" @refresh="chat.loadConversations"
+        @toggle-push="chat.togglePush"
         @create-conversation="chat.handleCreateConversation"
-        @select-conversation="handleSelectConversation" />
+        @select-conversation="handleSelectConversation"
+        @toggle-pin="chat.toggleConversationPin"
+        @toggle-mute="chat.toggleConversationMute"
+        @delete-conversation="chat.deleteConversation" />
 
       <MessagePanel v-if="!isSinglePanel || !showConversationList" v-model="chat.composeText.value"
         v-model:conversation-detail="chat.currentConversation.value!" :messages="chat.messages.value"
@@ -127,6 +165,7 @@ const readInfoMap = computed<Map<number, { readText: string; readColor: string }
         :message-read-status="chat.messageReadStatus.value" :read-info-map="readInfoMap"
         :send-message-handler="chat.sendMessage" :retry-send-handler="chat.retrySendMessage"
         :discard-send-handler="chat.discardPendingTextMessage"
+        :delete-message-handler="chat.deleteMessage"
         :load-message-read-status-batch-handler="chat.loadBatchMessageReadStatus" @load-more="chat.loadMore"
         @send-text-message="chat.sendTextMessage" @recall-message="chat.recallMessage" @mark-read="chat.markRead"
         @back-to-list="handleBackToList" @reply-message="chat.setReplyingMessage"

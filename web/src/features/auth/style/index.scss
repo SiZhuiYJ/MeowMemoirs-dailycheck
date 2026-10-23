@@ -15,9 +15,9 @@
     }
 
     &:focus {
-        color: #a262ad;
+        color: var(--theme-color-strong);
         outline: none;
-        border-bottom: 1px solid #a262ad80;
+        border-bottom: 1px solid color-mix(in srgb, var(--theme-color-strong) 50%, transparent);
         transition: 0.5s;
 
         &::placeholder {
@@ -33,15 +33,15 @@
     outline: none;
     border-radius: 8px;
     padding: 13px;
-    color: #a262ad;
+    color: var(--theme-color-strong);
     letter-spacing: 2px;
     border: none;
     cursor: pointer;
     transition: background-color 0.5s ease;
 
     &:hover {
-        background-color: #a262ad;
-        color: #f6f6f6;
+        background-color: var(--theme-primary-hover);
+        color: var(--theme-color-contrast);
     }
 }
 
@@ -55,7 +55,7 @@
 
 @mixin element-plus-overrides {
     :deep(.el-radio-button__inner):hover {
-        color: #a262ad;
+        color: var(--theme-color-strong);
     }
 
     :deep(.el-input__wrapper) {

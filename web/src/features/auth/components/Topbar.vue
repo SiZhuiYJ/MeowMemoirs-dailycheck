@@ -13,6 +13,7 @@ import { storeToRefs } from "pinia";
 import router from "@/routers/index";
 import { maskEmail, maskString } from "@/utils/auth";
 import Txet from '@/components/Text/index.vue'
+import { useTheme } from "@/composables/use-theme";
 const { user } = storeToRefs(useAuthStore());
 const currentAvatar = computed(() => getUserAvatarSources(user.value?.userId, user.value?.avatarKey));
 
@@ -39,29 +40,9 @@ const SunIcon = {
 
 const authStore = useAuthStore();
 
-const initialTheme =
-  document.documentElement.getAttribute("data-theme") === "dark"
-    ? "dark"
-    : "light";
-const theme = ref<"dark" | "light">(initialTheme);
-
-function applyTheme(next: "dark" | "light"): void {
-  theme.value = next;
-  document.documentElement.setAttribute(
-    "data-theme",
-    next === "dark" ? "dark" : "light",
-  );
-  if (next === "dark") {
-    document.documentElement.classList.add("dark");
-  } else {
-    document.documentElement.classList.remove("dark");
-  }
-  localStorage.setItem("theme", next);
-}
-
-function toggleTheme(): void {
-  applyTheme(theme.value === "dark" ? "light" : "dark");
-}
+// 主题状态与切换动画统一由 use-theme 管理：
+// 点击后新的主题画面会以视口中心为圆心，用环形波纹向外扩散。
+const { theme, toggleTheme } = useTheme();
 
 function handleCommand(command: string): void {
   if (command === "logout") {
@@ -244,7 +225,9 @@ async function handleDeactivateConfirm(): Promise<void> {
     <div class="brand">{{ APP_TITLE }}</div>
     <div class="right">
       <button type="button" class="theme-toggle-icon" @click="toggleTheme"
-        :title="theme === 'dark' ? '切换到白昼模式' : '切换到暗夜模式'">
+        :title="theme === 'dark' ? '切换到白昼模式' : '切换到暗夜模式'"
+        :aria-label="theme === 'dark' ? '切换到白昼模式' : '切换到暗夜模式'"
+        :aria-pressed="theme === 'dark'">
         <component :is="theme === 'dark' ? SunIcon : MoonIcon" />
       </button>
       <!-- 'p' | 'text' | 'h1' | 'h3' | 'caption' | 'button' | 'image' | 'circle' | 'rect' 
@@ -276,7 +259,7 @@ async function handleDeactivateConfirm(): Promise<void> {
           <el-dropdown-menu>
             <el-dropdown-item command="profile">个人设置</el-dropdown-item>
             <el-dropdown-item command="changePassword">修改密码</el-dropdown-item>
-            <el-dropdown-item command="chat" divided style="color: #22c55e">飞猫传书</el-dropdown-item>
+            <el-dropdown-item command="chat" divided style="color: var(--theme-color-strong)">飞猫传书</el-dropdown-item>
             <el-dropdown-item command="deactivate" divided style="color: #ef4444">注销账号</el-dropdown-item>
             <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
           </el-dropdown-menu>
@@ -388,6 +371,7 @@ async function handleDeactivateConfirm(): Promise<void> {
 
 .brand {
   font-weight: 600;
+  color: var(--theme-color-strong);
 }
 
 .right {
@@ -430,9 +414,9 @@ async function handleDeactivateConfirm(): Promise<void> {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 1px solid var(--border-color);
-  background: transparent;
-  color: var(--text-color);
+  border: 1px solid var(--theme-color-muted);
+  background: var(--theme-color-soft);
+  color: var(--theme-color-strong);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -440,8 +424,9 @@ async function handleDeactivateConfirm(): Promise<void> {
   transition: all 0.2s;
 
   &:hover {
-    background: var(--bg-color);
-    color: var(--accent-color);
+    background: var(--theme-primary-bg);
+    color: var(--theme-color-contrast);
+    border-color: var(--theme-primary-bg);
   }
 
 }
@@ -484,10 +469,16 @@ async function handleDeactivateConfirm(): Promise<void> {
 .btn-cancel {
   padding: 8px 16px;
   border-radius: 6px;
-  border: 1px solid var(--border-color);
-  background: transparent;
-  color: var(--text-color);
+  border: 1px solid var(--theme-color-muted);
+  background: var(--theme-color-soft);
+  color: var(--theme-color-strong);
   cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+
+  &:hover {
+    background: var(--theme-primary-bg);
+    color: var(--theme-color-contrast);
+  }
 }
 
 .btn-danger {
@@ -506,15 +497,21 @@ async function handleDeactivateConfirm(): Promise<void> {
 .code-button {
   width: 100px;
   border-radius: 6px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-elevated);
-  color: var(--text-color);
+  border: 1px solid var(--theme-color-muted);
+  background: var(--theme-color-soft);
+  color: var(--theme-color-strong);
   cursor: pointer;
   font-size: 11px;
   white-space: nowrap;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background-color 0.2s ease, color 0.2s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--theme-primary-bg);
+    color: var(--theme-color-contrast);
+  }
 
   &:disabled {
     opacity: 0.6;
@@ -534,8 +531,8 @@ async function handleDeactivateConfirm(): Promise<void> {
   padding: 8px 16px;
   border-radius: 6px;
   border: none;
-  background: linear-gradient(to right, var(--accent-color), var(--accent-alt));
-  color: #fff;
+  background: var(--theme-gradient);
+  color: var(--theme-action-contrast);
   cursor: pointer;
 
   &:disabled {

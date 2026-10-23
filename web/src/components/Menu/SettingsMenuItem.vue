@@ -37,12 +37,17 @@ const emit = defineEmits<Emits>();
     left: 50%;
     transform: translateX(-50%);
     height: 1px;
-    background-color: rgba(0, 0, 0, 0.3);
+    background-color: color-mix(in srgb, var(--theme-color-muted) 50%, transparent);
     width: 95%;
 }
 
 .menu-list:hover {
-    background-color: rgb(223, 223, 223);
+    background-color: var(--theme-color-soft);
+}
+
+.menu-list:focus-visible {
+    outline: 2px solid var(--theme-color-strong);
+    outline-offset: -2px;
 }
 
 .open.menu-list {

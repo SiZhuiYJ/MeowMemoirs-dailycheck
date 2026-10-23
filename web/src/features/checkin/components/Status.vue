@@ -51,8 +51,8 @@ const props = defineProps<{
     }
 
     &.pending {
-        background: rgba(122, 175, 255, 0.2);
-        color: #3b82f6;
+        background: var(--theme-color-soft);
+        color: var(--theme-color-strong);
     }
 
     &.unknown {

@@ -37,6 +37,9 @@ node tools/dev-verify/e2e-chat.mjs         # 单个套件
 # 不需要后端，随手可跑（改完响应式相关代码建议跑一下）
 node tools/dev-verify/verify-device-layout.mjs
 node tools/dev-verify/verify-device-layout-dom.mjs
+
+# 不需要后端，但要 dev server + chromium（改主题 / 动画后跑）
+node tools/dev-verify/verify-theme-transition.mjs
 ```
 
 ## 套件说明
@@ -49,10 +52,13 @@ node tools/dev-verify/verify-device-layout-dom.mjs
 | `verify-device-logout.mjs` | 是 | **只登出当前设备**（另一台不受影响）、刷新沿用同一 `sid`、账号级撤销仍可全端下线 |
 | `verify-pin-mute.mjs` | 是 | 普通成员可切换置顶/免打扰（曾因误判为「改群资料」被 403）、改群名仍被拒、群主可改 |
 | `verify-device-layout.mjs` | 否 | 布局判定纯函数（规则 A：**横屏一律桌面，竖屏按宽度**；规则 B：**设备档位三档（宽度为主 + 宽扁小屏破格双栏）**）：横屏手机 852x393/667x375 必须走桌面、竖屏平板 820x1180 走桌面、窄竖屏窗口 700x1200 走手机、边界值、软键盘；三档档位归属（<=600 手机 / 600~1200 平板 / >1200 大屏电脑）、**宽扁小屏破格双栏**（宽<=600 但宽/高>=1.5，如手机横屏 480x320/568x320）与 600/601/1200/1201 四个边界；**全矩阵**校验 JS 判定与 SCSS mixin 一致（`phone`/`desktop` 两档 + `device-phone/tablet/desktop` 三档互斥完备）、`@mixin desktop` 是 `@mixin phone` 的严格取反、`@mixin phone` 带 `orientation: portrait`、断点常量无漂移；**防回归**校验聊天页三档（手机单栏 / 平板双栏 / 移动端 24px 控件 + 6px 间距）、`@mixin compact` 同时覆盖「窄」与「矮」、聊天/计划页侧栏用 `clamp` 占比而非写死 px、全局小屏层收窄了 EP 弹层内边距 |
-| `verify-chat-layout.mjs` | 是（dev server + chromium） | 用 CDP 驱动 headless chromium 打开真实 `/chat`，逐视口量 `getBoundingClientRect`：大屏电脑端（>1200）双栏 + 32px 控件/12px 间距、平板端（600~1200）**双栏** + 24px/6px、手机端（<=600）**单栏** + 24px/6px；含 600/601/1200/1201 四个边界、横屏手机 852x393 走平板档、**宽扁小屏 480x320/568x320/600x400 走双栏而 480x400 仍单栏**、无横向溢出、手机档有「会话列表」返回按钮、**会话列表头像贴着行高**（行内容高 - 头像 <= 8px，防止平板窄侧栏里头像缩成 32px、行里空一大截）。缺 chromium / dev server / 令牌时 `SKIP` |
-| `verify-chat-image-upload.mjs` | 是（dev server + chromium） | **图片上传全流程**：用 CDP 把一张 169×120 的图塞进真实的 `<input type=file>`，再用 `Fetch` 域把上传请求按住在发送前，观察「上传中」那一帧（灰色蒙层 + `radial-gradient` 径向挖空，挖空半径 = 上传进度 0/50/100%），放行后断言**待发气泡立刻变成正常图片消息**（不会卡在「准备中」）、**落地全程不出空白/转圈帧**（图片不会「消失再重新加载」—— 服务端 extra 是 PascalCase，本地 blob 预热必须在 `sendMessage` 之前生效，否则真实气泡渲染那一帧会掉头重下）、逐帧确认不会闪出两个同图气泡、**消息时间按本地时区显示且刚发出的消息可撤回**（服务端时间戳不带时区，必须按 UTC 解析，否则差一整个时区、撤回窗口失效、待发/真实消息的时间窗匹配也永远不成立）、图片按自身宽度显示而不是塞进 300px 盒子、气泡右边缘贴着右侧头像且间距正好是 `--chat-gap`、文档/音频卡片仍能撑开；再切 360×800 / 320×568 两档窄屏验证媒体跟着收缩、无横向溢出。缺 chromium / dev server / 令牌时 `SKIP` |
+| `verify-chat-layout.mjs` | 是（dev server + chromium） | 用 CDP 驱动 headless chromium 打开真实 `/chat`，逐视口量 `getBoundingClientRect`：大屏电脑端（>1200）双栏 + 32px 控件/12px 间距、平板端（600~1200）**双栏** + 24px/6px、手机端（<=600）**单栏** + 24px/6px；含 600/601/1200/1201 四个边界、横屏手机 852x393 走平板档、**宽扁小屏 480x320/568x320/600x400 走双栏而 480x400 仍单栏**、无横向溢出、手机档有「会话列表」返回按钮、**会话列表头像贴着行高**（行内容高 - 头像 <= 8px，防止平板窄侧栏里头像缩成 32px、行里空一大截）、**圆形按钮宽 = 高**（EP 的 small + circle 是 24×32 椭圆，图片消息下载按钮踩过）。缺 chromium / dev server / 令牌时 `SKIP` |
+| `verify-chat-image-upload.mjs` | 是（dev server + chromium） | **图片上传全流程**：用 CDP 把一张 169×120 的图塞进真实的 `<input type=file>`，再用 `Fetch` 域把上传请求按住在发送前，观察「上传中」那一帧（灰色蒙层 + `radial-gradient` 径向挖空，挖空半径 = 上传进度 0/50/100%），放行后断言**待发气泡立刻变成正常图片消息**（不会卡在「准备中」）、**落地全程不出空白/转圈帧**（图片不会「消失再重新加载」—— 服务端 extra 是 PascalCase，本地 blob 预热必须在 `sendMessage` 之前生效，否则真实气泡渲染那一帧会掉头重下）、逐帧确认不会闪出两个同图气泡、**消息时间按本地时区显示且刚发出的消息可撤回**（服务端时间戳不带时区，必须按 UTC 解析，否则差一整个时区、撤回窗口失效、待发/真实消息的时间窗匹配也永远不成立）、图片按自身宽度显示而不是塞进 300px 盒子、气泡右边缘贴着右侧头像且间距正好是 `--chat-gap`、文档/音频卡片仍能撑开；再用 ffmpeg 生成一段 360×640 竖屏视频走一遍上传，断言**封面按视频自身比例显示**（不被 16:9 裁成横条）、等比缩到 300px 以内、封面框宽度贴合气泡；最后切 360×800 / 320×568 两档窄屏验证媒体跟着收缩、无横向溢出（缺 ffmpeg 时该段 INFO 跳过）。缺 chromium / dev server / 令牌时 `SKIP` |
 | `verify-chat-upload-dedup.mjs` | 是 | **同一份文件重复上传不能失败**（曾经 500）：`chat_file_records` 上 `ux_chat_file_records_file_key` 是全局唯一索引，而图片 fileKey 原来就是内容哈希本身 → 同一张图在同会话发第二次、或同一张图发到另一个会话，都会撞索引 → 500。现校验：同会话重复上传两次都 200 且**同一个 fileKey**（幂等复用）、库里只有一条记录、文件仍可下载；同一份字节上传到另一个会话成功且 fileKey 不同（各存各的目录）；非图片（.txt）重复上传同样幂等、fileKey 保留原始后缀、下载字节与上传完全一致 |
+| `verify-chat-context-menu.mjs` | 是（dev server + chromium） | **聊天页各类消息 + 头像 + 会话列表的右键菜单**：图片消息「复制图片/预览/撤回/删除」、文本消息「复制文字/引用/撤回/删除」（引用后出现引用条并可取消）、系统消息「复制内容/删除」、文件类消息「预览/下载/引用/撤回/删除」；右键他人头像出现「艾特/查看主页」且艾特写入输入框并保持聚焦；右键会话列表出现「置顶/免打扰/删除会话」；群主（user 8）右键他人消息显示「撤回」，普通成员（user 11）右键他人消息不显示「撤回」；还会临时建群验证管理撤回提示出现在**被撤回消息的原位置**、且底部没有额外系统消息。置顶与免打扰各切换一次并复原，删除会话只验证确认框说明（不真正删除）；最后通过头像菜单进入 `/user/:id` 主页，验证底部操作栏悬浮在白色圆角面板内部（与聊天 composer 一致，滚动条/按钮都被面板包裹）、内容使用 el-scrollbar、复制账号在 Clipboard API 不可用时仍走 execCommand 兜底；再点「发消息」回到 `/chat` 并自动选中会话；同时验证单聊/群聊详情点击成员头像跳转 `/user/:id`、好友搜索结果头像跳转 `/user/:id`、非好友主页「添加好友」按钮发送申请后变为「申请已发送」，并可通过底部「返回聊天」回到会话。缺 chromium / dev server / 令牌时 `SKIP` |
+| `verify-chat-moderation-recall.mjs` | 是 | **群聊管理撤回权限与提示位置**：群主可撤回管理员/成员消息、管理员仅可撤回普通成员消息、管理员不能撤回群主/其它管理员、普通成员不能撤回别人消息；管理撤回提示写入被撤回消息的 `recallPrompt`，在**原消息位置**展示（`{群主|管理员} {操作人昵称} 撤回了 {被撤回成员昵称} 的消息`），**不会在底部新增系统消息**；同时验证消息内容被清空、会话列表预览使用原消息提示、其他成员也能看到；自己的消息仍受 5 分钟窗口限制且不产生管理撤回提示。临时群聊在结束时物理删除 |
 | `verify-device-layout-dom.mjs` | 否 | 「判定结果 → `<html>` 属性 / CSS 变量」契约：横屏手机写 `data-layout=desktop` 且 `data-device=tablet`（同时 `data-phone=true`、`data-short=true`）、旋转成竖屏后布局翻转为 mobile 且档位翻转为 phone、竖屏平板 768x1024 是 tablet 档（不是单栏手机）、软键盘只改 `--app-h` 不改布局判定、`installDeviceLayout` 幂等 |
+| `verify-theme-transition.mjs` | 否（dev server + chromium） | **日间 / 夜间切换动画与全局色板**：种子色 `#e3c0df`、日间强调色 `#9a4f8d`、柔和底色、`--accent-alt`、EP `--el-color-primary` 在日/夜下取到正确值；支持 View Transitions 时真实断言 `::view-transition-new(root)` 播放 `theme-root-reveal`、`::view-transition-new(theme-ripple)` 播放 `theme-ripple-ring`，且结束半径按视口对角线换算；动画结束后状态 / `.dark` / localStorage 正确且清理动画类；把 `document.startViewTransition` 置空模拟降级路径，断言 `.theme-colors-transitioning` 颜色过渡 + 波纹元素 720ms 动画；动画中快速连点三次最终落到最后一次选择；`prefers-reduced-motion: reduce` 时程序化切换立即生效，但**顶栏按钮强制播放环形波纹**（防止无反馈瞬切）；全程无未捕获异常。缺 chromium / dev server 时 `SKIP` |
 
 > `_fixtures.mjs` 是共用模块（测试用 PNG 生成等），文件名 `_` 开头，`run-all` 会跳过、不当套件跑。
 >
@@ -73,3 +79,12 @@ node tools/dev-verify/verify-device-layout-dom.mjs
   `Network.emulateNetworkConditions` **不限上行**，靠它压根采不到上传中的那一帧）。
 - `verify-chat-upload-dedup` 会往 user 8 的两个会话（默认 10 与 7）各传一份测试文件
   （一张 PNG + 一个 .txt），并在 `chat_file_records` 里留下新记录；不动已有记录。
+- `verify-chat-context-menu` 使用 user 8 与 conversation 10：会给 user 8 写 `access_token:8`，
+  置顶/免打扰各切换一次后复原（连续切换之间会等待请求落地），删除会话只会点开确认框再点「取消」，
+  不会写伪删除标记；最后会进入一次 `/user/:id` 主页再点「发消息」回到会话。
+- `verify-chat-moderation-recall` 会临时创建一个群聊（user 8 群主、user 11/14 成员），
+  在里面发送测试消息并执行撤回，结束后用 SQL 删除整个临时会话；不会改动现有会话。
+- `verify-chat-context-menu` 最后会用 user 11 的令牌重新加载一次页面，验证普通成员看不到他人消息的「撤回」；
+  会写 Redis `access_token:11`，并以 user 11 打开 conversation 10（因此会推进其已读位置、产生少量已读回执）。
+- 同一套件会在非好友主页（默认 user 12）发送一条好友申请，结束后按 user 8 → user 12 的待处理申请删除；不会创建好友关系。
+- `verify-theme-transition` 不依赖后端，只改临时 chromium profile 里的 localStorage；结束即退出浏览器并删除 profile。

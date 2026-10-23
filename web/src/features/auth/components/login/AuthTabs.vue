@@ -65,8 +65,8 @@ const model = defineModel<'login' | 'register'>()
 }
 
 .tab:not(.active):hover {
-    color: var(--text-color);
-    background: rgba(255, 255, 255, 0.03);
+    color: var(--theme-color-strong);
+    background: var(--theme-color-soft);
 }
 
 .divider {

@@ -64,11 +64,12 @@ function handleRemove(index: number): void {
   height: 20px;
   border-radius: 999px;
   border: none;
-  background: rgba(15, 23, 42, 0.9);
-  color: #f9fafb;
+  background: var(--theme-primary-bg);
+  color: var(--theme-color-contrast);
   font-size: 13px;
   line-height: 20px;
   text-align: center;
+  box-shadow: 0 2px 8px rgba(var(--theme-color-rgb), 0.35);
   cursor: pointer;
 }
 </style>

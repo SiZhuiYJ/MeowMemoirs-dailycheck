@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { CircleCloseFilled, Loading, WarningFilled } from '@element-plus/icons-vue';
 import SvgIcon from '@/components/SvgIcon/index.vue';
-import { Download } from "@element-plus/icons-vue"
 import { notifyError } from '@/utils/notification';
 import { useFileDownloader } from '../composables/useFileDownloader';
 import type { FileExtra, MessageSummary, PendingUpload } from '../types';
@@ -20,13 +19,6 @@ import FileMessageDetail from './FileMessageDetail.vue';
 const props = defineProps<{
   message?: MessageSummary | null;
   pendingUpload?: PendingUpload | null;
-  /**
-   * 是否显示下载入口。
-   *
-   * 现在只剩**图片**在用（图片右上角的下载浮层）：音频/文档卡片的下载按钮
-   * 已经撤掉，收进了点击卡片弹出的详情面板（见 FileMessageDetail.vue）。
-   */
-  showDownload?: boolean;
   src: string;
   isNewMessage?: boolean;
   allowInlineMediaLoad?: boolean;
@@ -102,6 +94,13 @@ const hasError = ref(false);
 const loadProgress = ref(0);
 const loadStatus = ref<'idle' | 'loading' | 'error'>('idle');
 const isPrepared = ref(false);
+/**
+ * 视频封面的自然尺寸（老消息的 extra 里没有宽高时，等封面图 `@load` 补上）。
+ * ⚠️ 必须和上面这批 ref 一起声明：下面那个 `immediate: true` 的 watcher 在 setup
+ * 期间就会执行并重置它，声明晚了会直接 TDZ 报错。
+ */
+const coverSize = ref<{ width: number; height: number } | null>(null);
+const coverImageRef = ref<HTMLImageElement | null>(null);
 
 const { requestBlobUrl, requestDownload, downloadAndSaveFile } = useFileDownloader();
 
@@ -147,6 +146,8 @@ watch(
     loadProgress.value = 0;
     loadStatus.value = 'idle';
     isPrepared.value = false;
+    coverSize.value = null;
+    void nextTick(syncCoverSizeFromImage);
     loadInlineMedia();
   },
   { immediate: true },
@@ -374,6 +375,53 @@ const imageStyle = computed(() => {
   };
 });
 
+/**
+ * 视频封面尺寸：优先用 extra 里记录的宽高（上传时从视频元数据取得），
+ * 老消息没有这个字段，就等封面图 `@load` 后用它的自然尺寸。
+ */
+const videoCoverSize = computed(() => {
+  const width = fileExtra.value?.width;
+  const height = fileExtra.value?.height;
+  if (width && height) return { width, height };
+  return coverSize.value;
+});
+
+/**
+ * 封面的显示比例 = 封面自身的比例（不再写死 16:9）。
+ *
+ * 以前 `.video-cover` 固定 `aspect-ratio: 16 / 9` + `img { object-fit: cover }`，
+ * 竖屏视频（比如 720×1280）的封面会被裁成中间一条横条 —— 用户看到的就是「封面被裁了」。
+ * 现在比例由封面自己决定，等比缩放到 300px 以内（与图片消息同一套上限）。
+ */
+const videoCoverStyle = computed(() => {
+  const size = videoCoverSize.value;
+  if (!size) return {};
+  return { aspectRatio: `${size.width} / ${size.height}` };
+});
+
+/** 气泡宽度跟着封面走：否则文件名的 min-content 会把气泡顶到 300px，封面再被拉宽。 */
+const videoBubbleStyle = computed(() => {
+  const size = videoCoverSize.value;
+  if (!size) return {};
+  const ratio = Math.min(IMAGE_MAX_SIZE / size.width, IMAGE_MAX_SIZE / size.height, 1);
+  return { width: `${Math.round(size.width * ratio)}px` };
+});
+
+/**
+ * 从**已经加载好**的封面图回读尺寸。
+ *
+ * 为什么不能只靠 `@load`：下面的 watcher 会在「封面地址变化 / 上传状态变化」时清空
+ * coverSize 重新取图，但图片若**同一个 src 已经加载完**，浏览器不会再发一次 load ——
+ * 尺寸就这么丢了，封面退回 16:9 兜底并一直不纠正（竖屏视频的封面又被裁成横条）。
+ * 所以 `@load` 与「每次 reset 后的 nextTick 回读」两条路都要有。
+ */
+function syncCoverSizeFromImage() {
+  if (fileExtra.value?.width && fileExtra.value?.height) return;
+  const img = coverImageRef.value;
+  if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) return;
+  coverSize.value = { width: img.naturalWidth, height: img.naturalHeight };
+}
+
 function handleImageError(event: Event) {
   hasError.value = true;
   const img = event.target as HTMLImageElement;
@@ -415,27 +463,21 @@ function formatDuration(seconds: number): string {
           <div v-if="isUploading && imageDisplayUrl" class="upload-visual-overlay" :style="uploadMaskStyle">
             <div class="upload-progress-badge">{{ uploadProgress }}%</div>
           </div>
-
-          <div v-else-if="showDownload && previewUrl && !hasError" class="image-overlay">
-            <el-button size="small" circle @click.stop="handleDownload">
-              <el-icon>
-                <Download />
-              </el-icon>
-            </el-button>
-          </div>
         </div>
 
-        <div v-else-if="category === 'video'" class="video-message">
-          <div v-if="videoCoverUrl" class="video-cover">
-            <img :src="videoCoverUrl" :alt="fileExtra.fileName" loading="lazy" />
+        <div v-else-if="category === 'video'" class="video-message" :style="videoBubbleStyle">
+          <div v-if="videoCoverUrl" class="video-cover" :style="videoCoverStyle">
+            <img ref="coverImageRef" :src="videoCoverUrl" :alt="fileExtra.fileName" loading="lazy"
+              @load="syncCoverSizeFromImage" />
             <div v-if="isUploading" class="upload-visual-overlay" :style="uploadMaskStyle">
               <div class="upload-progress-badge">{{ uploadProgress }}%</div>
             </div>
-            <div v-else class="video-cover-overlay">
-              <el-icon v-if="previewLoading" class="is-loading" :size="28">
+            <!-- 只保留「加载封面」时的转圈：播放图标已按需求移除，
+                 不要再加回来（封面本身点击即播放/预览，不需要视觉按钮）。 -->
+            <div v-else-if="previewLoading" class="video-cover-overlay">
+              <el-icon class="is-loading" :size="28">
                 <Loading />
               </el-icon>
-              <svg-icon v-else icon-class="general-play" size="32px" />
             </div>
           </div>
           <div v-else-if="isUploading" class="media-loading uploading-placeholder">
@@ -539,7 +581,7 @@ function formatDuration(seconds: number): string {
               {{ loadStatus === 'loading' ? `正在加载 ${Math.round(loadProgress)}%` : '加载失败，请重试' }}
             </div>
             <el-progress v-if="loadStatus === 'loading'" :percentage="loadProgress" :stroke-width="6" :show-text="false"
-              color="#409eff" />
+              color="#9a4f8d" />
           </div>
         </transition>
       </div>
@@ -672,7 +714,7 @@ function formatDuration(seconds: number): string {
   color: #ffffff;
 
   &.loading {
-    background: linear-gradient(120deg, rgba(59, 130, 246, 0.88), rgba(14, 116, 144, 0.84));
+    background: linear-gradient(120deg, rgba(154, 79, 141, 0.9), rgba(122, 58, 111, 0.86));
   }
 
   &.error {
@@ -722,10 +764,6 @@ function formatDuration(seconds: number): string {
     border-radius: 8px;
     transition: transform 0.2s;
   }
-
-  &:hover .image-overlay {
-    opacity: 1;
-  }
 }
 
 .image-loading,
@@ -763,17 +801,6 @@ function formatDuration(seconds: number): string {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-}
-
-.image-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  background: rgba(0, 0, 0, 0.3);
-  transition: opacity 0.2s;
 }
 
 .upload-visual-overlay {
@@ -842,6 +869,8 @@ function formatDuration(seconds: number): string {
 
   .video-cover {
     position: relative;
+    // 只是**尺寸未知时的兜底**：拿到封面真实宽高后由内联 aspect-ratio 覆盖
+    // （竖屏视频按 16:9 展示会把封面裁成一条横条）。
     aspect-ratio: 16 / 9;
     background: #e5e7eb;
 
@@ -849,10 +878,12 @@ function formatDuration(seconds: number): string {
       width: 100%;
       height: 100%;
       display: block;
+      // 容器比例 = 封面比例，cover 不会裁；留 cover 是因为它比 contain 更抗亚像素误差
       object-fit: cover;
     }
   }
 
+  // 加载封面时的转圈层（播放图标已移除）
   .video-cover-overlay {
     position: absolute;
     inset: 0;
@@ -956,7 +987,7 @@ function formatDuration(seconds: number): string {
     flex-shrink: 0;
 
     &.document {
-      background: #e3f2fd;
+      background: #f7e8f4;
     }
 
     &.archive {
@@ -1024,7 +1055,7 @@ function formatDuration(seconds: number): string {
   }
 
   &.uploading {
-    color: #2563eb;
+    color: #9a4f8d;
   }
 
   &.error {

@@ -2,6 +2,7 @@ using api.Data;
 using api.Hubs;
 using api.Models;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.SignalR;
@@ -39,6 +40,9 @@ public class FriendsController(DailyCheckDbContext db, IHubContext<ChatHub> hubC
         var friendships = await _db.UserFriendships
             .AsNoTracking()
             .Where(f => f.UserId == userId && f.Status == "active")
+            .Where(f => !_db.UserBlocks.Any(b =>
+                b.UserId == f.FriendUserId &&
+                b.BlockedUserId == userId))
             .OrderByDescending(f => f.IsStarred)
             .ThenByDescending(f => f.AcceptedAt ?? f.CreatedAt)
             .Select(BuildFriendshipProjection())
@@ -130,6 +134,147 @@ public class FriendsController(DailyCheckDbContext db, IHubContext<ChatHub> hubC
     }
 
     /// <summary>
+    /// 获取当前用户的黑名单列表（我拉黑的用户）。
+    /// 按拉黑时间倒序返回被拉黑用户的昵称、账号与头像。
+    /// </summary>
+    /// <returns>黑名单列表。</returns>
+    [HttpGet("blacklist")]
+    public async Task<ActionResult<List<BlockedUserDto>>> GetMyBlacklist()
+    {
+        var userId = GetUserId();
+
+        var blockedUsers = await _db.UserBlocks
+            .AsNoTracking()
+            .Where(b => b.UserId == userId)
+            .OrderByDescending(b => b.CreatedAt)
+            .ThenByDescending(b => b.Id)
+            .Select(b => new BlockedUserDto
+            {
+                Id = b.Id,
+                UserId = b.BlockedUserId,
+                UserAccount = b.BlockedUser.UserAccount,
+                NickName = b.BlockedUser.NickName,
+                AvatarKey = b.BlockedUser.AvatarKey,
+                CreatedAt = b.CreatedAt
+            })
+            .ToListAsync();
+
+        return Ok(blockedUsers);
+    }
+
+    /// <summary>
+    /// 拉黑指定用户。
+    ///
+    /// 拉黑后：
+    ///   · 对方无法再向你发送好友申请、发起单聊、查看你的主页或搜索到你；
+    ///   · 对方的好友列表中不再显示你，但好友关系本身不会删除；
+    ///   · 你仍然可以查看对方主页；
+    ///   · 共同群聊不受影响。
+    ///
+    /// 重复拉黑是幂等的，不会产生重复记录。
+    /// </summary>
+    /// <param name="request">包含被拉黑用户ID的请求对象。</param>
+    /// <returns>黑名单中的用户信息。</returns>
+    [HttpPost("blacklist")]
+    public async Task<ActionResult<BlockedUserDto>> BlockUser([FromBody] BlockUserRequest? request = null)
+    {
+        var userId = GetUserId();
+        var blockedUserId = request?.UserId ?? 0;
+
+        if (blockedUserId == 0)
+            return BadRequest(new { message = "userId is required" });
+
+        if (blockedUserId == userId)
+            return BadRequest(new { message = "Cannot block yourself" });
+
+        var targetUser = await _db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == blockedUserId && !u.IsDeleted);
+
+        if (targetUser == null)
+            return NotFound(new { message = "User not found" });
+
+        var now = DateTime.UtcNow;
+        var block = await _db.UserBlocks
+            .FirstOrDefaultAsync(b => b.UserId == userId && b.BlockedUserId == blockedUserId);
+
+        if (block == null)
+        {
+            block = new UserBlock
+            {
+                UserId = userId,
+                BlockedUserId = blockedUserId,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            _db.UserBlocks.Add(block);
+        }
+        else
+        {
+            block.UpdatedAt = now;
+        }
+
+        // 拉黑后，双方之间待处理的好友申请直接取消，避免拉黑方还能在申请列表里通过。
+        var pendingRequests = await _db.UserFriendRequests
+            .Where(r =>
+                r.RequestStatus == "pending" &&
+                ((r.RequesterUserId == userId && r.ReceiverUserId == blockedUserId) ||
+                 (r.RequesterUserId == blockedUserId && r.ReceiverUserId == userId)))
+            .ToListAsync();
+
+        foreach (var pendingRequest in pendingRequests)
+        {
+            pendingRequest.RequestStatus = "cancelled";
+            pendingRequest.HandledByUserId = userId;
+            pendingRequest.HandledAt = now;
+            pendingRequest.UpdatedAt = now;
+        }
+
+        await _db.SaveChangesAsync();
+        await NotifyFriendRequestsUpdated(userId, blockedUserId);
+        await NotifyFriendshipsUpdated(userId, blockedUserId);
+        await NotifyUsers("chat:inbox-updated", new[] { userId, blockedUserId });
+
+        return Ok(new BlockedUserDto
+        {
+            Id = block.Id,
+            UserId = targetUser.Id,
+            UserAccount = targetUser.UserAccount,
+            NickName = targetUser.NickName,
+            AvatarKey = targetUser.AvatarKey,
+            CreatedAt = block.CreatedAt
+        });
+    }
+
+    /// <summary>
+    /// 解除拉黑。解除后对方可以重新向你发起好友申请、单聊与查看主页；
+    /// 已经取消的好友申请不会自动恢复。
+    /// </summary>
+    /// <param name="blockedUserId">被拉黑用户ID。</param>
+    /// <returns>无内容。</returns>
+    [HttpDelete("blacklist/{blockedUserId:ulong}")]
+    public async Task<IActionResult> UnblockUser(ulong blockedUserId)
+    {
+        var userId = GetUserId();
+
+        var block = await _db.UserBlocks
+            .FirstOrDefaultAsync(b => b.UserId == userId && b.BlockedUserId == blockedUserId);
+
+        if (block == null)
+            return NoContent();
+
+        _db.UserBlocks.Remove(block);
+        await _db.SaveChangesAsync();
+
+        // 解除后双方好友关系与好友申请列表都需要重新对齐。
+        await NotifyFriendRequestsUpdated(userId, blockedUserId);
+        await NotifyFriendshipsUpdated(userId, blockedUserId);
+        await NotifyUsers("chat:inbox-updated", new[] { userId, blockedUserId });
+
+        return NoContent();
+    }
+
+    /// <summary>
     /// 获取我的好友申请列表。
     /// 支持按状态（pending, accepted, rejected等）筛选，并自动清理过期的申请。
     /// </summary>
@@ -144,7 +289,13 @@ public class FriendsController(DailyCheckDbContext db, IHubContext<ChatHub> hubC
         var normalizedStatus = NormalizeValue(status);
         var query = _db.UserFriendRequests
             .AsNoTracking()
-            .Where(r => r.RequesterUserId == userId || r.ReceiverUserId == userId);
+            .Where(r => r.RequesterUserId == userId || r.ReceiverUserId == userId)
+            // 被拉黑后，双方都不再看到彼此的好友申请（包括已取消的历史记录）。
+            .Where(r => !_db.UserBlocks.Any(b =>
+                (b.UserId == userId &&
+                 (b.BlockedUserId == r.RequesterUserId || b.BlockedUserId == r.ReceiverUserId)) ||
+                (b.BlockedUserId == userId &&
+                 (b.UserId == r.RequesterUserId || b.UserId == r.ReceiverUserId))));
 
         if (normalizedStatus is "pending" or "accepted" or "rejected" or "cancelled" or "expired")
             query = query.Where(r => r.RequestStatus == normalizedStatus);
@@ -180,6 +331,10 @@ public class FriendsController(DailyCheckDbContext db, IHubContext<ChatHub> hubC
                 u.Id != userId &&
                 !u.IsDeleted &&
                 u.Status == true &&
+                // 被对方拉黑后，不能再通过搜索找到对方；拉黑方仍可搜索到被拉黑方。
+                !_db.UserBlocks.Any(b =>
+                    b.UserId == u.Id &&
+                    b.BlockedUserId == userId) &&
                 (u.UserAccount == normalizedKeyword ||
                  (u.NickName != null && EF.Functions.Like(u.NickName, $"%{normalizedKeyword}%"))))
             .OrderByDescending(u => u.UserAccount == normalizedKeyword)
@@ -229,6 +384,21 @@ public class FriendsController(DailyCheckDbContext db, IHubContext<ChatHub> hubC
 
         if (receiver.Id == userId)
             return BadRequest(new { message = "Cannot add yourself as a friend" });
+
+        if (await _db.UserBlocks.AsNoTracking().AnyAsync(b =>
+                b.UserId == receiver.Id &&
+                b.BlockedUserId == userId))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { message = "对方已将你拉黑，无法发送好友申请" });
+        }
+
+        if (await _db.UserBlocks.AsNoTracking().AnyAsync(b =>
+                b.UserId == userId &&
+                b.BlockedUserId == receiver.Id))
+        {
+            return BadRequest(new { message = "你已拉黑该用户，请先在黑名单中解除拉黑" });
+        }
 
         if (await _db.UserFriendships.AnyAsync(f =>
                 f.UserId == userId &&
@@ -344,6 +514,9 @@ public class FriendsController(DailyCheckDbContext db, IHubContext<ChatHub> hubC
 
         if (friendRequest.RequestStatus != "pending")
             return BadRequest(new { message = "Only pending friend requests can be accepted" });
+
+        if (await HasBlockBetween(friendRequest.RequesterUserId, friendRequest.ReceiverUserId))
+            return BadRequest(new { message = "存在拉黑关系，无法通过该好友申请" });
 
         var now = DateTime.UtcNow;
         friendRequest.RequestStatus = "accepted";
@@ -582,6 +755,16 @@ public class FriendsController(DailyCheckDbContext db, IHubContext<ChatHub> hubC
 
     static string NormalizeValue(string? value)
         => (value ?? string.Empty).Trim().ToLowerInvariant();
+
+    /// <summary>
+    /// 两个用户之间是否存在任意方向的拉黑关系。
+    /// </summary>
+    Task<bool> HasBlockBetween(ulong leftUserId, ulong rightUserId)
+        => _db.UserBlocks
+            .AsNoTracking()
+            .AnyAsync(b =>
+                (b.UserId == leftUserId && b.BlockedUserId == rightUserId) ||
+                (b.UserId == rightUserId && b.BlockedUserId == leftUserId));
 
     static string? NormalizeReason(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

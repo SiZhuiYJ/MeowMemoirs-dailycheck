@@ -1,7 +1,14 @@
 <script setup lang="ts">
-import { ArrowDown, ChatRound } from "@element-plus/icons-vue";
+import {
+  ArrowDown,
+  ChatRound,
+  CircleClose,
+  HomeFilled,
+  Refresh,
+} from "@element-plus/icons-vue";
 import { ref } from "vue";
 import ProgressiveAvatar from "@/components/ProgressiveAvatar/index.vue";
+import router from "@/routers";
 import { getUserAvatarUrl, getUserAvatarSources } from "@/utils/avatar";
 import {
   useConversationCreateForm,
@@ -11,6 +18,7 @@ import {
   useConversationSidebarSocial,
   type SidebarActionCommand,
 } from "../composables/useConversationSidebarSocial";
+import { buildUserHomeRoute } from "../utils/navigation";
 
 const createTitle = defineModel<string>("createTitle", {
   required: true,
@@ -20,17 +28,32 @@ const createMemberUserIds = defineModel<number[]>("createMemberUserIds", {
 });
 
 const props = defineProps<{
+  /** 当前打开的会话（没有打开时为 0）；进用户主页时带给主页，供返回时回到原会话。 */
+  currentConversationId: number;
   friendRequestVersion: number;
   friendshipVersion: number;
+  /** 推送状态，原顶部工具栏的连接状态输入框。 */
+  statusText: string;
+  /** 是否正在推送（实时已连接或轮询中）。 */
+  polling: boolean;
+  /** 推送切换请求进行中时禁用菜单项。 */
+  pushLoading: boolean;
 }>();
 
 const emit = defineEmits<{
   createConversation: [];
+  back: [];
+  refresh: [];
+  togglePush: [];
 }>();
 
 const {
   friendLoading,
   friends,
+  blacklistDialogVisible,
+  blacklistLoading,
+  blacklist,
+  blacklistUnblockingId,
   pendingFriendRequestCount,
   friendSearchDialogVisible,
   friendSearchLoading,
@@ -72,6 +95,13 @@ const {
   formatFriendRequestTime,
   handleAcceptRequest,
   handleRejectRequest,
+  loadBlacklist,
+  openBlacklistDialog,
+  handleUnblockUser,
+  getBlockedUserLabel,
+  getBlockedUserMeta,
+  getBlockedUserAvatar,
+  formatBlockedAt,
   resetGroupJoinDialog,
   executeGroupSearch,
   handleSubmitGroupJoin,
@@ -93,15 +123,26 @@ const {
   friends,
 });
 
-/** 「好友列表」与「发起群聊」从创建区移入「社交操作」后，由这两个弹窗承载。 */
+/** 「好友列表」与「发起群聊」从创建区移入「更多」后，由这两个弹窗承载。 */
 const friendListDialogVisible = ref(false);
 const createGroupDialogVisible = ref(false);
 
-type CreatePanelCommand = SidebarActionCommand | "friendList" | "createGroup";
+type CreatePanelCommand =
+  | SidebarActionCommand
+  | "friendList"
+  | "createGroup"
+  | "refresh"
+  | "togglePush";
 
 function openFriendList() {
   friendListDialogVisible.value = true;
   void refreshFriendData(false);
+}
+
+/** 好友搜索结果里点击头像：进入该用户的主页，并带上当前会话，供「返回聊天」原路返回。 */
+function openUserProfile(userId: number) {
+  if (!userId) return;
+  void router.push(buildUserHomeRoute(userId, props.currentConversationId));
 }
 
 /** 好友列表里点好友 = 直接发起单聊；创建仍在父级统一处理。 */
@@ -125,22 +166,39 @@ function handleSocialCommand(command: CreatePanelCommand) {
     case "createGroup":
       createGroupDialogVisible.value = true;
       break;
+    case "refresh":
+      emit("refresh");
+      break;
+    case "togglePush":
+      emit("togglePush");
+      break;
     default:
       handleActionCommand(command);
       break;
   }
+}
+
+/** 打开「更多」时静默同步一次黑名单数量（实时推送不可用时也能保持准确）。 */
+function handleMoreMenuVisibleChange(visible: boolean) {
+  if (visible) void loadBlacklist({ silent: true });
 }
 </script>
 
 <template>
   <div class="create-box">
     <div class="create-box-item">
-      <h3>会话</h3>
-      <el-dropdown placement="bottom-end" trigger="click" @command="handleSocialCommand">
+      <!-- 回到主页：从顶部工具栏移到会话标题左侧 -->
+      <el-button class="create-box-back" :icon="HomeFilled" aria-label="回到主页" title="回到主页"
+        @click="emit('back')">
+        <span class="create-box-back-text">主页</span>
+      </el-button>
+      <h3>会话列表</h3>
+      <el-dropdown placement="bottom-end" trigger="click" @command="handleSocialCommand"
+        @visible-change="handleMoreMenuVisibleChange">
         <span class="social-dropdown-trigger">
           <el-badge :value="pendingFriendRequestCount" :show-zero="false" :max="99" :offset="[-6, 6]">
-            <el-button color="#111827">
-              社交操作
+            <el-button>
+              更多
               <el-icon class="el-icon--right">
                 <ArrowDown />
               </el-icon>
@@ -169,6 +227,26 @@ function handleSocialCommand(command: CreatePanelCommand) {
                 <span>好友申请</span>
                 <el-badge :value="pendingFriendRequestCount" :show-zero="false" :max="99" />
               </div>
+            </el-dropdown-item>
+            <el-dropdown-item command="blacklist">
+              <div class="social-dropdown-item">
+                <span>黑名单</span>
+                <span class="social-dropdown-count">{{ blacklist.length }}</span>
+              </div>
+            </el-dropdown-item>
+
+            <!-- 原顶部工具栏：连接状态 / 刷新 / 开启或停止推送 -->
+            <el-dropdown-item divided disabled>
+              <div class="social-dropdown-status">
+                <span class="social-dropdown-status-label">连接状态</span>
+                <span class="social-dropdown-status-text">{{ statusText }}</span>
+              </div>
+            </el-dropdown-item>
+            <el-dropdown-item command="refresh" :icon="Refresh">
+              刷新
+            </el-dropdown-item>
+            <el-dropdown-item command="togglePush" :icon="CircleClose" :disabled="pushLoading">
+              {{ polling ? "停止推送" : "开启推送" }}
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -236,7 +314,7 @@ function handleSocialCommand(command: CreatePanelCommand) {
         <template #footer>
           <div class="dialog-footer">
             <el-button @click="createGroupDialogVisible = false">取消</el-button>
-            <el-button :icon="ChatRound" color="#111827" :disabled="!isGroupConversation" @click="submitCreateGroup">
+            <el-button :icon="ChatRound" type="primary" :disabled="!isGroupConversation" @click="submitCreateGroup">
               创建群聊
             </el-button>
           </div>
@@ -273,9 +351,11 @@ function handleSocialCommand(command: CreatePanelCommand) {
           <el-scrollbar v-else-if="friendSearchResults.length > 0" max-height="320px">
             <div v-for="item in friendSearchResults" :key="item.userId" class="search-result-row">
               <div class="search-result-main">
-                <ProgressiveAvatar class="search-result-avatar" :src="getFriendSearchAvatar(item).src"
-                  :thumbnail-src="getFriendSearchAvatar(item).thumbnailSrc" :is-preview="true" :size="60"
-                  shape="square">
+                <ProgressiveAvatar class="search-result-avatar search-result-avatar-link"
+                  :src="getFriendSearchAvatar(item).src" :thumbnail-src="getFriendSearchAvatar(item).thumbnailSrc"
+                  :data-user-id="item.userId" :size="60" shape="square" :title="`查看 ${getFriendSearchName(item)} 的主页`"
+                  role="button" tabindex="0" @click.stop="openUserProfile(item.userId)"
+                  @keydown.enter.prevent="openUserProfile(item.userId)">
                   {{ getFriendSearchName(item).slice(0, 1) }}
                 </ProgressiveAvatar>
                 <div class="search-result-text">
@@ -295,7 +375,7 @@ function handleSocialCommand(command: CreatePanelCommand) {
               </div>
 
               <div class="search-result-ops">
-                <el-button size="small" color="#111827" :loading="friendSearchSubmittingId === item.userId"
+                <el-button size="small" type="primary" :loading="friendSearchSubmittingId === item.userId"
                   :disabled="item.isFriend || item.hasPendingSentRequest" @click="handleSendFriendRequest(item)">
                   {{ getFriendSearchActionText(item) }}
                 </el-button>
@@ -370,6 +450,44 @@ function handleSocialCommand(command: CreatePanelCommand) {
         </div>
       </el-dialog>
 
+      <el-dialog v-model="blacklistDialogVisible" title="黑名单" width="min(92vw, 560px)">
+        <div v-loading="blacklistLoading" class="blacklist-panel">
+          <div class="blacklist-toolbar">
+            <span class="blacklist-count">共 {{ blacklist.length }} 位用户</span>
+            <el-button plain :loading="blacklistLoading" @click="openBlacklistDialog">
+              刷新
+            </el-button>
+          </div>
+
+          <el-empty v-if="!blacklistLoading && blacklist.length === 0" description="黑名单为空，暂无被拉黑的用户" />
+
+          <el-scrollbar v-else max-height="420px">
+            <div v-for="item in blacklist" :key="item.id" class="blacklist-row">
+              <ProgressiveAvatar class="conversation-avatar blacklist-avatar" :src="getBlockedUserAvatar(item).src"
+                :thumbnail-src="getBlockedUserAvatar(item).thumbnailSrc" :data-user-id="item.userId" :size="44"
+                shape="square" :title="`查看 ${getBlockedUserLabel(item)} 的主页`" role="button" tabindex="0"
+                @click="openUserProfile(item.userId)" @keydown.enter.prevent="openUserProfile(item.userId)">
+                {{ getBlockedUserLabel(item).slice(0, 1) }}
+              </ProgressiveAvatar>
+              <span class="blacklist-text">
+                <strong>{{ getBlockedUserLabel(item) }}</strong>
+                <span class="blacklist-meta">账号：{{ getBlockedUserMeta(item) }}</span>
+                <span class="blacklist-meta">拉黑于 {{ formatBlockedAt(item.createdAt) }}</span>
+              </span>
+              <el-button size="small" type="danger" plain :loading="blacklistUnblockingId === item.userId"
+                :disabled="blacklistUnblockingId !== null && blacklistUnblockingId !== item.userId"
+                @click="handleUnblockUser(item)">
+                解除拉黑
+              </el-button>
+            </div>
+          </el-scrollbar>
+
+          <p class="blacklist-tip">
+            拉黑后，对方无法添加你为好友、与你发起单聊或搜索到你；主页仍可查看，好友状态会保留，群聊也不受影响。
+          </p>
+        </div>
+      </el-dialog>
+
       <el-dialog v-model="groupJoinDialogVisible" title="申请加入群聊" width="min(92vw, 520px)"
         :close-on-click-modal="canCloseGroupJoinDialog" :close-on-press-escape="canCloseGroupJoinDialog"
         :show-close="canCloseGroupJoinDialog" @closed="resetGroupJoinDialog">
@@ -423,7 +541,7 @@ function handleSocialCommand(command: CreatePanelCommand) {
             <el-button :disabled="groupJoinSubmitting" @click="resetGroupJoinDialog">
               取消
             </el-button>
-            <el-button color="#111827" :loading="groupJoinSubmitting" :disabled="!canSubmitGroupJoin"
+            <el-button type="primary" :loading="groupJoinSubmitting" :disabled="!canSubmitGroupJoin"
               @click="handleSubmitGroupJoin">
               提交申请
             </el-button>
@@ -435,6 +553,34 @@ function handleSocialCommand(command: CreatePanelCommand) {
 </template>
 
 <style scoped lang="scss">
+.create-box-item {
+  // 用创建区的实际宽度决定「回到主页」收不收起文字，
+  // 不能只看视口：平板档侧栏是 30% 宽，比手机档的整屏还窄。
+  container-type: inline-size;
+}
+
+.create-box-back {
+  flex-shrink: 0;
+  padding: 0 10px;
+}
+
+@container (max-width: 240px) {
+  .create-box-back-text {
+    display: none;
+  }
+
+  // 收起文字后压成与控件同高的圆形按钮，给「会话列表」标题留足宽度
+  .create-box-back {
+    width: var(--chat-control-h);
+    padding: 0;
+    border-radius: 50%;
+  }
+
+  .create-box-back :deep(.el-icon) {
+    margin-right: 0;
+  }
+}
+
 .social-dropdown-trigger {
   display: inline-flex;
   align-items: center;
@@ -446,6 +592,26 @@ function handleSocialCommand(command: CreatePanelCommand) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.social-dropdown-status {
+  max-width: 220px;
+  display: grid;
+  gap: 2px;
+  white-space: normal;
+}
+
+.social-dropdown-status-label {
+  color: #9ca3af;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.social-dropdown-status-text {
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 18px;
+  word-break: break-word;
 }
 
 .friend-search-panel {
@@ -484,6 +650,21 @@ function handleSocialCommand(command: CreatePanelCommand) {
 
 .search-result-avatar {
   flex-shrink: 0;
+}
+
+.search-result-avatar-link {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(17, 24, 39, 0.16);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--chat-accent, #9a4f8d);
+    outline-offset: 2px;
+  }
 }
 
 .search-result-text {
@@ -579,11 +760,11 @@ function handleSocialCommand(command: CreatePanelCommand) {
   }
 
   &:hover {
-    background: #f9fafb;
+    background: #f7e8f4;
   }
 
   &:focus-visible {
-    outline: 2px solid #93c5fd;
+    outline: 2px solid var(--chat-accent, #9a4f8d);
     outline-offset: -2px;
   }
 }
@@ -612,8 +793,86 @@ function handleSocialCommand(command: CreatePanelCommand) {
 
 .friend-list-action {
   flex-shrink: 0;
-  color: #2563eb;
+  color: var(--chat-accent, #9a4f8d);
   font-size: 12px;
+}
+
+.blacklist-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.blacklist-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.blacklist-count,
+.blacklist-tip {
+  margin: 0;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.blacklist-tip {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.blacklist-row {
+  box-sizing: border-box;
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-bottom: 1px solid #f3f4f6;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.blacklist-avatar {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(17, 24, 39, 0.16);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--chat-accent, #9a4f8d);
+    outline-offset: 2px;
+  }
+}
+
+.blacklist-text {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+
+  strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+}
+
+.blacklist-meta {
+  overflow: hidden;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .create-group-panel {

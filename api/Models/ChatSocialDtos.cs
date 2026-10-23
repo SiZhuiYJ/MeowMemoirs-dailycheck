@@ -70,6 +70,48 @@ public class UpdateFriendRemarkRequest
     public string? FriendRemark { get; set; }
 }
 
+/// <summary>
+/// 拉黑用户的请求参数。
+/// </summary>
+public class BlockUserRequest
+{
+    /// <summary>
+    /// 要被拉黑的用户ID。
+    /// </summary>
+    public ulong UserId { get; set; }
+}
+
+/// <summary>
+/// 黑名单中的用户信息。
+/// </summary>
+public class BlockedUserDto
+{
+    /// <summary>
+    /// 拉黑记录ID。
+    /// </summary>
+    public ulong Id { get; set; }
+    /// <summary>
+    /// 被拉黑用户ID。
+    /// </summary>
+    public ulong UserId { get; set; }
+    /// <summary>
+    /// 用户账号。
+    /// </summary>
+    public string? UserAccount { get; set; }
+    /// <summary>
+    /// 昵称。
+    /// </summary>
+    public string? NickName { get; set; }
+    /// <summary>
+    /// 头像键。
+    /// </summary>
+    public string? AvatarKey { get; set; }
+    /// <summary>
+    /// 拉黑时间。
+    /// </summary>
+    public DateTime CreatedAt { get; set; }
+}
+
 public class FriendUserDto
 {
     public ulong UserId { get; set; }

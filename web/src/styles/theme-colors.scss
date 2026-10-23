@@ -1,0 +1,366 @@
+////
+/// 全局主题色系统。
+///
+/// 种子色来自 config/index.ts 的 DEFAULT_THEME（#e3c0df）。
+/// 只在 :root 里维护色阶，组件一律引用变量，不再各写各的蓝 / 紫 / 靛色。
+///
+/// 变量分层：
+///   --theme-color           种子色：波纹、浅色主按钮、装饰
+///   --theme-color-strong    可读强调色：链接 / 文字 / 焦点 / 描边
+///   --theme-color-deep      hover / active 强调
+///   --theme-color-muted     次级描边、禁用文本
+///   --theme-color-soft      浅色底：选中态 / tag / hover
+///   --theme-color-softer    更浅的大块底色
+///   --theme-color-contrast  种子色背景上的文字（深梅色）
+///   --theme-primary         兼容旧代码：焦点 / 边框
+///   --theme-primary-bg      主按钮底色（种子色）
+///   --theme-gradient        主按钮 / 登录按钮渐变
+///
+/// 浅色模式把强调色压深，保证白底可读；夜间模式直接用种子色，
+/// 因为 #e3c0df 在深色底上对比度足够（约 12:1）。
+/// 语义色（success / warning / danger）继续走 Element Plus 默认值，
+/// 不属于主题色，不要一起替换。
+///
+/// 目前「先使用默认色」，派生色阶按 #e3c0df 手写；后续支持自定义主题色时，
+/// 需要按新种子重新生成这些派生值（或改由 use-theme.ts 注入）。
+////
+
+:root {
+  // 种子色（与 config/index.ts 的 DEFAULT_THEME 保持一致）
+  --theme-color: #e3c0df;
+  --theme-color-rgb: 227, 192, 223;
+
+  // —— 夜间模式（默认根变量）——
+  --theme-color-strong: #e3c0df;
+  --theme-color-deep: #f0cdea;
+  --theme-color-muted: #cba8c4;
+  --theme-color-soft: rgba(227, 192, 223, 0.16);
+  --theme-color-softer: rgba(227, 192, 223, 0.08);
+  --theme-color-contrast: #2b1428;
+
+  --theme-primary: var(--theme-color-strong);
+  // 浅色主题底（次级按钮 / 展示块）
+  --theme-primary-bg: var(--theme-color);
+  --theme-primary-hover: #f0cdea;
+  --theme-primary-active: #f5e3f1;
+
+  // 深色动作按钮：主操作（新建 / 发送 / 保存…）用主题的深色变体 + 白字
+  --theme-action-bg: #7e617a;
+  --theme-action-hover: #8a6a86;
+  --theme-action-active: #6b5068;
+  --theme-action-contrast: #ffffff;
+
+  --theme-gradient-start: #8a6a86;
+  --theme-gradient-end: #6b5068;
+  --theme-gradient: linear-gradient(
+    135deg,
+    var(--theme-gradient-start),
+    var(--theme-gradient-end)
+  );
+
+  // 兼容旧变量
+  --accent-color: var(--theme-color-strong);
+  --accent-alt: var(--theme-color);
+}
+
+// 日间色阶。抽成 mixin 是为了让「固定浅色面」（聊天页、聊天弹窗）
+// 在夜间模式下也能拿到同一套浅色 token，避免白底上出现夜间模式的浅粉文字。
+@mixin light-theme-tokens {
+  // —— 日间模式：把种子色压深一档，保证白底上的可读性 ——
+  --theme-color-strong: #9a4f8d;
+  --theme-color-deep: #7a3a6f;
+  --theme-color-muted: #b07aa8;
+  --theme-color-soft: #f7e8f4;
+  --theme-color-softer: #fbf3f9;
+  --theme-color-contrast: #2b1428;
+
+  --theme-primary: var(--theme-color-strong);
+  // 浅色主题底（次级按钮 / 展示块）
+  --theme-primary-bg: var(--theme-color);
+  --theme-primary-hover: #d5a4cd;
+  --theme-primary-active: #c995c0;
+
+  // 深色动作按钮：主操作（新建 / 发送 / 保存…）用主题的深色变体 + 白字
+  --theme-action-bg: #9a4f8d;
+  --theme-action-hover: #7a3a6f;
+  --theme-action-active: #683059;
+  --theme-action-contrast: #ffffff;
+
+  --theme-gradient-start: #9a4f8d;
+  --theme-gradient-end: #7a3a6f;
+
+  --accent-color: var(--theme-color-strong);
+  --accent-alt: var(--theme-color);
+
+  // Element Plus 日间主色阶（primary 用可读的 strong）
+  --el-color-primary: var(--theme-color-strong);
+  --el-color-primary-light-3: color-mix(in srgb, var(--theme-color-strong) 70%, #fff);
+  --el-color-primary-light-5: color-mix(in srgb, var(--theme-color-strong) 50%, #fff);
+  --el-color-primary-light-7: color-mix(in srgb, var(--theme-color-strong) 30%, #fff);
+  --el-color-primary-light-8: color-mix(in srgb, var(--theme-color-strong) 20%, #fff);
+  --el-color-primary-light-9: color-mix(in srgb, var(--theme-color-strong) 10%, #fff);
+  --el-color-primary-dark-2: color-mix(in srgb, var(--theme-color-strong) 80%, #000);
+
+  // Element Plus 基础变量也切成浅色。聊天页的弹窗被 Teleport 到 body，
+  // 夜间模式下如果只换主题 token，弹窗仍是深色底，而内部文字是深色，
+  // 会出现「黑底黑字 + 深色语义按钮」。固定浅色面必须连 EP 基础变量一起换。
+  color-scheme: light;
+  --el-color-white: #ffffff;
+  --el-color-black: #000000;
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #f2f3f5;
+  --el-bg-color-overlay: #ffffff;
+  --el-text-color-primary: #303133;
+  --el-text-color-regular: #606266;
+  --el-text-color-secondary: #909399;
+  --el-text-color-placeholder: #a8abb2;
+  --el-text-color-disabled: #c0c4cc;
+  --el-border-color: #dcdfe6;
+  --el-border-color-light: #e4e7ed;
+  --el-border-color-lighter: #ebeef5;
+  --el-border-color-extra-light: #f2f6fc;
+  --el-border-color-dark: #d4d7de;
+  --el-border-color-darker: #cdd0d6;
+  --el-fill-color: #f0f2f5;
+  --el-fill-color-light: #f5f7fa;
+  --el-fill-color-lighter: #fafafa;
+  --el-fill-color-extra-light: #fafcff;
+  --el-fill-color-dark: #ebedf0;
+  --el-fill-color-darker: #e6e8eb;
+  --el-fill-color-blank: #ffffff;
+  --el-mask-color: rgba(255, 255, 255, 0.9);
+  --el-mask-color-extra-light: rgba(255, 255, 255, 0.3);
+  --el-disabled-bg-color: var(--el-fill-color-light);
+  --el-disabled-text-color: var(--el-text-color-placeholder);
+  --el-disabled-border-color: var(--el-border-color-light);
+
+  --el-color-success: #67c23a;
+  --el-color-success-light-3: #95d475;
+  --el-color-success-light-5: #b3e19d;
+  --el-color-success-light-7: #d1edc4;
+  --el-color-success-light-8: #e1f3d8;
+  --el-color-success-light-9: #f0f9eb;
+  --el-color-success-dark-2: #529b2e;
+  --el-color-warning: #e6a23c;
+  --el-color-warning-light-3: #eebe77;
+  --el-color-warning-light-5: #f3d19e;
+  --el-color-warning-light-7: #f8e3c5;
+  --el-color-warning-light-8: #faecd8;
+  --el-color-warning-light-9: #fdf6ec;
+  --el-color-warning-dark-2: #b88230;
+  --el-color-danger: #f56c6c;
+  --el-color-danger-light-3: #f89898;
+  --el-color-danger-light-5: #fab6b6;
+  --el-color-danger-light-7: #fcd3d3;
+  --el-color-danger-light-8: #fde2e2;
+  --el-color-danger-light-9: #fef0f0;
+  --el-color-danger-dark-2: #c45656;
+  --el-color-error: #f56c6c;
+  --el-color-error-light-3: #f89898;
+  --el-color-error-light-5: #fab6b6;
+  --el-color-error-light-7: #fcd3d3;
+  --el-color-error-light-8: #fde2e2;
+  --el-color-error-light-9: #fef0f0;
+  --el-color-error-dark-2: #c45656;
+  --el-color-info: #909399;
+  --el-color-info-light-3: #b1b3b8;
+  --el-color-info-light-5: #c8c9cc;
+  --el-color-info-light-7: #dedfe0;
+  --el-color-info-light-8: #e9e9eb;
+  --el-color-info-light-9: #f4f4f5;
+  --el-color-info-dark-2: #73767a;
+}
+
+html[data-theme="light"] {
+  @include light-theme-tokens;
+}
+
+// 固定浅色面：聊天页本身是浅色设计，弹窗又被 Teleport 到 body，
+// 不继承 .chat-page 的变量，所以两处都要显式加这个类。
+.theme-light-surface {
+  @include light-theme-tokens;
+  --chat-accent: #9a4f8d;
+  --chat-accent-soft: #f7e8f4;
+}
+
+// 当浅色类挂在 <html> 上时，EP 变量会和 html.dark[data-theme="dark"] 竞争；
+// 后者特异性更高，所以这里再补一条更高特异性的声明。
+html.dark[data-theme="dark"].theme-light-surface {
+  @include light-theme-tokens;
+  --chat-accent: #9a4f8d;
+  --chat-accent-soft: #f7e8f4;
+}
+
+// 夜间 EP 变量要压过 element-plus/theme-chalk/dark/css-vars.css 的 html.dark
+// （那个文件在 main.ts 里晚于本文件引入，同等特异性会输）。
+html.dark[data-theme="dark"] {
+  --el-color-primary: var(--theme-color);
+  --el-color-primary-light-3: color-mix(in srgb, var(--theme-color) 70%, var(--bg-color));
+  --el-color-primary-light-5: color-mix(in srgb, var(--theme-color) 50%, var(--bg-color));
+  --el-color-primary-light-7: color-mix(in srgb, var(--theme-color) 30%, var(--bg-color));
+  --el-color-primary-light-8: color-mix(in srgb, var(--theme-color) 20%, var(--bg-color));
+  --el-color-primary-light-9: color-mix(in srgb, var(--theme-color) 10%, var(--bg-color));
+  --el-color-primary-dark-2: color-mix(in srgb, var(--theme-color) 80%, #fff);
+}
+
+// ==============================================
+// Element Plus 默认 / 次级按钮：柔和主题底 + 强强调色字
+// ==============================================
+// 未指定 type 的 el-button（取消、返回、上传、详情等）原来走 EP 的白底灰字，
+// 现在统一成主题浅底。排除 semantic type，success / warning / danger 仍保持语义色。
+html
+  .el-button:not(.el-button--primary):not(.el-button--success):not(
+    .el-button--warning
+  ):not(.el-button--danger):not(.el-button--info) {
+  --el-button-bg-color: var(--theme-color-soft);
+  --el-button-border-color: var(--theme-color-muted);
+  --el-button-text-color: var(--theme-color-strong);
+  --el-button-hover-bg-color: var(--theme-primary-bg);
+  --el-button-hover-border-color: var(--theme-primary-bg);
+  --el-button-hover-text-color: var(--theme-color-contrast);
+  --el-button-hover-link-text-color: var(--theme-color-deep);
+  --el-button-active-bg-color: var(--theme-primary-hover);
+  --el-button-active-border-color: var(--theme-primary-hover);
+  --el-button-active-text-color: var(--theme-color-contrast);
+  --el-button-disabled-bg-color: var(--theme-color-softer);
+  --el-button-disabled-border-color: var(--theme-color-soft);
+  --el-button-disabled-text-color: var(--theme-color-muted);
+  --el-button-outline-color: var(--theme-color-strong);
+}
+
+// 无 type 的文字 / 链接按钮：只改文字和 hover 色，不加实心底
+html
+  .el-button.is-link:not(.el-button--primary):not(.el-button--success):not(
+    .el-button--warning
+  ):not(.el-button--danger):not(.el-button--info) {
+  --el-button-text-color: var(--theme-color-strong);
+  --el-button-hover-link-text-color: var(--theme-color-deep);
+  --el-button-hover-text-color: var(--theme-color-deep);
+  --el-button-hover-bg-color: transparent;
+  --el-button-hover-border-color: transparent;
+  --el-button-active-bg-color: transparent;
+}
+
+html
+  .el-button.is-text:not(.el-button--primary):not(.el-button--success):not(
+    .el-button--warning
+  ):not(.el-button--danger):not(.el-button--info) {
+  --el-button-text-color: var(--theme-color-strong);
+  --el-button-hover-text-color: var(--theme-color-deep);
+}
+
+html
+  .el-button.is-text:not(.el-button--primary):not(.el-button--success):not(
+    .el-button--warning
+  ):not(.el-button--danger):not(.el-button--info):hover {
+  background-color: var(--theme-color-soft);
+}
+
+// ==============================================
+// Element Plus 主按钮：种子色底 + 深梅色文字
+// ==============================================
+// EP 默认主按钮是「主色底 + 白字」。#e3c0df 太浅，白字对比度只有 1.6:1；
+// 这里统一改成种子色底 + 深梅色字，既保留默认主题色，也满足可读性。
+html .el-button--primary:not(.is-plain):not(.is-text):not(.is-link):not(.is-dashed) {
+  --el-button-bg-color: var(--theme-action-bg);
+  --el-button-border-color: var(--theme-action-bg);
+  --el-button-text-color: var(--theme-action-contrast);
+  --el-button-hover-bg-color: var(--theme-action-hover);
+  --el-button-hover-border-color: var(--theme-action-hover);
+  --el-button-hover-text-color: var(--theme-action-contrast);
+  --el-button-active-bg-color: var(--theme-action-active);
+  --el-button-active-border-color: var(--theme-action-active);
+  --el-button-active-text-color: var(--theme-action-contrast);
+  --el-button-disabled-bg-color: var(--theme-color-soft);
+  --el-button-disabled-border-color: var(--theme-color-soft);
+  --el-button-disabled-text-color: var(--theme-color-muted);
+}
+
+// plain / text / link 版本没有实心底，文字用可读的 strong
+html .el-button--primary.is-plain {
+  --el-button-text-color: var(--theme-color-strong);
+  --el-button-bg-color: var(--theme-color-soft);
+  --el-button-border-color: var(--theme-color-muted);
+  --el-button-hover-text-color: var(--theme-color-contrast);
+  --el-button-hover-bg-color: var(--theme-primary-bg);
+  --el-button-hover-border-color: var(--theme-primary-bg);
+  --el-button-active-text-color: var(--theme-color-contrast);
+  --el-button-active-bg-color: var(--theme-primary-bg);
+  --el-button-active-border-color: var(--theme-primary-bg);
+}
+
+html .el-button--primary.is-text,
+html .el-button--primary.is-link {
+  --el-button-text-color: var(--theme-color-strong);
+  --el-button-hover-text-color: var(--theme-color-deep);
+  --el-button-active-text-color: var(--theme-color-deep);
+  --el-button-bg-color: transparent;
+  --el-button-hover-bg-color: transparent;
+  --el-button-active-bg-color: transparent;
+  --el-button-border-color: transparent;
+}
+
+// ==============================================
+// 其它 Element Plus 主题控件
+// ==============================================
+html .el-link.el-link--primary {
+  --el-link-text-color: var(--theme-color-strong);
+  --el-link-hover-text-color: var(--theme-color-deep);
+  --el-link-disabled-text-color: var(--theme-color-muted);
+}
+
+html .el-tag.el-tag--primary {
+  --el-tag-bg-color: var(--theme-color-soft);
+  --el-tag-border-color: var(--theme-color-muted);
+  --el-tag-text-color: var(--theme-color-strong);
+  --el-tag-hover-color: var(--theme-color-strong);
+}
+
+html .el-radio-button {
+  --el-radio-button-checked-bg-color: var(--theme-color);
+  --el-radio-button-checked-border-color: var(--theme-color);
+  --el-radio-button-checked-text-color: var(--theme-color-contrast);
+}
+
+html .el-radio {
+  --el-radio-input-border-color-hover: var(--theme-color-strong);
+}
+
+html .el-radio__input.is-checked .el-radio__inner {
+  background-color: var(--theme-color);
+  border-color: var(--theme-color);
+}
+
+html .el-radio__input.is-checked .el-radio__inner::after {
+  background-color: var(--theme-color-contrast);
+}
+
+html .el-radio__input.is-checked + .el-radio__label {
+  color: var(--theme-color-strong);
+}
+
+html .el-checkbox {
+  --el-checkbox-checked-bg-color: var(--theme-color);
+  --el-checkbox-checked-input-border-color: var(--theme-color);
+  --el-checkbox-checked-icon-color: var(--theme-color-contrast);
+  --el-checkbox-checked-text-color: var(--theme-color-strong);
+}
+
+html .el-switch {
+  --el-switch-on-color: var(--theme-color);
+}
+
+html .el-switch.is-checked .el-switch__action {
+  background-color: var(--theme-color-contrast);
+}
+
+// info 提示（例如「原消息不在当前已加载范围内」）也用主题色
+html .el-message--info {
+  --el-message-bg-color: var(--theme-color-soft);
+  --el-message-border-color: var(--theme-color-muted);
+  --el-message-text-color: var(--theme-color-strong);
+}
+
+html .el-message--info .el-message__icon {
+  color: var(--theme-color-strong);
+}

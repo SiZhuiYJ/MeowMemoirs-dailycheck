@@ -12,6 +12,14 @@ export interface MessageReference {
   content?: string | null;
   extra?: string | null;
   isRecalled: boolean;
+  /** 执行撤回的用户ID（群主/管理员撤回他人消息时为操作人）。 */
+  recalledByUserId?: number | null;
+  /**
+   * 管理撤回提示。
+   * 仅群主/管理员撤回他人消息时有值，展示在消息原来的位置，
+   * 没有值时回退到「xxx 撤回了一条消息」。
+   */
+  recallPrompt?: string | null;
   createdAt: string;
 }
 
@@ -157,6 +165,48 @@ export interface UpdateConversation {
   isMuted: boolean;
 }
 
+/** 会话列表右键菜单里的「置顶 / 免打扰」只提交变化的字段。 */
+export interface UpdateConversationPreferences {
+  isPinned?: boolean;
+  isMuted?: boolean;
+}
+
+/** 消息「仅自己不可见」伪删除结果。 */
+export interface DeleteMessageResult {
+  messageId: number;
+  conversationId: number;
+  hidden: boolean;
+}
+
+/** 删除会话聊天记录（仅自己）结果。 */
+export interface DeleteConversationHistoryResult {
+  conversationId: number;
+  clearedBeforeMessageId: number;
+  hidden: boolean;
+}
+
+/** 用户主页信息（聊天页「查看主页」使用）。 */
+export interface UserProfile {
+  userId: number;
+  userAccount?: string | null;
+  nickName?: string | null;
+  avatarKey?: string | null;
+  createdAt: string;
+  isSelf: boolean;
+  isFriend: boolean;
+  /** 当前用户是否已把该用户拉黑。 */
+  isBlocked: boolean;
+  /** 该用户是否已把当前用户拉黑（仍可查看主页，但不能互动）。 */
+  isBlockedByTarget: boolean;
+  friendRemark?: string | null;
+  directConversationId?: number | null;
+  /** 当前用户是否已向该用户发送待处理的好友申请。 */
+  hasPendingSentRequest: boolean;
+  /** 该用户是否已向当前用户发送待处理的好友申请。 */
+  hasPendingReceivedRequest: boolean;
+  status: "active" | "frozen";
+}
+
 export interface UpdateConversationMemberRolePayload {
   memberRole: Extract<UserRole, "admin" | "member">;
 }
@@ -248,6 +298,14 @@ export interface Friendship {
   createdAt: string;
   updatedAt: string;
   friend: FriendUser;
+}
+
+/** 黑名单中的用户（当前用户拉黑的用户）。 */
+export interface BlockedUser extends FriendUser {
+  /** 拉黑记录 ID。 */
+  id: number;
+  /** 拉黑时间。 */
+  createdAt: string;
 }
 
 export interface FriendRequest {

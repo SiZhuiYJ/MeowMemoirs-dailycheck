@@ -31,6 +31,11 @@ interface PushOptions {
   }) => Promise<void> | void;
   onFriendRequestsUpdated?: () => Promise<void> | void;
   onFriendshipsUpdated?: () => Promise<void> | void;
+  /** 同一账号在别处删除了一条消息（仅自己不可见）。 */
+  onMessageDeleted?: (data: {
+    conversationId: number;
+    messageId: number;
+  }) => Promise<void> | void;
   getAllConversationIds: () => number[];
   /** 收到新消息：由上层本地更新会话列表/未读数，避免整表重拉。 */
   onIncomingMessage?: (payload: IncomingMessagePayload) => Promise<void> | void;
@@ -231,6 +236,16 @@ export function useChatPush(options: PushOptions) {
     connection.on("chat:inbox-updated", async () => {
       await options.fetchConversations({ silent: true });
       await subscribeAllKnownConversations();
+    });
+
+    connection.on("chat:message-deleted", async (payload: any) => {
+      const conversationId = Number(payload?.conversationId) || 0;
+      const messageId = Number(payload?.messageId) || 0;
+      if (!conversationId || !messageId) return;
+
+      await options.onMessageDeleted?.({ conversationId, messageId });
+      // 删掉的可能是最后一条，会话预览/未读数需要按服务端结果重新对齐
+      await options.fetchConversations({ silent: true });
     });
 
     connection.on("chat:message-read", async (payload: any) => {

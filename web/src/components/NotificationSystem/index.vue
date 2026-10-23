@@ -198,7 +198,7 @@ const addMessage = (options: {
 }) => {
   const {
     content,
-    color = "#3b82f6",
+    color = "#9a4f8d", // 与全局主题强调色一致（浅色主题下的 strong）
     duration = 5000,
     closable = true,
     direction = "rtl",

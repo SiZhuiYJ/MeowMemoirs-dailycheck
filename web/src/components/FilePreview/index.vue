@@ -57,6 +57,9 @@ const emit = defineEmits<{
 }>()
 
 const currentFile = computed(() => props.fileList[currentIndex.value])
+const currentFileType = computed<FilePreviewType>(() => (
+  currentFile.value ? getFileType(currentFile.value) : 'unknown'
+))
 const loading = ref(false)
 const error = ref('')
 
@@ -71,6 +74,10 @@ const dragStartY = ref(0)
 const dragOriginX = ref(0)
 const dragOriginY = ref(0)
 
+// 视频旋转（视频没有缩放/拖动，只做 90° 旋转 + 自动缩放到容器内）
+const videoRotate = ref(0)
+const videoFitScale = ref(1)
+
 const MIN_SCALE = 0.2
 const MAX_SCALE = 5
 const ZOOM_STEP = 0.2
@@ -78,6 +85,8 @@ const ZOOM_STEP = 0.2
 // 元素引用
 const imageRefs = ref<Record<number, HTMLImageElement | null>>({})
 const imageContainerRefs = ref<Record<number, HTMLDivElement | null>>({})
+const videoRefs = ref<Record<number, HTMLVideoElement | null>>({})
+const videoContainerRefs = ref<Record<number, HTMLDivElement | null>>({})
 const previewOverlayRef = ref<HTMLElement>()
 const carouselRef = ref<CarouselInstance>()
 const loadedFileKeys = ref<Set<string>>(new Set())
@@ -90,12 +99,22 @@ const setImageContainerRef = (index: number) => (el: Element | ComponentPublicIn
   imageContainerRefs.value[index] = el as HTMLDivElement | null
 }
 
+const setVideoRef = (index: number) => (el: Element | ComponentPublicInstance | null) => {
+  videoRefs.value[index] = el as HTMLVideoElement | null
+}
+
+const setVideoContainerRef = (index: number) => (el: Element | ComponentPublicInstance | null) => {
+  videoContainerRefs.value[index] = el as HTMLDivElement | null
+}
+
 const getCurrentImageRef = () => imageRefs.value[currentIndex.value] ?? null
 const getCurrentImageContainerRef = () => imageContainerRefs.value[currentIndex.value] ?? null
+const getCurrentVideoRef = () => videoRefs.value[currentIndex.value] ?? null
+const getCurrentVideoContainerRef = () => videoContainerRefs.value[currentIndex.value] ?? null
 
 const canDragImage = computed(() => (
   !!currentFile.value
-  && getFileType(currentFile.value) === 'image'
+  && currentFileType.value === 'image'
   && scale.value > 1
 ))
 
@@ -144,8 +163,10 @@ const stopImageDrag = () => {
   isDragging.value = false
 }
 
+const clampScale = (value: number) => Math.min(Math.max(value, MIN_SCALE), MAX_SCALE)
+
 const updateScale = (nextScale: number) => {
-  const normalizedScale = Math.min(Math.max(nextScale, MIN_SCALE), MAX_SCALE)
+  const normalizedScale = clampScale(nextScale)
   scale.value = normalizedScale
 
   if (normalizedScale <= 1) {
@@ -156,6 +177,39 @@ const updateScale = (nextScale: number) => {
   }
 
   const clamped = clampTranslate(translateX.value, translateY.value, normalizedScale, rotate.value)
+  translateX.value = clamped.x
+  translateY.value = clamped.y
+}
+
+// 把屏幕坐标换算成「相对预览容器中心」的坐标。
+// 图片默认居中、translate 也是屏幕坐标系里的偏移，所以缩放锚点用这套坐标才对得上。
+const toContainerPoint = (clientX: number, clientY: number) => {
+  const rect = getCurrentImageContainerRef()?.getBoundingClientRect()
+  if (!rect) return null
+  return {
+    x: clientX - (rect.left + rect.width / 2),
+    y: clientY - (rect.top + rect.height / 2),
+  }
+}
+
+// 以某个屏幕坐标（视口坐标）为锚点缩放，保证手指/鼠标下面的画面位置不动
+const setScaleAtPoint = (nextScale: number, clientX: number, clientY: number) => {
+  const targetScale = clampScale(nextScale)
+  const point = toContainerPoint(clientX, clientY)
+
+  if (!point || targetScale <= 1) {
+    updateScale(targetScale)
+    return
+  }
+
+  const ratio = targetScale / scale.value
+  const clamped = clampTranslate(
+    point.x - ratio * point.x + ratio * translateX.value,
+    point.y - ratio * point.y + ratio * translateY.value,
+    targetScale,
+    rotate.value,
+  )
+  scale.value = targetScale
   translateX.value = clamped.x
   translateY.value = clamped.y
 }
@@ -255,6 +309,41 @@ const contentStyle = computed(() => ({
   cursor: isDragging.value ? 'grabbing' : canDragImage.value ? 'grab' : 'default'
 }))
 
+// 视频样式：旋转 90°/270° 后画面宽高互换，会顶出预览区，
+// 所以叠一个 scale 把它整体压回容器里（见 measureVideoFitScale）。
+const videoStyle = computed(() => ({
+  transform: `rotate(${videoRotate.value}deg) scale(${videoFitScale.value})`,
+}))
+
+const measureVideoFitScale = () => {
+  // 180° 只是掉头，外接矩形不变，不需要缩放
+  if (videoRotate.value % 180 === 0) return 1
+
+  const video = getCurrentVideoRef()
+  const container = getCurrentVideoContainerRef()
+  if (!video || !container) return 1
+
+  // clientWidth/Height 是布局尺寸，不受 transform 影响 —— 正好是「旋转前」的画面尺寸。
+  // 容器要扣掉内边距（安全区），那部分不算可用空间。
+  const computedStyle = window.getComputedStyle(container)
+  const containerWidth = container.clientWidth
+    - parseFloat(computedStyle.paddingLeft || '0')
+    - parseFloat(computedStyle.paddingRight || '0')
+  const containerHeight = container.clientHeight
+    - parseFloat(computedStyle.paddingTop || '0')
+    - parseFloat(computedStyle.paddingBottom || '0')
+  const videoWidth = video.clientWidth
+  const videoHeight = video.clientHeight
+  if (!containerWidth || !containerHeight || !videoWidth || !videoHeight) return 1
+
+  // 旋转 90° 后宽高互换：需要 videoHeight * k <= 容器宽、videoWidth * k <= 容器高
+  return Math.min(containerWidth / videoHeight, containerHeight / videoWidth, 1)
+}
+
+const refreshVideoFit = () => {
+  videoFitScale.value = measureVideoFitScale()
+}
+
 
 const getLegacyFileMessage = (type: string) => {
   if (type === 'doc') return '此文件为旧版 .doc 格式，暂不支持在线预览，请下载后查看。'
@@ -290,6 +379,13 @@ const handleAudioLoaded = (file?: FileItem) => {
 const handleVideoLoaded = (file?: FileItem) => {
   markFileLoaded(file)
   loading.value = false
+  // 只有当前这条视频的高度会影响旋转适配比例，别的切片加载完不要乱改
+  if (file === currentFile.value) refreshVideoFit()
+}
+
+// 拿到视频真实尺寸后才能算出旋转后的适配比例（此时 video.clientWidth 才是画面尺寸）
+const handleVideoMetadata = (index: number) => {
+  if (index === currentIndex.value) refreshVideoFit()
 }
 
 // 缩放控制
@@ -306,11 +402,20 @@ const handleResetZoom = () => {
   rotate.value = 0
   translateX.value = 0
   translateY.value = 0
+  videoRotate.value = 0
+  videoFitScale.value = 1
   stopImageDrag()
 }
 
-// 旋转控制
+// 旋转控制：图片转当前缩放/拖动的那张，视频转视频画面
 const handleRotate = () => {
+  if (currentFileType.value === 'video') {
+    videoRotate.value = (videoRotate.value + 90) % 360
+    refreshVideoFit()
+    return
+  }
+  if (currentFileType.value !== 'image') return
+
   rotate.value = (rotate.value + 90) % 360
   requestAnimationFrame(() => {
     applyTranslateBounds()
@@ -349,6 +454,215 @@ const handleDocumentMouseMove = (event: MouseEvent) => {
 
 const handleDocumentMouseUp = () => {
   stopImageDrag()
+}
+
+// ===== 移动端手势（图片） =====
+// 触屏没有滚轮：双指缩放、单指拖动、双击放大、原始大小下左右滑动翻页都要自己实现。
+// 这些值只给事件处理用，不需要响应式（双指缩放时每帧都改，走 ref 反而卡）。
+const SWIPE_THRESHOLD = 48 // 横向滑动超过这个距离才翻页（px）
+const SWIPE_DIRECTION_RATIO = 0.6 // 纵向位移必须明显小于横向，避免斜着滑也翻页
+const TAP_MOVE_TOLERANCE = 10 // 位移小于它算「点按」而不是拖动（px）
+const DOUBLE_TAP_DELAY = 300 // 双击间隔（ms）
+const DOUBLE_TAP_SCALE = 2 // 双击放大到的倍数
+
+type TouchMode = 'none' | 'pan' | 'pinch' | 'swipe'
+
+let touchMode: TouchMode = 'none'
+let touchStartX = 0
+let touchStartY = 0
+let touchMoved = false
+let pinchStartDistance = 0
+let pinchStartScale = 1
+let pinchStartMidX = 0
+let pinchStartMidY = 0
+let pinchStartTranslateX = 0
+let pinchStartTranslateY = 0
+let lastTapTime = 0
+
+const getTouchDistance = (touches: TouchList) => {
+  const first = touches[0]
+  const second = touches[1]
+  if (!first || !second) return 0
+  return Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY)
+}
+
+const getTouchCenter = (touches: TouchList) => {
+  const first = touches[0]
+  const second = touches[1]
+  if (!first || !second) return null
+  return {
+    x: (first.clientX + second.clientX) / 2,
+    y: (first.clientY + second.clientY) / 2,
+  }
+}
+
+const resetGestureState = () => {
+  touchMode = 'none'
+  touchMoved = false
+  pinchStartDistance = 0
+  lastTapTime = 0
+  isDragging.value = false
+}
+
+const handleImageTouchStart = (event: TouchEvent, index: number) => {
+  if (index !== currentIndex.value || currentFileType.value !== 'image') return
+  const touches = event.touches
+
+  if (touches.length >= 2) {
+    const center = getTouchCenter(touches)
+    const mid = center ? toContainerPoint(center.x, center.y) : null
+    touchMode = 'pinch'
+    // 关掉 0.3s 过渡，双指缩放才跟手
+    isDragging.value = true
+    pinchStartDistance = getTouchDistance(touches) || 1
+    pinchStartScale = scale.value
+    pinchStartMidX = mid?.x ?? 0
+    pinchStartMidY = mid?.y ?? 0
+    pinchStartTranslateX = translateX.value
+    pinchStartTranslateY = translateY.value
+    return
+  }
+
+  const touch = touches[0]
+  if (!touch) return
+
+  touchStartX = touch.clientX
+  touchStartY = touch.clientY
+  touchMoved = false
+
+  // 已经放大时单指拖动画面（和鼠标拖拽走同一套 clamp）
+  if (scale.value > 1) {
+    touchMode = 'pan'
+    dragStartX.value = touch.clientX
+    dragStartY.value = touch.clientY
+    dragOriginX.value = translateX.value
+    dragOriginY.value = translateY.value
+    isDragging.value = true
+  } else {
+    touchMode = 'swipe'
+  }
+}
+
+const handleImageTouchMove = (event: TouchEvent, index: number) => {
+  if (index !== currentIndex.value || touchMode === 'none') return
+  const touches = event.touches
+
+  if (touchMode === 'pinch') {
+    if (touches.length < 2) return
+    const distance = getTouchDistance(touches)
+    if (!distance || !pinchStartDistance) return
+    const center = getTouchCenter(touches)
+    const mid = center ? toContainerPoint(center.x, center.y) : null
+
+    // 以双指中点为锚点缩放：先算目标倍数，再反推平移量让锚点下的画面不动。
+    // 同时双指整体移动也会体现在 mid 上（相当于一边缩放一边拖动）。
+    const targetScale = clampScale(pinchStartScale * (distance / pinchStartDistance))
+    const ratio = targetScale / pinchStartScale
+    scale.value = targetScale
+
+    if (targetScale <= 1) {
+      translateX.value = 0
+      translateY.value = 0
+      return
+    }
+    if (!mid) return
+
+    const clamped = clampTranslate(
+      mid.x - ratio * pinchStartMidX + ratio * pinchStartTranslateX,
+      mid.y - ratio * pinchStartMidY + ratio * pinchStartTranslateY,
+      targetScale,
+      rotate.value,
+    )
+    translateX.value = clamped.x
+    translateY.value = clamped.y
+    return
+  }
+
+  const touch = touches[0]
+  if (!touch) return
+
+  const dx = touch.clientX - touchStartX
+  const dy = touch.clientY - touchStartY
+  if (Math.abs(dx) > TAP_MOVE_TOLERANCE || Math.abs(dy) > TAP_MOVE_TOLERANCE) {
+    touchMoved = true
+  }
+
+  if (touchMode === 'pan') {
+    const next = clampTranslate(dragOriginX.value + dx, dragOriginY.value + dy)
+    translateX.value = next.x
+    translateY.value = next.y
+  }
+}
+
+const handleImageTouchEnd = (event: TouchEvent, index: number) => {
+  if (index !== currentIndex.value || touchMode === 'none') return
+  const touches = event.touches
+
+  if (touches.length >= 2) return
+
+  // 双指松开一根：用剩下的那根继续拖，避免画面跳到别处
+  if (touches.length === 1) {
+    const touch = touches[0]
+    if (!touch) return
+    touchStartX = touch.clientX
+    touchStartY = touch.clientY
+    touchMoved = false
+    if (scale.value > 1) {
+      touchMode = 'pan'
+      dragStartX.value = touch.clientX
+      dragStartY.value = touch.clientY
+      dragOriginX.value = translateX.value
+      dragOriginY.value = translateY.value
+      isDragging.value = true
+    } else {
+      touchMode = 'swipe'
+      isDragging.value = false
+    }
+    return
+  }
+
+  const mode = touchMode
+  touchMode = 'none'
+  isDragging.value = false
+
+  if (mode === 'pinch') {
+    // 缩放结束：回到原始大小时把位移归零，否则画面会停在偏移位置
+    if (scale.value <= 1) {
+      translateX.value = 0
+      translateY.value = 0
+    } else {
+      requestAnimationFrame(applyTranslateBounds)
+    }
+    return
+  }
+
+  const touch = event.changedTouches[0]
+  if (!touch) return
+
+  const dx = touch.clientX - touchStartX
+  const dy = touch.clientY - touchStartY
+
+  // 点按：单击不做事，双击在「原始大小 / 2 倍」之间切换，并以手指位置为锚点
+  if (!touchMoved && Math.abs(dx) <= TAP_MOVE_TOLERANCE && Math.abs(dy) <= TAP_MOVE_TOLERANCE) {
+    const now = Date.now()
+    if (now - lastTapTime <= DOUBLE_TAP_DELAY) {
+      lastTapTime = 0
+      setScaleAtPoint(scale.value > 1 ? 1 : DOUBLE_TAP_SCALE, touch.clientX, touch.clientY)
+    } else {
+      lastTapTime = now
+    }
+    return
+  }
+
+  // 只有原始大小时的横向滑动才翻页；放大后滑动是拖动画面
+  if (
+    mode === 'swipe'
+    && Math.abs(dx) >= SWIPE_THRESHOLD
+    && Math.abs(dy) <= Math.abs(dx) * SWIPE_DIRECTION_RATIO
+  ) {
+    if (dx < 0) handleNext()
+    else handlePrev()
+  }
 }
 
 // 导航控制
@@ -418,6 +732,9 @@ const resetPreview = () => {
   rotate.value = 0
   translateX.value = 0
   translateY.value = 0
+  videoRotate.value = 0
+  videoFitScale.value = 1
+  resetGestureState()
   stopImageDrag()
   pausePreviewMedia()
 }
@@ -542,11 +859,25 @@ watch(
   { immediate: true },
 )
 
+// 视口尺寸变化（旋转屏幕、浏览器地址栏收起、软键盘）后重新夹紧位移/视频适配比例，
+// 否则图片的拖动范围、视频旋转后的缩放会按旧尺寸算，画面能拖到容器外。
+const handleViewportResize = () => {
+  requestAnimationFrame(() => {
+    if (currentFileType.value === 'image') {
+      applyTranslateBounds()
+    } else if (currentFileType.value === 'video') {
+      refreshVideoFit()
+    }
+  })
+}
+
 // 生命周期
 onMounted(() => {
   document.addEventListener('keydown', handleKeyDown)
   document.addEventListener('mousemove', handleDocumentMouseMove)
   document.addEventListener('mouseup', handleDocumentMouseUp)
+  window.addEventListener('resize', handleViewportResize)
+  window.addEventListener('orientationchange', handleViewportResize)
 })
 
 onUnmounted(() => {
@@ -555,6 +886,8 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown)
   document.removeEventListener('mousemove', handleDocumentMouseMove)
   document.removeEventListener('mouseup', handleDocumentMouseUp)
+  window.removeEventListener('resize', handleViewportResize)
+  window.removeEventListener('orientationchange', handleViewportResize)
 })
 </script>
 
@@ -646,105 +979,118 @@ onUnmounted(() => {
           </el-collapse>
         </div>
 
-        <!-- 上一张/下一张按钮 -->
-        <button v-if="fileList.length > 1" class="nav-btn prev-btn" @click="handlePrev">
-          <svg viewBox="0 0 24 24" width="32" height="32">
-            <path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
-          </svg>
-        </button>
-        <button v-if="fileList.length > 1" class="nav-btn next-btn" @click="handleNext">
-          <svg viewBox="0 0 24 24" width="32" height="32">
-            <path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
-          </svg>
-        </button>
+        <!--
+          主预览区域。
+          左右翻页按钮放在 .preview-stage 里（position: relative），
+          这样 top: 50% 是相对「预览区」居中，而不是相对整个网页 ——
+          否则上面工具栏占掉的高度会算进去，按钮会明显低于画面中心。
+        -->
+        <div class="preview-stage">
+          <!-- 上一张/下一张按钮 -->
+          <button v-if="fileList.length > 1" class="nav-btn prev-btn" @click="handlePrev">
+            <svg viewBox="0 0 24 24" width="32" height="32">
+              <path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+            </svg>
+          </button>
+          <button v-if="fileList.length > 1" class="nav-btn next-btn" @click="handleNext">
+            <svg viewBox="0 0 24 24" width="32" height="32">
+              <path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+            </svg>
+          </button>
 
-        <!-- 主预览区域 -->
-        <el-carousel ref="carouselRef" class="preview-carousel" :autoplay="false" arrow="never"
-          indicator-position="none" height="100%" :initial-index="currentIndex" :loop="true" trigger="click"
-          @change="handleCarouselChange">
-          <el-carousel-item v-for="(file, index) in fileList" :key="`${file.url || file.path}-${index}`">
-            <div class="preview-content" :style="contentStyle">
-              <div v-if="getFileType(file) === 'image'" :ref="setImageContainerRef(index)" class="image-preview"
-                @wheel.prevent="handleImageWheel($event, index)"
-                @mousedown.prevent="handleImageMouseDown($event, index)">
-                <img v-if="file?.url || file?.path" :ref="setImageRef(index)" :key="file?.url || file?.path"
-                  class="preview-image-element" :src="file?.url || file?.path" :alt="file?.name" :style="imageStyle"
-                  @load="handleImageLoad(file)" @error="handleImageError" @dragstart.prevent />
-              </div>
+          <el-carousel ref="carouselRef" class="preview-carousel" :autoplay="false" arrow="never"
+            indicator-position="none" height="100%" :initial-index="currentIndex" :loop="true" trigger="click"
+            @change="handleCarouselChange">
+            <el-carousel-item v-for="(file, index) in fileList" :key="`${file.url || file.path}-${index}`">
+              <div class="preview-content" :style="contentStyle">
+                <div v-if="getFileType(file) === 'image'" :ref="setImageContainerRef(index)" class="image-preview"
+                  @wheel.prevent="handleImageWheel($event, index)"
+                  @mousedown.prevent="handleImageMouseDown($event, index)"
+                  @touchstart="handleImageTouchStart($event, index)"
+                  @touchmove.prevent="handleImageTouchMove($event, index)"
+                  @touchend="handleImageTouchEnd($event, index)"
+                  @touchcancel="handleImageTouchEnd($event, index)">
+                  <img v-if="file?.url || file?.path" :ref="setImageRef(index)" :key="file?.url || file?.path"
+                    class="preview-image-element" :src="file?.url || file?.path" :alt="file?.name" :style="imageStyle"
+                    @load="handleImageLoad(file)" @error="handleImageError" @dragstart.prevent />
+                </div>
 
-              <div v-else-if="getFileType(file) === 'video'" class="video-preview">
-                <video :key="file?.url || file?.path" :src="file?.url" :poster="file?.path" controls autoplay
-                  preload="metadata" @loadeddata="handleVideoLoaded(file)" v-videoPlay>
-                  您的浏览器不支持视频播放
-                </video>
-              </div>
+                <div v-else-if="getFileType(file) === 'video'" :ref="setVideoContainerRef(index)" class="video-preview">
+                  <!-- playsinline：iOS 上不加会强制全屏播放，旋转样式就看不见了 -->
+                  <video :ref="setVideoRef(index)" :key="file?.url || file?.path" :src="file?.url" :poster="file?.path"
+                    :style="videoStyle" controls playsinline webkit-playsinline autoplay preload="metadata"
+                    @loadedmetadata="handleVideoMetadata(index)" @loadeddata="handleVideoLoaded(file)" v-videoPlay>
+                    您的浏览器不支持视频播放
+                  </video>
+                </div>
 
-              <div v-else-if="getFileType(file) === 'audio'" class="audio-preview" :title="file?.url">
-                <MiniAudioPlayer v-if="file?.url" :key="file.url" :url="file.url" :title="file?.name"
-                  :cover-url="file.path" @loaded="handleAudioLoaded(file)" />
-              </div>
+                <div v-else-if="getFileType(file) === 'audio'" class="audio-preview" :title="file?.url">
+                  <MiniAudioPlayer v-if="file?.url" :key="file.url" :url="file.url" :title="file?.name"
+                    :cover-url="file.path" @loaded="handleAudioLoaded(file)" />
+                </div>
 
-              <div v-else-if="getFileType(file) === 'word' && file?.url" class="document-preview">
-                <OfficeDocxPreview :src="file.url" class="docx-class" @rendered="() => { console.log('渲染完成') }"
-                  @error="handleOfficeError" />
-              </div>
+                <div v-else-if="getFileType(file) === 'word' && file?.url" class="document-preview">
+                  <OfficeDocxPreview :src="file.url" class="docx-class" @rendered="() => { console.log('渲染完成') }"
+                    @error="handleOfficeError" />
+                </div>
 
-              <div v-else-if="getFileType(file) === 'excel' && file?.url" class="document-preview">
-                <OfficeExcelPreview :src="file.url" class="xlsx-class" @rendered="() => { console.log('渲染完成') }"
-                  @error="handleOfficeError" />
-              </div>
+                <div v-else-if="getFileType(file) === 'excel' && file?.url" class="document-preview">
+                  <OfficeExcelPreview :src="file.url" class="xlsx-class" @rendered="() => { console.log('渲染完成') }"
+                    @error="handleOfficeError" />
+                </div>
 
-              <div v-else-if="getFileType(file) === 'pptx' && file?.url" class="document-preview">
-                <OfficePptxPreview :src="file.url" class="pptx-class" @rendered="() => { console.log('渲染完成') }"
-                  @error="handleOfficeError" style="height: 100%;" />
-              </div>
+                <div v-else-if="getFileType(file) === 'pptx' && file?.url" class="document-preview">
+                  <OfficePptxPreview :src="file.url" class="pptx-class" @rendered="() => { console.log('渲染完成') }"
+                    @error="handleOfficeError" style="height: 100%;" />
+                </div>
 
-              <div v-else-if="getFileType(file) === 'pdf' && file?.url" class="pdf-preview">
-                <object :data="file.url" type="application/pdf" width="100%" height="100%"
-                  @load="handleNativePdfLoaded(file)">
-                  <div class="vue-pdf">
-                    <OfficePdfPreview :src="file.url" class="pdf-class" @rendered="handlePdfRendered(file)"
-                      @error="handleOfficeError" />
+                <div v-else-if="getFileType(file) === 'pdf' && file?.url" class="pdf-preview">
+                  <object :data="file.url" type="application/pdf" width="100%" height="100%"
+                    @load="handleNativePdfLoaded(file)">
+                    <div class="vue-pdf">
+                      <OfficePdfPreview :src="file.url" class="pdf-class" @rendered="handlePdfRendered(file)"
+                        @error="handleOfficeError" />
+                    </div>
+                  </object>
+                </div>
+
+                <div v-else-if="getFileType(file) === 'text'" class="txt-preview">
+                  <pre v-if="index === currentIndex && content">{{ content }}</pre>
+                </div>
+
+                <div v-else-if="getFileType(file) === 'md'" class="markdown-preview">
+                  <el-scrollbar>
+                    <MarkdownPreview v-if="index === currentIndex && content" :text="content" />
+                  </el-scrollbar>
+                </div>
+
+                <div v-else-if="['doc', 'xls', 'ppt'].includes(getFileType(file))" class="unsupported-preview">
+                  <div class="unsupported-icon">
+                    <svg viewBox="0 0 24 24" width="80" height="80">
+                      <path fill="currentColor"
+                        d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15h8v2H8v-2zm0-4h8v2H8v-2z" />
+                    </svg>
                   </div>
-                </object>
-              </div>
-
-              <div v-else-if="getFileType(file) === 'text'" class="txt-preview">
-                <pre v-if="index === currentIndex && content">{{ content }}</pre>
-              </div>
-
-              <div v-else-if="getFileType(file) === 'md'" class="markdown-preview">
-                <el-scrollbar>
-                  <MarkdownPreview v-if="index === currentIndex && content" :text="content" />
-                </el-scrollbar>
-              </div>
-
-              <div v-else-if="['doc', 'xls', 'ppt'].includes(getFileType(file))" class="unsupported-preview">
-                <div class="unsupported-icon">
-                  <svg viewBox="0 0 24 24" width="80" height="80">
-                    <path fill="currentColor"
-                      d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15h8v2H8v-2zm0-4h8v2H8v-2z" />
-                  </svg>
+                  <p>{{ getLegacyFileMessage(getFileType(file)) }}</p>
+                  <button class="download-btn" @click="handleDownloadFor(file)">下载文件</button>
                 </div>
-                <p>{{ getLegacyFileMessage(getFileType(file)) }}</p>
-                <button class="download-btn" @click="handleDownloadFor(file)">下载文件</button>
-              </div>
 
-              <div v-else class="unsupported-preview">
-                <div class="unsupported-icon">
-                  <svg viewBox="0 0 24 24" width="120" height="120">
-                    <path fill="currentColor"
-                      d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15h8v2H8v-2zm0-4h8v2H8v-2z" />
-                  </svg>
+                <div v-else class="unsupported-preview">
+                  <div class="unsupported-icon">
+                    <svg viewBox="0 0 24 24" width="120" height="120">
+                      <path fill="currentColor"
+                        d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15h8v2H8v-2zm0-4h8v2H8v-2z" />
+                    </svg>
+                  </div>
+                  <p>该文件类型暂不支持在线预览</p>
+                  <button class="download-btn" @click="handleDownloadFor(file)">
+                    下载文件
+                  </button>
                 </div>
-                <p>该文件类型暂不支持在线预览</p>
-                <button class="download-btn" @click="handleDownloadFor(file)">
-                  下载文件
-                </button>
               </div>
-            </div>
-          </el-carousel-item>
-        </el-carousel>
+            </el-carousel-item>
+          </el-carousel>
+        </div>
 
         <!--
           小屏专用：文件名单独一行。
@@ -792,6 +1138,8 @@ onUnmounted(() => {
   background-color: rgba(255, 255, 255, 0.8);
   display: flex;
   flex-direction: column;
+  // 移动端：文档/图片滚到尽头时不要把滚动传给后面的页面（会露出底下的聊天页）
+  overscroll-behavior: contain;
 }
 
 // 预览是全屏 fixed 覆盖层，顶部工具栏会压到刘海/状态栏上，
@@ -879,7 +1227,7 @@ onUnmounted(() => {
   width: 36px;
   height: 36px;
   border: none;
-  background-color: rgba(0, 0, 0, 0.1);
+  background-color: rgba(var(--theme-color-rgb), 0.18);
   color: #fff;
   border-radius: 4px;
   cursor: pointer;
@@ -889,7 +1237,7 @@ onUnmounted(() => {
   transition: all 0.2s;
 
   &:hover {
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: rgba(var(--theme-color-rgb), 0.38);
     transform: scale(1.05);
   }
 
@@ -913,15 +1261,15 @@ onUnmounted(() => {
     overflow: hidden;
     cursor: pointer;
     transition: all 0.2s;
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(var(--theme-color-rgb), 0.14);
 
     &:hover {
-      border-color: rgba(255, 255, 255, 0.5);
+      border-color: var(--theme-color-strong);
       transform: scale(1.05);
     }
 
     &.active {
-      border-color: #409eff;
+      border-color: var(--theme-color-strong);
     }
 
     img {
@@ -951,7 +1299,17 @@ onUnmounted(() => {
   }
 }
 
-// 导航按钮
+// 预览舞台：左右翻页按钮的定位基准。
+// 之前按钮直接挂在整页覆盖层上，top: 50% 把顶部工具栏的高度也算进去了，
+// 按钮会比画面中心低一截；包一层之后按钮相对「预览区」居中。
+.preview-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+// 导航按钮（定位基准是 .preview-stage，不是整个网页）
 .nav-btn {
   position: absolute;
   top: 50%;
@@ -959,7 +1317,7 @@ onUnmounted(() => {
   width: 50px;
   height: 50px;
   border: none;
-  background-color: rgba(0, 0, 0, 0.1);
+  background-color: rgba(var(--theme-color-rgb), 0.18);
   color: #fff;
   border-radius: 50%;
   cursor: pointer;
@@ -970,8 +1328,16 @@ onUnmounted(() => {
   z-index: 10;
 
   &:hover {
-    background-color: rgba(0, 0, 0, 0.6);
+    background-color: rgba(var(--theme-color-rgb), 0.42);
     transform: translateY(-50%) scale(1.1);
+  }
+
+  // 触屏没有真正的 hover，点一下就会「粘住」放大态，这里还原
+  @include rp.coarse-pointer {
+    &:hover {
+      background-color: rgba(var(--theme-color-rgb), 0.18);
+      transform: translateY(-50%);
+    }
   }
 
   &.prev-btn {
@@ -1034,6 +1400,14 @@ onUnmounted(() => {
   @include rp.compact(768px) {
     padding: 0 calc(6px + var(--safe-right)) calc(6px + var(--safe-bottom)) calc(6px + var(--safe-left));
   }
+
+  // 触屏手势全部交给 JS（双指缩放 / 拖动画 / 双击放大 / 滑动翻页）：
+  // touch-action 不关掉的话，拖动图片会变成滚动页面、双指会缩放整个网页。
+  touch-action: none;
+  overscroll-behavior: contain;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .preview-image-element {
@@ -1047,6 +1421,9 @@ onUnmounted(() => {
   cursor: inherit;
   user-select: none;
   will-change: transform;
+  // 长按不要弹 iOS 的「存储图片」菜单，否则会和双击/拖动抢手势
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
 }
 
 // 视频预览
@@ -1056,6 +1433,10 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+  // 横屏刘海在侧边、竖屏手势条在底部，桌面端这两个变量都是 0
+  padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
+  box-sizing: border-box;
 
   video {
     max-width: 100%;
@@ -1064,6 +1445,9 @@ onUnmounted(() => {
     height: auto;
     object-fit: contain; // 保证等比完整显示
     outline: none;
+    // 旋转 90°/270° 后由 JS 算一个缩放把画面压回容器（见 measureVideoFitScale）
+    transform-origin: center center;
+    transition: transform 0.3s ease;
   }
 }
 
@@ -1206,15 +1590,15 @@ onUnmounted(() => {
   .download-btn {
     padding: 12px 30px;
     border: none;
-    background-color: #409eff;
-    color: #fff;
+    background-color: var(--theme-action-bg);
+    color: var(--theme-action-contrast);
     border-radius: 4px;
     cursor: pointer;
     font-size: 13px;
     transition: all 0.2s;
 
     &:hover {
-      background-color: #66b1ff;
+      background-color: var(--theme-action-hover);
       transform: translateY(-2px);
     }
   }
@@ -1279,15 +1663,15 @@ onUnmounted(() => {
   .retry-btn {
     padding: 8px 24px;
     border: none;
-    background-color: #409eff;
-    color: #fff;
+    background-color: var(--theme-action-bg);
+    color: var(--theme-action-contrast);
     border-radius: 4px;
     cursor: pointer;
     font-size: 13px;
     transition: all 0.2s;
 
     &:hover {
-      background-color: #66b1ff;
+      background-color: var(--theme-action-hover);
     }
   }
 }

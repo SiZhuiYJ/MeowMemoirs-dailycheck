@@ -56,20 +56,6 @@ const { isShortViewport } = useDeviceLayout();
 const elementComponentSize = computed<"default" | "small">(() =>
   isShortViewport.value ? "small" : "default",
 );
-// 初始化主题
-function initTheme(): void {
-  const saved = localStorage.getItem("theme");
-  let next: "dark" | "light" = "light";
-  if (saved === "light" || saved === "dark") {
-    next = saved;
-  }
-  document.documentElement.setAttribute("data-theme", next);
-  if (next === "dark") {
-    document.documentElement.classList.add("dark");
-  } else {
-    document.documentElement.classList.remove("dark");
-  }
-}
 
 // import gsap from 'gsap';
 
@@ -106,7 +92,6 @@ onMounted(async () => {
   //   toggleTransitionComplete(true);
 
   setNotificationInstance(notificationSystemRef.value);
-  initTheme();
 
   // 测试通知系统（减少测试数量以避免性能问题）
   // notify({
@@ -292,13 +277,13 @@ const globalConfig = computed<GlobalConfig>(() => {
   align-items: center;
   gap: 4px;
   padding: 6px 10px;
-  border: 1px solid rgba(17, 24, 39, 0.16);
+  border: 1px solid var(--theme-color-muted);
   border-radius: 999px;
-  color: #111827;
+  color: var(--theme-color-strong);
   font-size: 11px;
   line-height: 16px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 6px 18px rgba(17, 24, 39, 0.16);
+  background: var(--theme-color-soft);
+  box-shadow: 0 6px 18px rgba(var(--theme-color-rgb), 0.2);
   cursor: pointer;
 }
 

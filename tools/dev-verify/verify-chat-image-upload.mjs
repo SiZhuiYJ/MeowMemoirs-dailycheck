@@ -31,7 +31,7 @@
  * 文件名形如 `verify-upload-169x120-<随机>.png`；与其它 e2e 套件一致，只动本地开发库。
  */
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createHmac } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -371,20 +371,24 @@ const MEASURE = `(() => {
   };
 })()`;
 
-/** 把图片塞进真实的 file input（等价于用户在选择器里选了它）。 */
-const INJECT = `(() => {
+/** 把任意文件塞进真实的 file input（等价于用户在选择器里选了它）。 */
+function injectFileExpression(base64, fileName, mimeType) {
+  return `(() => {
   const input = document.querySelector('.native-file-input');
   if (!input) return 'no-input';
-  const bin = atob(${JSON.stringify(pngBase64)});
+  const bin = atob(${JSON.stringify(base64)});
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-  const file = new File([bytes], ${JSON.stringify(FILE_NAME)}, { type: 'image/png' });
+  const file = new File([bytes], ${JSON.stringify(fileName)}, { type: ${JSON.stringify(mimeType)} });
   const dt = new DataTransfer();
   dt.items.add(file);
   input.files = dt.files;
   input.dispatchEvent(new Event('change', { bubbles: true }));
   return 'ok:' + file.size;
 })()`;
+}
+
+const INJECT = injectFileExpression(pngBase64, FILE_NAME, "image/png");
 
 // ══════════════════════════════════════════════════════════════════════════
 // 场景一：桌面端上传一张小图，走完整个生命周期
@@ -428,6 +432,7 @@ await cdp.evaluate(`(() => {
   window.__dupMax = 0;
   window.__blankFrames = 0;
   window.__blankSample = '';
+  window.__sawOurs = false;
   const tick = () => {
     // 同一条消息可能正在显示为「待发气泡（*.webp）」或「落地后的图片（无后缀）」，
     // 两者的 alt 不一样，只有 TOKEN 一致 —— 所以按 token 子串数气泡个数。
@@ -437,12 +442,18 @@ await cdp.evaluate(`(() => {
     }).length;
     if (n > window.__dupMax) window.__dupMax = n;
 
-    // 取「最后一条自己的文件气泡」= 刚发的这条（待发气泡和落地后的消息都算）
     const items = [...document.querySelectorAll('.message-list .msg-item')];
-    const ours = items.filter((el) => el.classList.contains('mine') && el.querySelector('.file-message')).pop();
-    if (ours && !ours.querySelector('.image-message img')) {
+    const last = items[items.length - 1];
+    // 「我们这条」= 最后一条自己的消息，且确实是我们这张图（alt 或文字里有 token）。
+    // 只看 ours：会话里已有的视频消息天生没有 .image-message img，按「最后一条文件气泡」判会误伤。
+    const ours = last && last.classList.contains('mine') && (
+      (last.querySelector('.image-message img')?.getAttribute('alt') ?? '').includes(token)
+      || (last.textContent ?? '').includes(token)
+    );
+    if (ours) window.__sawOurs = true;
+    if (window.__sawOurs && last.classList.contains('mine') && !last.querySelector('img')) {
       window.__blankFrames += 1;
-      window.__blankSample = (ours.querySelector('.header-text')?.textContent ?? '').trim();
+      window.__blankSample = (last.querySelector('.header-text')?.textContent ?? '').trim();
     }
 
     window.__dupRaf = requestAnimationFrame(tick);
@@ -516,6 +527,10 @@ if (pausedUploadId) {
   await cdp.send("Fetch.continueRequest", { requestId: pausedUploadId });
   pausedUploadId = null;
 }
+
+// ⚠️ 立刻关掉 Fetch：这个域是全局拦截，留着的话后面视频场景的「视频 + 封面」两个上传请求
+// 也会被一起按住（没人去放行），进度会永远停在 30% 那一格。
+await cdp.send("Fetch.disable");
 
 // 边上传边采样：既要看到上传遮罩，也要确认它最后会收掉
 
@@ -625,7 +640,122 @@ check("桌面端无横向溢出", after.overflowX <= 1, `溢出 ${after.overflow
 check("页面没有渲染错误", cdp.consoleErrors.length === 0, cdp.consoleErrors.slice(0, 3).join(" | "));
 
 // ══════════════════════════════════════════════════════════════════════════
-// 场景二 / 三：窄屏 —— 媒体必须跟着收缩，不许顶破气泡
+// 场景二：竖屏视频的封面必须按自身比例显示（不许被裁成 16:9 横条）
+// ══════════════════════════════════════════════════════════════════════════
+// `.video-cover` 曾经写死 `aspect-ratio: 16 / 9` + `object-fit: cover`：
+// 720×1280 这种竖屏视频的封面会被裁掉上下大半，只剩中间一条。
+// 现在比例由「extra 里记录的视频宽高（上传时写入）/封面自然尺寸」决定，等比缩到 300px 以内。
+function findFfmpeg() {
+  if (process.env.FFMPEG_BIN) return process.env.FFMPEG_BIN;
+  try {
+    execFileSync("sh", ["-c", "command -v ffmpeg"], { stdio: "ignore" });
+    return "ffmpeg";
+  } catch {
+    return null;
+  }
+}
+
+const VIDEO_W = 360;
+const VIDEO_H = 640;
+const ffmpeg = findFfmpeg();
+
+if (!ffmpeg) {
+  console.log("INFO  没有 ffmpeg，跳过竖屏视频封面验证（可用 FFMPEG_BIN 指定）");
+} else {
+  console.log(`\n— 竖屏视频封面：${VIDEO_W}×${VIDEO_H} —`);
+  const videoDir = mkdtempSync(path.join(tmpdir(), "verify-video-"));
+  const videoPath = path.join(videoDir, "portrait.mp4");
+  try {
+    execFileSync(ffmpeg, [
+      "-hide_banner", "-loglevel", "error", "-y",
+      "-f", "lavfi", "-i", `testsrc=size=${VIDEO_W}x${VIDEO_H}:rate=12:duration=1`,
+      "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+      "-movflags", "+faststart", videoPath,
+    ], { stdio: "ignore" });
+  } catch (error) {
+    console.log(`INFO  用 ffmpeg 生成竖屏视频失败，跳过：${String(error.message ?? error).slice(0, 120)}`);
+  }
+
+  if (existsSync(videoPath)) {
+    const videoName = `verify-video-${TOKEN}.mp4`;
+    const videoBase64 = readFileSync(videoPath).toString("base64");
+    const videoCountBefore = await cdp.evaluate(
+      `document.querySelectorAll('.message-list .msg-item .video-message').length`,
+    );
+
+    console.log(`INFO  注入竖屏视频：${await cdp.evaluate(injectFileExpression(videoBase64, videoName, "video/mp4"))}`);
+
+    // 等「新的视频消息」出现，并且封面真的加载完（naturalWidth > 0）
+    let cover = null;
+    const videoStartedAt = Date.now();
+    while (Date.now() - videoStartedAt < 30000) {
+      cover = await cdp.evaluate(`(() => {
+        const items = [...document.querySelectorAll('.message-list .msg-item')]
+          .filter((el) => el.classList.contains('mine') && el.querySelector('.video-message'));
+        const el = items[items.length - 1];
+        const box = el?.querySelector('.video-cover');
+        const img = box?.querySelector('img');
+        const bubble = el?.querySelector('.video-message');
+        if (!box || !img || !img.complete || !img.naturalWidth) return null;
+        const r = box.getBoundingClientRect();
+        const br = bubble.getBoundingClientRect();
+        return {
+          boxW: r.width, boxH: r.height,
+          naturalW: img.naturalWidth, naturalH: img.naturalHeight,
+          bubbleW: br.width,
+          count: document.querySelectorAll('.message-list .msg-item .video-message').length,
+        };
+      })()`);
+      if (cover && cover.count > videoCountBefore) break;
+      cover = null;
+      await sleep(300);
+    }
+
+    if (!cover) {
+      const diag = await cdp.evaluate(`(() => {
+        const items = [...document.querySelectorAll('.message-list .msg-item')];
+        return {
+          total: items.length,
+          videos: document.querySelectorAll('.message-list .video-message').length,
+          last3: items.slice(-3).map((el) => (el.querySelector('.header-text')?.textContent ?? '').replace(/\\s+/g, ' ').trim()),
+          pendings: [...document.querySelectorAll('.message-list .msg-item')]
+            .filter((el) => /发送中|提取封面/.test(el.textContent ?? ''))
+            .map((el) => (el.textContent ?? '').replace(/\\s+/g, ' ').trim().slice(0, 80)),
+        };
+      })()`);
+      console.log("INFO  视频诊断:", JSON.stringify(diag));
+      console.log("INFO  页面错误:", cdp.consoleErrors.slice(-4).join(" | ") || "(无)");
+    }
+    check("竖屏视频消息落地并加载出封面", Boolean(cover), "30s 内没等到封面就绪");
+    if (cover) {
+      const boxRatio = cover.boxW / cover.boxH;
+      const naturalRatio = cover.naturalW / cover.naturalH;
+      check(
+        `封面按视频自身比例显示（${VIDEO_W}×${VIDEO_H}，没有裁成 16:9）`,
+        Math.abs(boxRatio - naturalRatio) <= naturalRatio * 0.02,
+        `封面框 ${round(cover.boxW)}×${round(cover.boxH)}（比例 ${round(boxRatio)}），封面图比例 ${round(naturalRatio)}`,
+      );
+      check(
+        "封面等比缩放到 300px 以内（长边不超过上限）",
+        Math.max(cover.boxW, cover.boxH) <= 301,
+        `封面框 ${round(cover.boxW)}×${round(cover.boxH)}`,
+      );
+      check(
+        `竖屏封面宽度贴合视频比例（≈ ${VIDEO_W} 按比例缩放后的宽度）`,
+        Math.abs(cover.boxW - cover.bubbleW) <= 2,
+        `封面框 ${round(cover.boxW)}px vs 气泡 ${round(cover.bubbleW)}px`,
+      );
+    }
+  }
+  try {
+    rmSync(videoDir, { recursive: true, force: true });
+  } catch {
+    /* 忽略 */
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// 场景三 / 四：窄屏 —— 媒体必须跟着收缩，不许顶破气泡
 // ══════════════════════════════════════════════════════════════════════════
 for (const vp of [
   { name: "手机 360×800", width: 360, height: 800 },

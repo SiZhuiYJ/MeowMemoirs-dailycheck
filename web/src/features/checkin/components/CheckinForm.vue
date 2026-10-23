@@ -265,8 +265,14 @@ defineExpose({
   border-radius: 8px;
   border: none;
   padding: 8px 0;
-  background: var(--accent-alt);
+  background: var(--theme-action-bg);
+  color: var(--theme-action-contrast);
   cursor: pointer;
+  transition: background-color 0.2s ease;
+
+  &:hover {
+    background: var(--theme-action-hover);
+  }
 }
 
 .upload-button {
@@ -278,9 +284,9 @@ defineExpose({
   height: 80px;
   border-radius: 8px;
   /* 圆角正方形，够圆润 */
-  background-color: #eef2ff;
-  /* 柔和的底色（ indigo 极浅色） */
-  border: 1px solid #4b5563;
+  background-color: var(--theme-color-softer);
+  /* 主题色最浅的底色 */
+  border: 1px solid var(--border-color);
   /* 使用纯CSS渐变绘制“加号”：两个垂直的矩形背景，居中，不重复 */
   background-image:
     linear-gradient(var(--text-muted), var(--text-muted)),
@@ -295,7 +301,7 @@ defineExpose({
     2px 32px;
 
   /* 柔和阴影，增加立体感 */
-  box-shadow: 0 8px 16px -6px rgba(79, 70, 229, 0.4);
+  box-shadow: 0 8px 16px -6px rgba(var(--theme-color-rgb), 0.4);
 
   /* 过渡效果，用于焦点或悬停时的反馈 */
   transition:
@@ -315,15 +321,15 @@ defineExpose({
   &:focus-within {
     outline: none;
     box-shadow:
-      0 0 0 2px rgba(79, 70, 229, 0.4),
-      0 4px 16px -6px #4f46e5;
-    background-color: #e0e7ff;
+      0 0 0 2px var(--theme-color-soft),
+      0 4px 16px -6px var(--theme-color-strong);
+    background-color: var(--theme-color-soft);
     /* 稍微深一点的底色，反馈焦点 */
   }
 
   /* 鼠标悬停时，底色稍微加深，加号颜色也可以微调 —— 这里保留加号颜色不变，改变背景色 */
   &:hover {
-    background-color: #d9e0fc;
+    background-color: var(--theme-color-soft);
     /* 稍微明显的悬停色 */
   }
 

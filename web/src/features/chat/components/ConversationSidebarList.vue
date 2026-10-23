@@ -1,7 +1,18 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import { ElMessageBox } from "element-plus";
+import {
+  Bell,
+  Delete,
+  MuteNotification,
+  Message,
+  Star,
+  StarFilled,
+} from "@element-plus/icons-vue";
 import ProgressiveAvatar from "@/components/ProgressiveAvatar/index.vue";
+import ChatContextMenu, { type ChatContextMenuItem } from "./ChatContextMenu.vue";
+import { useChatContextMenu } from "../composables/useChatContextMenu";
 import type { ConversationSummary } from "../types";
-import { MuteNotification, Message } from "@element-plus/icons-vue";
 import {
   formatConversationListTime,
   getConversationAvatarSources,
@@ -21,7 +32,83 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   selectConversation: [item: ConversationSummary];
+  togglePin: [item: ConversationSummary];
+  toggleMute: [item: ConversationSummary];
+  deleteConversation: [item: ConversationSummary];
 }>();
+
+// —— 会话列表右键菜单 ——
+const {
+  visible: menuVisible,
+  x: menuX,
+  y: menuY,
+  target: menuTarget,
+  open: openMenu,
+  close: closeMenu,
+} = useChatContextMenu<ConversationSummary>();
+
+const menuItems = computed<ChatContextMenuItem[]>(() => {
+  const item = menuTarget.value;
+  if (!item) return [];
+
+  return [
+    {
+      key: "pin",
+      label: item.isPinned ? "取消置顶" : "置顶",
+      icon: item.isPinned ? StarFilled : Star,
+    },
+    {
+      key: "mute",
+      label: item.isMuted ? "取消消息免打扰" : "消息免打扰",
+      icon: item.isMuted ? Bell : MuteNotification,
+    },
+    {
+      key: "delete",
+      label: "删除会话",
+      icon: Delete,
+      danger: true,
+      divider: true,
+      hint: "仅删除你的记录",
+    },
+  ];
+});
+
+function handleConversationContextMenu(event: MouseEvent, item: ConversationSummary) {
+  openMenu(event, item);
+}
+
+async function handleMenuSelect(key: string) {
+  const item = menuTarget.value;
+  closeMenu();
+  if (!item) return;
+
+  if (key === "pin") {
+    emit("togglePin", item);
+    return;
+  }
+
+  if (key === "mute") {
+    emit("toggleMute", item);
+    return;
+  }
+
+  if (key === "delete") {
+    try {
+      await ElMessageBox.confirm(
+        "删除后，这段聊天记录仅对你不可见（伪删除），对方和群成员不受影响。收到新消息后会话会重新出现。",
+        "删除会话",
+        {
+          confirmButtonText: "删除",
+          cancelButtonText: "取消",
+          type: "warning",
+        },
+      );
+      emit("deleteConversation", item);
+    } catch {
+      // 用户取消
+    }
+  }
+}
 
 /** 列表项时间取最后一条消息时间，没有消息时退回会话更新时间。 */
 function getItemTime(item: ConversationSummary) {
@@ -33,7 +120,8 @@ function getItemTime(item: ConversationSummary) {
   <el-scrollbar :view-class="singlePanel ? 'single-panel' : ''">
     <ul v-if="conversations.length > 0" class="conversation-list">
       <li v-for="item in conversations" :key="item.id" class="conversation-item"
-        :class="{ active: item.id === selectedConversationId }" @click="emit('selectConversation', item)">
+        :class="{ active: item.id === selectedConversationId }" @click="emit('selectConversation', item)"
+        @contextmenu.prevent.stop="handleConversationContextMenu($event, item)">
         <!-- size 传 CSS 变量而不是 60：ProgressiveAvatar 会把 size 写成内联 width/height，
              传字符串才能让「列表越窄头像越小」由容器查询接管 -->
         <ProgressiveAvatar class="conversation-avatar" :src="getConversationAvatarUrl(item)"
@@ -79,10 +167,13 @@ function getItemTime(item: ConversationSummary) {
       <template v-if="props.loading">正在加载会话…</template>
       <template v-else>
         <div class="conversation-empty-title">还没有任何会话</div>
-        <div class="conversation-empty-hint">用上方「社交操作」选择好友或发起群聊即可开始</div>
+        <div class="conversation-empty-hint">用上方「更多」选择好友或发起群聊即可开始</div>
       </template>
     </div>
   </el-scrollbar>
+
+  <ChatContextMenu v-model="menuVisible" :x="menuX" :y="menuY" :items="menuItems" aria-label="会话操作"
+    @select="handleMenuSelect" />
 </template>
 
 <style scoped lang="scss">

@@ -25,8 +25,9 @@ const isOpen = ref<boolean>(false);
 
 .main {
     font-weight: 800;
-    color: white;
-    background-color: darkviolet;
+    color: var(--theme-action-contrast);
+    background-color: var(--theme-primary-bg);
+    transition: background-color 0.2s ease;
     padding: 3px 15px;
     border-radius: 10px;
 
@@ -37,6 +38,10 @@ const isOpen = ref<boolean>(false);
     position: relative;
     cursor: pointer;
     justify-content: space-between;
+
+    &:hover {
+        background-color: var(--theme-primary-hover);
+    }
 }
 
 .arrow {
@@ -53,7 +58,7 @@ const isOpen = ref<boolean>(false);
 .arrow::before {
     content: "";
     position: absolute;
-    background-color: white;
+    background-color: currentColor;
     height: 100%;
     width: 2.5px;
     border-radius: 500px;
@@ -73,8 +78,9 @@ const isOpen = ref<boolean>(false);
 }
 
 .menu-container {
-    background-color: white;
-    color: darkviolet;
+    background-color: var(--bg-elevated);
+    color: var(--theme-color-strong);
+    border: 1px solid var(--theme-color-muted);
     border-radius: 10px;
     position: absolute;
     width: 100%;
@@ -111,7 +117,7 @@ const isOpen = ref<boolean>(false);
     width: 100%;
     height: 3px;
     border-radius: 50px;
-    background-color: white;
+    background-color: var(--theme-action-contrast);
     transition: all 0.4s;
     position: relative;
 }

@@ -208,17 +208,23 @@ async function handleChangePassword() {
 .code-button {
     width: 100px;
     border-radius: 6px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-elevated);
-    color: var(--text-color);
+    border: 1px solid var(--theme-color-muted);
+    background: var(--theme-color-soft);
+    color: var(--theme-color-strong);
     cursor: pointer;
     font-size: 11px;
     white-space: nowrap;
+    transition: background-color 0.2s ease, color 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
     padding-left: 10px;
     padding-right: 10px;
+
+    &:hover:not(:disabled) {
+        background: var(--theme-primary-bg);
+        color: var(--theme-color-contrast);
+    }
 
     &:disabled {
         opacity: 0.6;
@@ -238,8 +244,8 @@ async function handleChangePassword() {
     padding: 10px 16px;
     border-radius: 10px;
     border: none;
-    background: var(--theme-primary);
-    color: #fff;
+    background: var(--theme-action-bg);
+    color: var(--theme-action-contrast);
     cursor: pointer;
 
     &:disabled {

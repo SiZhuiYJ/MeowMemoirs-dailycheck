@@ -181,7 +181,7 @@ const showEmptyState = computed(() => plansStore.PlansItems.length === 0);
 }
 
 .mini-day-future {
-  border: 1px solid #38bdf8;
+  border: 1px solid var(--theme-color-strong);
 }
 
 .mini-day-label {

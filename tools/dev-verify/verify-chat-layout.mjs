@@ -275,6 +275,15 @@ const MEASURE = `(() => {
       };
     }),
     backBtnVisible: vis(document.querySelector('.back-to-list')),
+    // 圆形按钮必须是正方形：EP 的 .el-button--small.is-circle 把宽度写死成
+    // --el-button-size（24px），而高度被聊天页接管成 --chat-control-h（桌面 32px），
+    // 曾经出现 24×32 的「椭圆下载按钮」（图片消息 hover 覆盖层里那个）。
+    circleButtons: [...document.querySelectorAll('.chat-page .el-button.is-circle')]
+      .filter((el) => el.getBoundingClientRect().height > 0)
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        return { w: Math.round(rect.width), h: Math.round(rect.height) };
+      }),
     msgCount: document.querySelectorAll('.message-list .msg-item').length,
   };
 })()`;
@@ -361,6 +370,13 @@ for (const vp of VIEWPORTS) {
   check(`${tag} 聊天消息间距 ${wantGap}px`, chatState.msgGap === wantGap, String(chatState.msgGap));
   check(`${tag} 聊天界面无横向溢出`, chatState.overflowX <= 1, `溢出 ${chatState.overflowX}px`);
   check(`${tag} 聊天界面渲染出消息`, chatState.msgCount > 0, String(chatState.msgCount));
+  if (chatState.circleButtons.length > 0) {
+    check(
+      `${tag} 圆形按钮是正方形（宽 = 高，不能是椭圆）`,
+      chatState.circleButtons.every((b) => b.w > 0 && Math.abs(b.w - b.h) <= 1),
+      JSON.stringify(chatState.circleButtons),
+    );
+  }
 
   if (vp.columns === 1) {
     check(`${tag} 手机档聊天时只显示聊天界面`, chatState.mainVis && !chatState.sidebarVis, `sidebar=${chatState.sidebarVis} main=${chatState.mainVis}`);

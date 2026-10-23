@@ -11,12 +11,29 @@ import {
 } from 'vue';
 import { storeToRefs } from 'pinia';
 import { telemetry } from '@/libs/telemetry';
-import { Document, UploadFilled } from '@element-plus/icons-vue';
+import router from '@/routers';
+import {
+  ChatDotRound,
+  ChatLineRound,
+  CircleCloseFilled,
+  CopyDocument,
+  Delete,
+  Document,
+  Download,
+  RefreshLeft,
+  UploadFilled,
+  User as UserIcon,
+  View,
+} from '@element-plus/icons-vue';
 import { useDeviceLayout } from '@/composables/use-device-layout';
 import { useAuthStore } from '@/stores';
 import MessageItem from './MessageItem.vue';
 import FileUploadButton from './FileUploadButton.vue';
-import { rememberBlobUrl } from '../composables/useFileDownloader';
+import ChatContextMenu, { type ChatContextMenuItem } from './ChatContextMenu.vue';
+import { rememberBlobUrl, useFileDownloader } from '../composables/useFileDownloader';
+import { useChatContextMenu } from '../composables/useChatContextMenu';
+import { copyImageFromUrl, copyTextToClipboard } from '../utils/clipboard';
+import { blockUser } from '../api/friends';
 import ConversationDetailDialog from './ConversationDetailDialog.vue';
 import type {
   ConversationDetail,
@@ -31,6 +48,7 @@ import type {
 } from '../types';
 import {
   formatDateSeparator,
+  formatSystemMessageText,
   getConversationDisplayTitle,
   getMemberAvatarBySender,
   getMemberAvatarSourcesBySender,
@@ -42,6 +60,7 @@ import {
   FILE_TYPE_LABELS,
   formatFileSize,
   getFilePreviewType,
+  isPreviewableFileType,
   parseMessageExtra,
 } from '../utils/fileMeta';
 import {
@@ -49,6 +68,7 @@ import {
   uploadFileForMessage,
   validateFile,
 } from '../utils/fileUpload';
+import { buildUserHomeRoute } from '../utils/navigation';
 
 const model = defineModel<string>({ default: '' });
 const currentConversation = defineModel<ConversationDetail>('conversationDetail');
@@ -133,6 +153,8 @@ const props = defineProps<{
   retrySendHandler?: (tempId: number) => Promise<void>;
   discardSendHandler?: (tempId: number) => void;
   loadMessageReadStatusBatchHandler?: (messageIds: number[]) => Promise<void>;
+  /** 删除一条消息（仅自己不可见）；返回是否成功。 */
+  deleteMessageHandler?: (messageId: number) => Promise<boolean>;
 }>();
 
 const emit = defineEmits<{
@@ -148,6 +170,7 @@ const emit = defineEmits<{
   clearReplyMessage: [];
   retrySend: [tempId: number];
   discardSend: [tempId: number];
+  deleteMessage: [messageId: number];
 }>();
 
 const { user } = storeToRefs(useAuthStore());
@@ -206,6 +229,479 @@ provide('gallery', {
   register: registerFileToGallery,
   open: openGallery,
 });
+
+// ==============================================
+// 右键菜单：任意消息 / 用户头像
+// ==============================================
+const { requestBlobUrl, downloadAndSaveFile } = useFileDownloader();
+
+/** 与 FileMessage 保持一致：超过 15MB 不在线预览。 */
+const PREVIEW_SIZE_LIMIT = 15 * 1024 * 1024;
+
+/** 输入框实例：「艾特」后把焦点放回输入框，光标移到末尾。 */
+const composerInputRef = useTemplateRef<{ focus: () => void }>('composerInputRef');
+
+const {
+  visible: messageMenuVisible,
+  x: messageMenuX,
+  y: messageMenuY,
+  target: messageMenuTarget,
+  open: openMessageMenu,
+  close: closeMessageMenu,
+} = useChatContextMenu<MessageSummary>();
+
+const {
+  visible: avatarMenuVisible,
+  x: avatarMenuX,
+  y: avatarMenuY,
+  target: avatarMenuTarget,
+  open: openAvatarMenu,
+  close: closeAvatarMenu,
+} = useChatContextMenu<{ userId: number; name: string }>();
+
+/** 与 MessageItem 里的撤回窗口保持一致（服务端也是 5 分钟）。 */
+const RECALL_WINDOW_MS = 5 * 60 * 1000;
+
+function getRecallAvailability(message: MessageSummary) {
+  if (message.isRecalled) return { allowed: false, hint: '已撤回' };
+  if (message.senderUserId !== props.meUserId) return { allowed: false, hint: '仅自己消息' };
+
+  const createdAt = toTimestamp(message.createdAt);
+  if (!createdAt) return { allowed: false, hint: '' };
+  if (Date.now() - createdAt > RECALL_WINDOW_MS) return { allowed: false, hint: '超过 5 分钟' };
+
+  return { allowed: true, hint: '' };
+}
+
+/**
+ * 群主 / 管理员是否能撤回「别人的消息」。
+ *
+ * 与服务端 RecallMessage 的规则保持一致：
+ *   · 群主：可撤回管理员、成员的消息，不能撤回群主；
+ *   · 管理员：只能撤回普通成员的消息，不能动群主和其它管理员；
+ *   · 普通成员 / 单聊：没有这个权限。
+ *
+ * 没有权限时菜单里不会出现「撤回」项（而不是灰掉）。
+ */
+function canModerateMessage(message: MessageSummary) {
+  const conversation = currentConversation.value;
+  if (!conversation || conversation.conversationType !== 'group') return false;
+
+  const currentMember = conversation.members.find(
+    (member) => member.userId === props.meUserId,
+  );
+  if (!currentMember) return false;
+
+  const currentRole = currentMember.memberRole;
+  if (currentRole !== 'owner' && currentRole !== 'admin') return false;
+
+  const targetMember = conversation.members.find(
+    (member) => member.userId === message.senderUserId,
+  );
+
+  if (currentRole === 'owner') return targetMember?.memberRole !== 'owner';
+  return targetMember?.memberRole === 'member';
+}
+
+/** 文件类消息（图片 / 视频 / 音频 / 文档）都带 extra。 */
+function isFileMessage(message: MessageSummary) {
+  return (
+    message.messageType === 'image' ||
+    message.messageType === 'video' ||
+    message.messageType === 'audio' ||
+    message.messageType === 'file'
+  );
+}
+
+function getMessageFileExtra(message: MessageSummary) {
+  return isFileMessage(message) ? parseMessageExtra(message.extra) : null;
+}
+
+/**
+ * 消息菜单按类型动态生成：
+ *   · 文本：复制文字 / 引用 / 撤回 / 删除
+ *   · 图片：复制图片 / 预览 / 下载 / 引用 / 撤回 / 删除
+ *   · 视频 / 音频 / 文档：预览（播放）/ 下载 / 引用 / 撤回 / 删除
+ *   · 系统消息：复制内容 / 删除
+ *   · 已撤回：删除
+ */
+const messageMenuItems = computed<ChatContextMenuItem[]>(() => {
+  const message = messageMenuTarget.value;
+  if (!message) return [];
+
+  // 已撤回的提示不是正常消息，只保留「删除」让它从自己的界面消失。
+  if (message.isRecalled) {
+    return [
+      {
+        key: 'delete',
+        label: '删除',
+        icon: Delete,
+        danger: true,
+        hint: '仅自己不可见',
+      },
+    ];
+  }
+
+  const items: ChatContextMenuItem[] = [];
+  const extra = getMessageFileExtra(message);
+  const category = extra ? getFilePreviewType(extra) : 'unknown';
+  const hasFile = Boolean(extra?.fileKey);
+  const fileSize = extra?.fileSize ?? 0;
+  const previewable = hasFile && isPreviewableFileType(category);
+  const tooLarge = previewable && fileSize > PREVIEW_SIZE_LIMIT;
+
+  if (message.messageType === 'system') {
+    items.push({
+      key: 'copy-text',
+      label: '复制内容',
+      icon: CopyDocument,
+      disabled: !message.content?.trim(),
+    });
+  } else if (message.messageType === 'text') {
+    items.push({
+      key: 'copy-text',
+      label: '复制文字',
+      icon: CopyDocument,
+      disabled: !message.content?.trim(),
+    });
+    items.push({
+      key: 'reply',
+      label: '引用',
+      icon: ChatLineRound,
+    });
+  } else {
+    if (category === 'image') {
+      items.push({
+        key: 'copy-image',
+        label: '复制图片',
+        icon: CopyDocument,
+        disabled: !hasFile,
+      });
+    }
+
+    items.push({
+      key: 'preview',
+      label:
+        category === 'video'
+          ? '播放视频'
+          : category === 'audio'
+            ? '播放音频'
+            : '预览',
+      icon: View,
+      disabled: !previewable || tooLarge,
+      hint: !hasFile
+        ? '文件缺失'
+        : tooLarge
+          ? '文件较大'
+          : !previewable
+            ? '暂不支持'
+            : '',
+    });
+
+    items.push({
+      key: 'download',
+      label: '下载',
+      icon: Download,
+      disabled: !hasFile,
+    });
+
+    items.push({
+      key: 'reply',
+      label: '引用',
+      icon: ChatLineRound,
+    });
+  }
+
+  const recall = getRecallAvailability(message);
+  if (message.messageType !== 'system') {
+    const isOwnMessage = message.senderUserId === props.meUserId;
+
+    if (isOwnMessage) {
+      // 自己的消息：仍然只有 5 分钟窗口，超时置灰（保留按钮让用户知道原因）。
+      items.push({
+        key: 'recall',
+        label: '撤回',
+        icon: RefreshLeft,
+        danger: true,
+        disabled: !recall.allowed,
+        hint: recall.hint,
+      });
+    } else if (canModerateMessage(message)) {
+      // 群主 / 管理员撤回他人消息：没有 5 分钟限制，也不需要置灰。
+      items.push({
+        key: 'recall',
+        label: '撤回',
+        icon: RefreshLeft,
+        danger: true,
+      });
+    }
+    // 没有管理权限时，其他人的消息不显示「撤回」。
+  }
+
+  items.push({
+    key: 'delete',
+    label: '删除',
+    icon: Delete,
+    danger: true,
+    divider: true,
+    hint: '仅自己不可见',
+  });
+
+  return items;
+});
+
+const avatarMenuItems = computed<ChatContextMenuItem[]>(() => {
+  const target = avatarMenuTarget.value;
+  if (!target) return [];
+
+  const items: ChatContextMenuItem[] = [];
+  if (target.userId !== props.meUserId) {
+    items.push({
+      key: 'mention',
+      label: '艾特',
+      icon: ChatDotRound,
+      hint: `@${target.name}`,
+    });
+  }
+
+  items.push({
+    key: 'profile',
+    label: target.userId === props.meUserId ? '查看我的主页' : '查看主页',
+    icon: UserIcon,
+  });
+
+  if (target.userId !== props.meUserId) {
+    items.push({
+      key: 'block',
+      label: '拉黑',
+      icon: CircleCloseFilled,
+      danger: true,
+      divider: true,
+      hint: target.name,
+    });
+  }
+
+  return items;
+});
+
+function handleItemContextMenu(event: MouseEvent, item: RenderedChatItem) {
+  if (item.kind !== 'message') return;
+
+  // 所有真实消息（文本 / 图片 / 视频 / 音频 / 文件 / 系统 / 已撤回）
+  // 都有自己的右键菜单；发送中的本地待发气泡不在此列。
+  openMessageMenu(event, item.message);
+}
+
+function handleMessageAvatarContextMenu(payload: {
+  event: MouseEvent;
+  userId: number;
+  name: string;
+}) {
+  openAvatarMenu(payload.event, { userId: payload.userId, name: payload.name });
+}
+
+function getMessageFileExtraOrWarn(message: MessageSummary) {
+  const extra = getMessageFileExtra(message);
+  if (!extra?.fileKey) {
+    ElMessage.warning('文件尚未上传完成');
+    return null;
+  }
+  return extra;
+}
+
+/** 复用下载队列里的缓存：已显示过的文件会立刻回调，不会重新下载。 */
+function resolveMessageFileBlobUrl(message: MessageSummary, fileKey: string) {
+  return new Promise<string>((resolve, reject) => {
+    requestBlobUrl(fileKey, {
+      priorityId: message.id,
+      onComplete: resolve,
+      onError: reject,
+    });
+  });
+}
+
+async function handleCopyMessageText(message: MessageSummary) {
+  const text =
+    message.messageType === 'system'
+      ? formatSystemMessageText(message.content)
+      : (message.content ?? '');
+
+  if (!text.trim()) {
+    ElMessage.warning('这条消息没有可复制的文字');
+    return;
+  }
+
+  try {
+    await copyTextToClipboard(text);
+    ElMessage.success('文字已复制');
+  } catch (error) {
+    console.error('复制文字失败:', error);
+    ElMessage.error(error instanceof Error ? error.message : '复制文字失败');
+  }
+}
+
+async function handleCopyImageMessage(message: MessageSummary) {
+  const extra = getMessageFileExtraOrWarn(message);
+  if (!extra) return;
+
+  try {
+    const blobUrl = await resolveMessageFileBlobUrl(message, extra.fileKey!);
+    const result = await copyImageFromUrl(blobUrl);
+    ElMessage.success(
+      result === 'image'
+        ? '图片已复制'
+        : '当前浏览器不支持复制图片，已复制图片地址',
+    );
+  } catch (error) {
+    console.error('复制图片失败:', error);
+    ElMessage.error(error instanceof Error ? error.message : '复制图片失败');
+  }
+}
+
+/** 图片 / 视频 / 音频 / 文档统一走 FilePreview。 */
+async function handlePreviewFileMessage(message: MessageSummary) {
+  const extra = getMessageFileExtraOrWarn(message);
+  if (!extra) return;
+
+  const category = getFilePreviewType(extra);
+  if (!isPreviewableFileType(category)) {
+    ElMessage.warning('该类型暂不支持在线预览，请下载后查看');
+    return;
+  }
+  if ((extra.fileSize ?? 0) > PREVIEW_SIZE_LIMIT) {
+    ElMessage.warning('文件较大，请下载后查看');
+    return;
+  }
+
+  try {
+    const blobUrl = await resolveMessageFileBlobUrl(message, extra.fileKey!);
+
+    // 右键预览时这张图/文件可能还没被 FileMessage 注册进图集
+    // （例如懒加载的历史消息），这里补一次注册，免得预览器打开后没有内容。
+    registerFileToGallery({
+      name: extra.fileName,
+      url: blobUrl,
+      type: category,
+      path: category === 'image' ? blobUrl : undefined,
+      messageId: message.id,
+    });
+    openGallery(blobUrl);
+  } catch (error) {
+    console.error('预览文件失败:', error);
+    ElMessage.error('文件预览失败');
+  }
+}
+
+async function handleDownloadFileMessage(message: MessageSummary) {
+  const extra = getMessageFileExtraOrWarn(message);
+  if (!extra) return;
+  await downloadAndSaveFile(extra.fileKey!, extra.fileName);
+}
+
+async function handleDeleteMessage(message: MessageSummary) {
+  try {
+    const handler = props.deleteMessageHandler;
+    if (handler) {
+      const succeeded = await handler(message.id);
+      if (succeeded) ElMessage.success('消息已删除（仅自己不可见）');
+      return;
+    }
+
+    emit('deleteMessage', message.id);
+    ElMessage.success('消息已删除（仅自己不可见）');
+  } catch (error) {
+    console.error('删除消息失败:', error);
+    ElMessage.error('删除消息失败');
+  }
+}
+
+async function handleMessageMenuSelect(key: string) {
+  const message = messageMenuTarget.value;
+  closeMessageMenu();
+  if (!message) return;
+
+  switch (key) {
+    case 'copy-text':
+      await handleCopyMessageText(message);
+      break;
+    case 'copy-image':
+      await handleCopyImageMessage(message);
+      break;
+    case 'preview':
+      await handlePreviewFileMessage(message);
+      break;
+    case 'download':
+      await handleDownloadFileMessage(message);
+      break;
+    case 'reply':
+      emit('replyMessage', message);
+      break;
+    case 'recall':
+      emit('recallMessage', message);
+      break;
+    case 'delete':
+      await handleDeleteMessage(message);
+      break;
+  }
+}
+
+function focusComposerAtEnd() {
+  composerInputRef.value?.focus();
+  requestAnimationFrame(() => {
+    const textarea = document.querySelector<HTMLTextAreaElement>('.composer .el-textarea__inner');
+    if (!textarea) return;
+    textarea.focus();
+    const position = textarea.value.length;
+    textarea.setSelectionRange(position, position);
+  });
+}
+
+async function handleAvatarMenuSelect(key: string) {
+  const target = avatarMenuTarget.value;
+  closeAvatarMenu();
+  if (!target) return;
+
+  if (key === 'mention') {
+    const mention = `@${target.name} `;
+    const current = model.value;
+    model.value = current && !/\s$/.test(current) ? `${current} ${mention}` : `${current}${mention}`;
+    await nextTick();
+    focusComposerAtEnd();
+    return;
+  }
+
+  if (key === 'profile') {
+    // 带上当前会话，从用户主页点「返回聊天」时能原路回到这个会话。
+    await router.push(buildUserHomeRoute(target.userId, currentConversation.value?.id));
+    return;
+  }
+
+  if (key === 'block') {
+    try {
+      await ElMessageBox.confirm(
+        `拉黑后，${target.name} 将无法添加你为好友、与你发起单聊或搜索到你。主页仍可查看，好友状态会保留，群聊不受影响。`,
+        '拉黑用户',
+        {
+          type: 'warning',
+          confirmButtonText: '拉黑',
+          cancelButtonText: '取消',
+        },
+      );
+    } catch {
+      return;
+    }
+
+    try {
+      await blockUser(target.userId);
+      ElMessage.success('已拉黑，可在「更多 > 黑名单」中解除');
+    } catch (error) {
+      ElMessage.error(
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+          '拉黑失败',
+      );
+    }
+  }
+}
 
 const conversationHeaderTitle = computed(() =>
   currentConversation.value
@@ -1123,9 +1619,10 @@ onBeforeUnmount(() => {
               :reply-target-id="getItemReplyTargetId(item)" :allow-inline-media-load="shouldPreloadInlineMedia(item)"
               :highlighted="item.kind === 'message' && highlightedMessageId === item.message.id"
               v-bind="item.kind === 'message' ? getReadDisplay(item.message.id) : emptyReadDisplay"
-              @reply="emit('replyMessage', $event)" @recall="emit('recallMessage', $event)"
-              @retry-send="handleRetrySend" @discard-send="handleDiscardSend"
-              @jump-to-message="jumpToMessage" />
+              @contextmenu="handleItemContextMenu($event, item)"
+              @avatar-context-menu="handleMessageAvatarContextMenu" @reply="emit('replyMessage', $event)"
+              @recall="emit('recallMessage', $event)" @retry-send="handleRetrySend"
+              @discard-send="handleDiscardSend" @jump-to-message="jumpToMessage" />
           </template>
         </div>
       </el-scrollbar>
@@ -1148,12 +1645,12 @@ onBeforeUnmount(() => {
 
       <div class="chat-header">
         <div class="chat-header-main">
-          <el-button v-if="props.showBackToList" color="#111827" class="back-to-list" @click="emit('backToList')">
+          <el-button v-if="props.showBackToList" class="back-to-list" @click="emit('backToList')">
             会话列表
           </el-button>
           <h3>{{ conversationHeaderTitle }}</h3>
         </div>
-        <el-button color="#111827" class="open-detail" :icon="Document" @click="isChatDetail = true">
+        <el-button class="open-detail" :icon="Document" @click="isChatDetail = true">
           详情
         </el-button>
       </div>
@@ -1165,7 +1662,7 @@ onBeforeUnmount(() => {
             <div class="replying-sender">{{ getMessageSenderName(props.replyingMessage) }}</div>
             <div class="replying-preview">{{ getMessagePreview(props.replyingMessage) }}</div>
           </button>
-          <el-button link color="#111827" class="replying-cancel" @click="emit('clearReplyMessage')">
+          <el-button link class="replying-cancel" @click="emit('clearReplyMessage')">
             取消引用
           </el-button>
         </div>
@@ -1173,9 +1670,9 @@ onBeforeUnmount(() => {
         <div class="composer-main">
           <FileUploadButton :disabled="uploadingFiles" :context-key="currentConversation?.id ?? null"
             @file-selected="handleFileSelected" />
-          <el-input v-model="model" type="textarea" :autosize="{ minRows: 1, maxRows: 6 }" resize="none"
+          <el-input ref="composerInputRef" v-model="model" type="textarea" :autosize="{ minRows: 1, maxRows: 6 }" resize="none"
             :placeholder="composerPlaceholder" @keydown="handleComposerKeydown" />
-          <el-button color="#111827" :loading="props.sending" :disabled="uploadingFiles || !model.trim()"
+          <el-button type="primary" :loading="props.sending" :disabled="uploadingFiles || !model.trim()"
             @click="handleSendTextMessage">
             发送
           </el-button>
@@ -1188,6 +1685,11 @@ onBeforeUnmount(() => {
 
       <FilePreview v-if="galleryVisible" v-model="galleryVisible" :file-list="galleryFileList"
         v-model:current-index="galleryIndex" />
+
+      <ChatContextMenu v-model="messageMenuVisible" :x="messageMenuX" :y="messageMenuY" :items="messageMenuItems"
+        aria-label="消息操作" @select="handleMessageMenuSelect" />
+      <ChatContextMenu v-model="avatarMenuVisible" :x="avatarMenuX" :y="avatarMenuY" :items="avatarMenuItems"
+        aria-label="用户头像操作" @select="handleAvatarMenuSelect" />
 
       <el-dialog v-model="dropUploadDialogVisible" title="确认上传文件" width="560px" :close-on-click-modal="!dropUploadBusy"
         :close-on-press-escape="!dropUploadBusy" :show-close="!dropUploadBusy" @closed="clearDroppedFiles">
@@ -1225,7 +1727,7 @@ onBeforeUnmount(() => {
         <template #footer>
           <div class="drop-dialog-footer">
             <el-button :disabled="dropUploadBusy" @click="closeDropUploadDialog">取消</el-button>
-            <el-button color="#111827" :loading="dropUploadBusy" :disabled="!canConfirmDropUpload"
+            <el-button type="primary" :loading="dropUploadBusy" :disabled="!canConfirmDropUpload"
               @click="confirmDropUpload">
               上传 {{ validDroppedFiles.length }} 个文件
             </el-button>
@@ -1263,19 +1765,20 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   padding: 7px 14px;
-  border: 1px solid rgba(17, 24, 39, 0.12);
+  border: 1px solid var(--chat-accent, #9a4f8d);
   border-radius: 999px;
-  color: #111827;
+  color: var(--chat-accent, #9a4f8d);
   font-size: 12px;
   font-weight: 600;
   line-height: 18px;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 8px 22px rgba(17, 24, 39, 0.18);
-  transition: transform 0.15s ease;
+  background: var(--chat-accent-soft, #f7e8f4);
+  box-shadow: 0 8px 22px rgba(154, 79, 141, 0.18);
+  transition: transform 0.15s ease, background-color 0.15s ease;
 
   &:hover {
     transform: translateY(-1px);
+    background: color-mix(in srgb, var(--chat-accent-soft, #f7e8f4) 82%, #fff);
   }
 }
 
@@ -1455,9 +1958,9 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: var(--chat-gap, 12px);
   padding: var(--chat-pad, 12px);
-  border-left: 3px solid #111827;
+  border-left: 3px solid var(--chat-accent, #9a4f8d);
   border-radius: 8px;
-  background: rgba(243, 244, 246, 0.94);
+  background: var(--chat-accent-soft, #f7e8f4);
 }
 
 .replying-banner-main {
@@ -1468,16 +1971,22 @@ onBeforeUnmount(() => {
   text-align: left;
   cursor: pointer;
   background: transparent;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+
+  &:hover {
+    background: color-mix(in srgb, var(--chat-accent-soft, #f7e8f4) 72%, #fff);
+  }
 }
 
 .replying-label {
-  color: #6b7280;
+  color: var(--chat-accent, #9a4f8d);
   font-size: 11px;
   line-height: 18px;
 }
 
 .replying-sender {
-  color: #111827;
+  color: var(--chat-accent, #9a4f8d);
   font-size: 12px;
   font-weight: 600;
   line-height: 18px;
@@ -1485,7 +1994,7 @@ onBeforeUnmount(() => {
 
 .replying-preview {
   overflow: hidden;
-  color: #4b5563;
+  color: var(--chat-muted, #6b7280);
   font-size: 12px;
   line-height: 18px;
   text-overflow: ellipsis;

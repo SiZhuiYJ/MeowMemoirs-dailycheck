@@ -72,6 +72,10 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
         if (conversationType == "direct")
         {
             var peerUserId = targetMemberUserIds.Single();
+            if (await IsBlockedBy(peerUserId, userId))
+                return StatusCode(StatusCodes.Status403Forbidden,
+                    new { message = "对方已将你拉黑，无法发起聊天" });
+
             if (!await AreUsersFriends(userId, peerUserId))
                 return BadRequest(new { message = "Direct conversations can only be started with users who are already your friends" });
 
@@ -872,7 +876,10 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
 
         var memberships = await _db.ChatConversationMembers
             .AsNoTracking()
-            .Where(m => m.UserId == userId && m.LeftAt == null && m.Conversation.IsActive == true)
+            .Where(m => m.UserId == userId
+                && m.LeftAt == null
+                && !m.IsHidden
+                && m.Conversation.IsActive == true)
             .Select(m => new
             {
                 m.ConversationId,
@@ -893,17 +900,80 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
             .Select(BuildConversationSummaryProjection(userId))
             .ToListAsync();
 
+        // 会话预览：按「当前用户的可见范围」取每个会话最新的那条消息。
+        //
+        // 不能直接写进 ConversationSummary 投影里：Pomelo 对这种「带相关子查询的
+        // OUTER APPLY」支持不完整，会抛 "could not be translated"。拆成两步：
+        //   1) 每个会话在「清除游标之后、且未被本人删除」的消息里取最大 ID；
+        //   2) 再按这些 ID 一次性取消息摘要。
+        var lastMessageIdRows = await (
+            from message in _db.ChatMessages.AsNoTracking()
+            join member in _db.ChatConversationMembers.AsNoTracking()
+                on message.ConversationId equals member.ConversationId
+            where member.UserId == userId
+                && member.LeftAt == null
+                && !member.IsHidden
+                && conversationIds.Contains(message.ConversationId)
+                && message.Id > (member.HistoryClearedBeforeMessageId ?? 0UL)
+                && !message.ChatMessageDeletions.Any(d => d.UserId == userId)
+            group message by message.ConversationId into grouped
+            select new
+            {
+                ConversationId = grouped.Key,
+                LastMessageId = grouped.Max(message => message.Id)
+            })
+            .ToListAsync();
+
+        var lastMessageIdMap = lastMessageIdRows.ToDictionary(
+            row => row.ConversationId,
+            row => row.LastMessageId);
+
+        var lastMessageIds = lastMessageIdMap.Values.Distinct().ToList();
+        var lastMessages = lastMessageIds.Count == 0
+            ? new List<MessageSummaryDto>()
+            : await _db.ChatMessages
+                .AsNoTracking()
+                .Where(message => lastMessageIds.Contains(message.Id))
+                .Select(message => new MessageSummaryDto
+                {
+                    Id = message.Id,
+                    SenderUserId = message.MessageType == "system" ? 0UL : message.SenderUserId,
+                    SenderNickName = message.MessageType == "system" ? "系统" : message.SenderUser.NickName,
+                    MessageType = message.MessageType,
+                    Content = message.IsRecalled ? null : message.Content,
+                    Extra = message.IsRecalled ? null : message.Extra,
+                    ReplyToMessageId = message.ReplyToMessageId,
+                    RecalledByUserId = message.RecalledByUserId,
+                    RecallPrompt = message.RecallPrompt,
+                    IsRecalled = message.IsRecalled,
+                    CreatedAt = message.CreatedAt
+                })
+                .ToListAsync();
+
+        var lastMessageById = lastMessages.ToDictionary(message => message.Id);
+        foreach (var item in conversationDtos)
+        {
+            if (lastMessageIdMap.TryGetValue(item.Id, out var lastMessageId)
+                && lastMessageById.TryGetValue(lastMessageId, out var lastMessage))
+            {
+                item.LastMessage = lastMessage;
+            }
+        }
+
         var unreadCounts = await (
             from message in _db.ChatMessages.AsNoTracking()
             join member in _db.ChatConversationMembers.AsNoTracking()
                 on message.ConversationId equals member.ConversationId
             where member.UserId == userId
                 && member.LeftAt == null
+                && !member.IsHidden
                 && conversationIds.Contains(message.ConversationId)
                 && message.SenderUserId != userId
                 && message.MessageType != "system"
                 && !message.IsRecalled
                 && message.Id > (member.LastReadMessageId ?? 0UL)
+                && message.Id > (member.HistoryClearedBeforeMessageId ?? 0UL)
+                && !message.ChatMessageDeletions.Any(d => d.UserId == userId)
             group message by message.ConversationId into grouped
             select new
             {
@@ -1034,6 +1104,23 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
         if (membership == null || membership.Conversation.IsActive != true)
             return NotFound(new { message = "Conversation not found or sending is not allowed" });
 
+        // 单聊：被对方拉黑后不能再发送消息；群聊不受影响。
+        if (membership.Conversation.ConversationType == "direct")
+        {
+            var peerUserId = await _db.ChatConversationMembers
+                .AsNoTracking()
+                .Where(m =>
+                    m.ConversationId == conversationId &&
+                    m.UserId != userId &&
+                    m.LeftAt == null)
+                .Select(m => m.UserId)
+                .FirstOrDefaultAsync();
+
+            if (peerUserId != 0 && await IsBlockedBy(peerUserId, userId))
+                return StatusCode(StatusCodes.Status403Forbidden,
+                    new { message = "对方已将你拉黑，无法发送消息" });
+        }
+
         if (membership.Conversation.ConversationType == "group" && IsGroupMuteActive(membership, DateTime.UtcNow))
         {
             var muteMessage = membership.MuteUntil.HasValue && NormalizeValue(membership.MuteMode) == "temporary"
@@ -1065,6 +1152,18 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
             request.Content = request.Extra?.FileKey;
 
         var now = DateTime.UtcNow;
+
+        // 会话被成员「删除」后（IsHidden=true），新消息到达时应重新出现在其收件箱里。
+        // 只清隐藏标记，不清 HistoryClearedBeforeMessageId —— 旧聊天记录仍然保持不可见。
+        var hiddenMemberships = await _db.ChatConversationMembers
+            .Where(m => m.ConversationId == conversationId && m.LeftAt == null && m.IsHidden)
+            .ToListAsync();
+        foreach (var hiddenMembership in hiddenMemberships)
+        {
+            hiddenMembership.IsHidden = false;
+            hiddenMembership.UpdatedAt = now;
+        }
+
         var message = new ChatMessage
         {
             ConversationId = conversationId,
@@ -1106,9 +1205,17 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
     }
 
     /// <summary>
-    /// 撤回已发送的消息。
-    /// 仅消息发送者可在发送后5分钟内撤回。
-    /// 撤回后消息内容将被清空，并标记为已撤回状态。
+    /// 撤回消息。
+    ///
+    /// 规则：
+    ///   · 自己的消息：发送后 5 分钟内可撤回；
+    ///   · 群聊里的其他成员消息：群主可撤回管理员/成员的消息，管理员仅可撤回成员的消息；
+    ///     命中这条「管理撤回」时，提示会直接挂在被撤回的消息上，在原来的位置展示：
+    ///     {群内身份} {操作人昵称} 撤回了 {被撤回消息的成员昵称} 的消息；
+    ///   · 没有权限时直接 403；前端的右键菜单也不会显示「撤回」。
+    ///
+    /// 撤回后消息内容会被清空，并标记为已撤回状态；管理撤回的提示保存在 recall_prompt，
+    /// 不会再在会话底部追加一条系统消息。
     /// </summary>
     /// <param name="messageId">要撤回的消息ID。</param>
     /// <returns>撤回后的消息概要信息。</returns>
@@ -1120,33 +1227,99 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
 
         var message = await _db.ChatMessages
             .Include(m => m.Conversation)
+            .Include(m => m.SenderUser)
             .FirstOrDefaultAsync(m => m.Id == messageId);
 
         if (message == null)
             return NotFound(new { message = "Message not found" });
 
-        var isMember = await _db.ChatConversationMembers
-            .AsNoTracking()
-            .AnyAsync(m => m.ConversationId == message.ConversationId && m.UserId == userId && m.LeftAt == null);
-
-        if (!isMember || message.Conversation.IsActive != true)
+        if (message.Conversation.IsActive != true)
             return NotFound(new { message = "Conversation not found or access denied" });
 
-        if (message.SenderUserId != userId)
-            return BadRequest(new { message = "Only your own messages can be recalled" });
+        var currentMember = await _db.ChatConversationMembers
+            .Include(m => m.User)
+            .FirstOrDefaultAsync(m =>
+                m.ConversationId == message.ConversationId &&
+                m.UserId == userId &&
+                m.LeftAt == null);
+
+        if (currentMember == null)
+            return NotFound(new { message = "Conversation not found or access denied" });
+
+        if (message.MessageType == "system")
+            return BadRequest(new { message = "系统消息不支持撤回" });
+
+        var isOwnMessage = message.SenderUserId == userId;
+        var isGroupConversation = message.Conversation.ConversationType == "group";
+        var currentRole = NormalizeValue(currentMember.MemberRole);
+        var isModerationRecall = false;
+
+        if (!isOwnMessage)
+        {
+            // 群主 / 管理员可以撤回其他成员的消息；单聊与普通成员没有这个权限。
+            if (!isGroupConversation)
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "没有权限撤回该消息" });
+
+            var targetMember = await _db.ChatConversationMembers
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m =>
+                    m.ConversationId == message.ConversationId &&
+                    m.UserId == message.SenderUserId &&
+                    m.LeftAt == null);
+
+            var targetRole = NormalizeValue(targetMember?.MemberRole);
+            var canModerate = currentRole switch
+            {
+                // 群主可以撤回管理员/成员的消息，但不能撤回群主（自己）的消息。
+                "owner" => targetRole != "owner",
+                // 管理员只能撤回普通成员的消息，不能动群主或其它管理员。
+                "admin" => targetRole == "member",
+                _ => false
+            };
+
+            if (!canModerate)
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "没有权限撤回该消息" });
+
+            isModerationRecall = true;
+        }
 
         if (message.IsRecalled)
             return Ok(await BuildMessageSummary(message.Id));
 
         var now = DateTime.UtcNow;
-        if (message.CreatedAt.AddMinutes(recallWindowMinutes) < now)
+
+        // 5 分钟窗口只约束「撤回自己的消息」；群主/管理员撤回他人消息不受此限。
+        if (isOwnMessage && message.CreatedAt.AddMinutes(recallWindowMinutes) < now)
             return BadRequest(new { message = $"Messages older than {recallWindowMinutes} minutes cannot be recalled" });
 
         message.IsRecalled = true;
         message.RecalledAt = now;
+        message.RecalledByUserId = userId;
         message.Content = null;
         message.Extra = null;
         message.UpdatedAt = now;
+
+        if (isModerationRecall)
+        {
+            var roleLabel = currentRole == "owner" ? "群主" : "管理员";
+            var operatorName = GetUserDisplayName(
+                currentMember.User?.NickName,
+                currentMember.User?.UserAccount,
+                userId);
+            var senderName = GetUserDisplayName(
+                message.SenderUser?.NickName,
+                message.SenderUser?.UserAccount,
+                message.SenderUserId);
+
+            // 管理撤回的提示直接挂在被撤回的消息上：
+            // 前端会在消息原来的位置渲染这句话，而不是在会话底部再追加一条系统消息。
+            message.RecallPrompt = $"{roleLabel} {operatorName} 撤回了 {senderName} 的消息";
+        }
+        else
+        {
+            // 自己撤回自己的消息：继续使用「xxx 撤回了一条消息」的普通占位文案。
+            message.RecallPrompt = null;
+        }
 
         await _db.SaveChangesAsync();
 
@@ -1166,6 +1339,156 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
     }
 
     /// <summary>
+    /// 删除一条消息（仅自己不可见，伪删除）。
+    ///
+    /// 真正的消息记录仍然保留在 chat_messages 中，对方、其它成员都不受影响；
+    /// 仅在 chat_message_deletions 写入一条 (messageId, userId) 标记，
+    /// 之后当前用户拉取消息、会话预览与未读数时都会把它过滤掉。
+    /// </summary>
+    /// <param name="messageId">要隐藏的消息ID。</param>
+    /// <returns>隐藏结果。</returns>
+    [HttpPost("messages/{messageId:ulong}/delete")]
+    public async Task<ActionResult<DeleteMessageResultDto>> DeleteMessageForMe(ulong messageId)
+    {
+        var userId = GetUserId();
+
+        var message = await _db.ChatMessages
+            .AsNoTracking()
+            .Where(m => m.Id == messageId)
+            .Select(m => new { m.Id, m.ConversationId })
+            .FirstOrDefaultAsync();
+
+        if (message == null)
+            return NotFound(new { message = "Message not found" });
+
+        var isMember = await _db.ChatConversationMembers
+            .AsNoTracking()
+            .AnyAsync(m => m.ConversationId == message.ConversationId && m.UserId == userId && m.LeftAt == null);
+
+        if (!isMember)
+            return NotFound(new { message = "Conversation not found or access denied" });
+
+        var alreadyHidden = await _db.ChatMessageDeletions
+            .AsNoTracking()
+            .AnyAsync(d => d.MessageId == messageId && d.UserId == userId);
+
+        if (!alreadyHidden)
+        {
+            var now = DateTime.UtcNow;
+
+            _db.ChatMessageDeletions.Add(new ChatMessageDeletion
+            {
+                MessageId = messageId,
+                UserId = userId,
+                Reason = "用户删除消息（仅自己不可见）",
+                DeletedAt = now
+            });
+
+            // 同步留一条审计日志，方便追踪「谁在什么时候隐藏了哪条消息」。
+            _db.SoftDeleteLogs.Add(new SoftDeleteLog
+            {
+                TableName = "chat_messages",
+                RecordId = messageId,
+                DeleterUserId = userId,
+                Reason = "用户删除消息（仅自己不可见）",
+                DeletedAt = now,
+                Extra = JsonSerializer.Serialize(new { conversationId = message.ConversationId })
+            });
+
+            await _db.SaveChangesAsync();
+
+            // 同一账号的其它设备/标签页也要把这条消息从界面上摘掉。
+            await _hubContext.Clients.Group(ChatHub.UserGroupName(userId)).SendAsync("chat:message-deleted", new
+            {
+                conversationId = message.ConversationId,
+                messageId,
+                deletedAt = now
+            });
+            await NotifyConversationInboxUpdated(message.ConversationId);
+        }
+
+        return Ok(new DeleteMessageResultDto
+        {
+            MessageId = messageId,
+            ConversationId = message.ConversationId,
+            Hidden = true
+        });
+    }
+
+    /// <summary>
+    /// 删除会话聊天记录（仅自己不可见，伪删除）。
+    ///
+    /// 这里不物理删除会话、也不删除消息，而是在当前用户的成员记录上打两个标记：
+    ///   · is_hidden = true：会话从当前用户的收件箱消失；
+    ///   · history_cleared_before_message_id = 当前最新消息ID：
+    ///     旧消息对当前用户不可见，对方的记录不受影响。
+    ///
+    /// 之后若收到新消息，is_hidden 会被自动清掉、会话重新出现，
+    /// 而 history_cleared_before_message_id 保持不变，旧记录仍然看不到。
+    /// </summary>
+    /// <param name="conversationId">会话ID。</param>
+    /// <returns>删除结果。</returns>
+    [HttpPost("conversations/{conversationId:ulong}/delete")]
+    public async Task<ActionResult<DeleteConversationHistoryResultDto>> DeleteConversationHistory(ulong conversationId)
+    {
+        var userId = GetUserId();
+
+        var membership = await _db.ChatConversationMembers
+            .FirstOrDefaultAsync(m => m.ConversationId == conversationId
+                                   && m.UserId == userId
+                                   && m.LeftAt == null);
+
+        if (membership == null)
+            return NotFound(new { message = "Conversation not found or access denied" });
+
+        var now = DateTime.UtcNow;
+
+        var lastMessageId = await _db.ChatMessages
+            .Where(m => m.ConversationId == conversationId)
+            .OrderByDescending(m => m.Id)
+            .Select(m => (ulong?)m.Id)
+            .FirstOrDefaultAsync() ?? 0;
+
+        membership.IsHidden = true;
+
+        // 只前进不后退：别让重复删除把已经清掉的记录又放出来。
+        if (lastMessageId > (membership.HistoryClearedBeforeMessageId ?? 0))
+            membership.HistoryClearedBeforeMessageId = lastMessageId;
+
+        membership.HistoryClearedAt = now;
+
+        // 旧消息都清掉了，未读游标也顺势推到最新，避免会话重新出现时冒出一堆陈年未读。
+        if (lastMessageId > (membership.LastReadMessageId ?? 0))
+            membership.LastReadMessageId = lastMessageId;
+
+        membership.UpdatedAt = now;
+
+        _db.SoftDeleteLogs.Add(new SoftDeleteLog
+        {
+            TableName = "chat_conversation_members",
+            RecordId = membership.Id,
+            DeleterUserId = userId,
+            Reason = "用户删除会话聊天记录（仅自己）",
+            DeletedAt = now,
+            Extra = JsonSerializer.Serialize(new
+            {
+                conversationId,
+                clearedBeforeMessageId = membership.HistoryClearedBeforeMessageId
+            })
+        });
+
+        await _db.SaveChangesAsync();
+        await NotifyConversationInboxUpdated(conversationId);
+
+        return Ok(new DeleteConversationHistoryResultDto
+        {
+            ConversationId = conversationId,
+            ClearedBeforeMessageId = membership.HistoryClearedBeforeMessageId ?? 0,
+            Hidden = true
+        });
+    }
+
+    /// <summary>
     /// 分页获取会话的历史消息记录。
     /// 采用倒序加载（从最新往旧加载），支持指定最后一条消息ID作为游标。
     /// </summary>
@@ -1177,17 +1500,23 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
     public async Task<ActionResult<List<MessageSummaryDto>>> GetMessages(ulong conversationId, [FromQuery] ulong? beforeMessageId, [FromQuery] int pageSize = 20)
     {
         var userId = GetUserId();
-        var isMember = await _db.ChatConversationMembers
+        var membership = await _db.ChatConversationMembers
             .AsNoTracking()
-            .AnyAsync(m => m.ConversationId == conversationId && m.UserId == userId && m.LeftAt == null);
-        if (!isMember)
+            .Where(m => m.ConversationId == conversationId && m.UserId == userId && m.LeftAt == null)
+            .Select(m => new { m.HistoryClearedBeforeMessageId })
+            .FirstOrDefaultAsync();
+        if (membership == null)
             return NotFound(new { message = "Conversation not found or access denied" });
 
+        var clearedBefore = membership.HistoryClearedBeforeMessageId ?? 0;
         var normalizedPageSize = Math.Clamp(pageSize, 1, 100);
 
         var query = _db.ChatMessages
             .AsNoTracking()
-            .Where(m => m.ConversationId == conversationId);
+            .Where(m => m.ConversationId == conversationId)
+            // 当前用户「删除会话」时清掉的历史，以及按条删除的消息，都不再返回。
+            .Where(m => m.Id > clearedBefore)
+            .Where(m => !m.ChatMessageDeletions.Any(d => d.UserId == userId));
 
         if (beforeMessageId.HasValue)
             query = query.Where(m => m.Id < beforeMessageId.Value);
@@ -1212,9 +1541,13 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
                     MessageType = m.ReplyToMessage.MessageType,
                     Content = m.ReplyToMessage.IsRecalled ? null : m.ReplyToMessage.Content,
                     Extra = m.ReplyToMessage.IsRecalled ? null : m.ReplyToMessage.Extra,
+                    RecalledByUserId = m.ReplyToMessage.RecalledByUserId,
+                    RecallPrompt = m.ReplyToMessage.RecallPrompt,
                     IsRecalled = m.ReplyToMessage.IsRecalled,
                     CreatedAt = m.ReplyToMessage.CreatedAt
                 },
+                RecalledByUserId = m.RecalledByUserId,
+                RecallPrompt = m.RecallPrompt,
                 IsRecalled = m.IsRecalled,
                 CreatedAt = m.CreatedAt
             })
@@ -1235,17 +1568,22 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
     public async Task<ActionResult<MessageDeltaDto>> GetMessageDelta(ulong conversationId, [FromQuery] ulong? afterMessageId, [FromQuery] int pageSize = 50)
     {
         var userId = GetUserId();
-        var isMember = await _db.ChatConversationMembers
+        var membership = await _db.ChatConversationMembers
             .AsNoTracking()
-            .AnyAsync(m => m.ConversationId == conversationId && m.UserId == userId && m.LeftAt == null);
-        if (!isMember)
+            .Where(m => m.ConversationId == conversationId && m.UserId == userId && m.LeftAt == null)
+            .Select(m => new { m.HistoryClearedBeforeMessageId })
+            .FirstOrDefaultAsync();
+        if (membership == null)
             return NotFound(new { message = "Conversation not found or access denied" });
 
+        var clearedBefore = membership.HistoryClearedBeforeMessageId ?? 0;
         var normalizedPageSize = Math.Clamp(pageSize, 1, 100);
-        var threshold = afterMessageId ?? 0;
+        var threshold = Math.Max(afterMessageId ?? 0, clearedBefore);
         var lastMessageId = await _db.ChatMessages
             .AsNoTracking()
             .Where(m => m.ConversationId == conversationId)
+            .Where(m => m.Id > clearedBefore)
+            .Where(m => !m.ChatMessageDeletions.Any(d => d.UserId == userId))
             .OrderByDescending(m => m.Id)
             .Select(m => (ulong?)m.Id)
             .FirstOrDefaultAsync() ?? 0;
@@ -1253,6 +1591,7 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
         var records = await _db.ChatMessages
             .AsNoTracking()
             .Where(m => m.ConversationId == conversationId && m.Id > threshold)
+            .Where(m => !m.ChatMessageDeletions.Any(d => d.UserId == userId))
             .OrderBy(m => m.Id)
             .Take(normalizedPageSize + 1)
             .Select(m => new MessageSummaryDto
@@ -1272,9 +1611,13 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
                     MessageType = m.ReplyToMessage.MessageType,
                     Content = m.ReplyToMessage.IsRecalled ? null : m.ReplyToMessage.Content,
                     Extra = m.ReplyToMessage.IsRecalled ? null : m.ReplyToMessage.Extra,
+                    RecalledByUserId = m.ReplyToMessage.RecalledByUserId,
+                    RecallPrompt = m.ReplyToMessage.RecallPrompt,
                     IsRecalled = m.ReplyToMessage.IsRecalled,
                     CreatedAt = m.ReplyToMessage.CreatedAt
                 },
+                RecalledByUserId = m.RecalledByUserId,
+                RecallPrompt = m.RecallPrompt,
                 IsRecalled = m.IsRecalled,
                 CreatedAt = m.CreatedAt
             })
@@ -1316,6 +1659,8 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
         {
             targetMessageId = await _db.ChatMessages
                 .Where(m => m.ConversationId == conversationId)
+                .Where(m => m.Id > (membership.HistoryClearedBeforeMessageId ?? 0))
+                .Where(m => !m.ChatMessageDeletions.Any(d => d.UserId == userId))
                 .OrderByDescending(m => m.Id)
                 .Select(m => (ulong?)m.Id)
                 .FirstOrDefaultAsync();
@@ -1350,6 +1695,8 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
             var readIds = await _db.ChatMessages
                 .Where(m => m.ConversationId == conversationId
                     && m.Id <= targetMessageId.Value
+                    && m.Id > (membership.HistoryClearedBeforeMessageId ?? 0)
+                    && !m.ChatMessageDeletions.Any(d => d.UserId == userId)
                     && m.SenderUserId != userId
                     && m.MessageType != "system"
                     && !m.IsRecalled
@@ -1467,11 +1814,15 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
     {
         var userId = GetUserId();
 
-        var isMember = await _db.ChatConversationMembers
+        var membership = await _db.ChatConversationMembers
             .AsNoTracking()
-            .AnyAsync(m => m.ConversationId == conversationId && m.UserId == userId && m.LeftAt == null);
-        if (!isMember)
+            .Where(m => m.ConversationId == conversationId && m.UserId == userId && m.LeftAt == null)
+            .Select(m => new { m.HistoryClearedBeforeMessageId })
+            .FirstOrDefaultAsync();
+        if (membership == null)
             return NotFound(new { message = "Conversation not found or access denied" });
+
+        var clearedBefore = membership.HistoryClearedBeforeMessageId ?? 0;
 
         var requestedIds = new List<ulong>();
         if (!string.IsNullOrWhiteSpace(messageIds))
@@ -1485,7 +1836,9 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
 
         var query = _db.ChatMessages
             .AsNoTracking()
-            .Where(m => m.ConversationId == conversationId && m.SenderUserId == userId);
+            .Where(m => m.ConversationId == conversationId && m.SenderUserId == userId)
+            .Where(m => m.Id > clearedBefore)
+            .Where(m => !m.ChatMessageDeletions.Any(d => d.UserId == userId));
 
         if (requestedIds.Count > 0)
             query = query.Where(m => requestedIds.Contains(m.Id));
@@ -1589,21 +1942,6 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
             IsMuted = c.ChatConversationMembers
                 .Where(m => m.UserId == userId && m.LeftAt == null)
                 .Select(m => m.IsMuted)
-                .FirstOrDefault(),
-            LastMessage = c.ChatMessages
-                .OrderByDescending(m => m.Id)
-                .Select(m => new MessageSummaryDto
-                {
-                    Id = m.Id,
-                    SenderUserId = m.MessageType == "system" ? 0UL : m.SenderUserId,
-                    SenderNickName = m.MessageType == "system" ? "系统" : m.SenderUser.NickName,
-                    MessageType = m.MessageType,
-                    Content = m.IsRecalled ? null : m.Content,
-                    Extra = m.IsRecalled ? null : m.Extra,
-                    ReplyToMessageId = m.ReplyToMessageId,
-                    IsRecalled = m.IsRecalled,
-                    CreatedAt = m.CreatedAt
-                })
                 .FirstOrDefault()
         };
     }
@@ -1630,9 +1968,13 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
                     MessageType = m.ReplyToMessage.MessageType,
                     Content = m.ReplyToMessage.IsRecalled ? null : m.ReplyToMessage.Content,
                     Extra = m.ReplyToMessage.IsRecalled ? null : m.ReplyToMessage.Extra,
+                    RecalledByUserId = m.ReplyToMessage.RecalledByUserId,
+                    RecallPrompt = m.ReplyToMessage.RecallPrompt,
                     IsRecalled = m.ReplyToMessage.IsRecalled,
                     CreatedAt = m.ReplyToMessage.CreatedAt
                 },
+                RecalledByUserId = m.RecalledByUserId,
+                RecallPrompt = m.RecallPrompt,
                 IsRecalled = m.IsRecalled,
                 CreatedAt = m.CreatedAt
             })
@@ -1907,6 +2249,18 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
                 f.Status == "active");
     }
 
+    /// <summary>
+    /// blockerUserId 是否拉黑了 blockedUserId。
+    /// </summary>
+    async Task<bool> IsBlockedBy(ulong blockerUserId, ulong blockedUserId)
+    {
+        return await _db.UserBlocks
+            .AsNoTracking()
+            .AnyAsync(b =>
+                b.UserId == blockerUserId &&
+                b.BlockedUserId == blockedUserId);
+    }
+
     async Task<HashSet<ulong>> GetActiveFriendUserIds(ulong userId, IEnumerable<ulong> candidateUserIds)
     {
         var normalizedCandidateIds = candidateUserIds
@@ -1970,6 +2324,9 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
 
     async Task BroadcastSystemMessage(ChatMessage message, DateTime now)
     {
+        // 系统消息同样意味着「会话又有新内容了」，隐藏的会话应重新出现在收件箱。
+        await UnhideConversationForMembers(message.ConversationId, now);
+
         var summary = await BuildMessageSummary(message.Id);
         await _hubContext.Clients.Group(ChatHub.GroupName(message.ConversationId)).SendAsync("chat:message-updated", new
         {
@@ -1981,6 +2338,28 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
             message = summary
         });
         await NotifyConversationInboxUpdated(message.ConversationId);
+    }
+
+    /// <summary>
+    /// 收到新内容时，把「被用户删除后隐藏」的会话重新放回收件箱。
+    /// 只清 is_hidden，历史的清除游标保留。
+    /// </summary>
+    async Task UnhideConversationForMembers(ulong conversationId, DateTime now)
+    {
+        var hiddenMemberships = await _db.ChatConversationMembers
+            .Where(m => m.ConversationId == conversationId && m.LeftAt == null && m.IsHidden)
+            .ToListAsync();
+
+        if (hiddenMemberships.Count == 0)
+            return;
+
+        foreach (var membership in hiddenMemberships)
+        {
+            membership.IsHidden = false;
+            membership.UpdatedAt = now;
+        }
+
+        await _db.SaveChangesAsync();
     }
 
     async Task NotifyConversationInboxUpdated(ulong conversationId)

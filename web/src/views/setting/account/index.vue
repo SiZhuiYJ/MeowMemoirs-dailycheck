@@ -154,7 +154,7 @@ async function handleSave() {
 }
 
 .input:focus {
-  border-color: var(--theme-primary);
+  border-color: var(--theme-color-strong);
 }
 
 .hint-text {
@@ -172,8 +172,8 @@ async function handleSave() {
 }
 
 .btn-save {
-  background-color: var(--theme-primary);
-  color: #fff;
+  background-color: var(--theme-action-bg);
+  color: var(--theme-action-contrast);
   border-radius: 8px;
   font-size: 15px;
   height: 44px;

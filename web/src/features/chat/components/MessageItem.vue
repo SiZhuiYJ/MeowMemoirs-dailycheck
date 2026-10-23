@@ -41,6 +41,8 @@ const emit = defineEmits<{
   jumpToMessage: [messageId: number];
   retrySend: [tempId: number];
   discardSend: [tempId: number];
+  /** 右键用户头像：打开「艾特 / 查看主页」菜单。 */
+  avatarContextMenu: [payload: { event: MouseEvent; userId: number; name: string }];
 }>();
 
 const RECALL_WINDOW_MS = 5 * 60 * 1000;
@@ -156,6 +158,28 @@ function handleDiscardSend() {
   if (!props.pendingText) return;
   emit('discardSend', props.pendingText.tempId);
 }
+
+/**
+ * 右键头像：把发送者信息抛给消息面板，由面板决定菜单项。
+ * 在这里 preventDefault/stopPropagation，避免同时弹出图片消息菜单和浏览器原生菜单。
+ */
+function handleAvatarContextMenu(event: MouseEvent) {
+  const senderUserId = Number(
+    props.pendingText?.senderUserId ??
+    props.pendingUpload?.senderUserId ??
+    props.message?.senderUserId ??
+    0,
+  );
+  if (!senderUserId) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  emit('avatarContextMenu', {
+    event,
+    userId: senderUserId,
+    name: senderName.value,
+  });
+}
 </script>
 
 <template>
@@ -183,7 +207,8 @@ function handleDiscardSend() {
       'has-media': isMediaBubble,
     }]">
     <ProgressiveAvatar class="message-avatar" :src="props.src || undefined"
-      :thumbnail-src="props.thumbnailSrc || props.src || undefined" :size="40" shape="square">
+      :thumbnail-src="props.thumbnailSrc || props.src || undefined" :size="40" shape="square"
+      @contextmenu.prevent.stop="handleAvatarContextMenu">
       {{ senderName.slice(0, 1) }}
     </ProgressiveAvatar>
     <div class="content">
@@ -192,10 +217,10 @@ function handleDiscardSend() {
           {{ headerText }} · {{ senderName }} · {{ messageType }}
         </span>
         <div class="header-actions">
-          <el-button v-if="canReply" link color="#111827" size="small" class="reply-action" @click="handleReply">
+          <el-button v-if="canReply" link size="small" class="reply-action" @click="handleReply">
             引用
           </el-button>
-          <el-button v-if="canRecall" link color="#dc2659" size="small" class="reply-action" @click="handleRecall">
+          <el-button v-if="canRecall" link type="danger" size="small" class="reply-action" @click="handleRecall">
             撤回
           </el-button>
         </div>
@@ -213,7 +238,7 @@ function handleDiscardSend() {
 
       <div class="bubble-wrap">
         <template v-if="isFileBubble">
-          <FileMessage :message="props.message" :pending-upload="props.pendingUpload" :show-download="true" :src
+          <FileMessage :message="props.message" :pending-upload="props.pendingUpload" :src
             :allow-inline-media-load="props.allowInlineMediaLoad" />
         </template>
 
@@ -236,10 +261,10 @@ function handleDiscardSend() {
           </template>
           <template v-else-if="isTextFailed">
             <span class="client-status failed">发送失败</span>
-            <el-button link color="#2563eb" size="small" class="retry-action" @click="handleRetrySend">
+            <el-button link size="small" class="retry-action" @click="handleRetrySend">
               重试
             </el-button>
-            <el-button link color="#909399" size="small" class="retry-action" @click="handleDiscardSend">
+            <el-button link type="danger" size="small" class="retry-action" @click="handleDiscardSend">
               删除
             </el-button>
           </template>
@@ -300,20 +325,26 @@ function handleDiscardSend() {
   margin-bottom: 3px;
   padding: 8px 10px;
   border: 0;
-  border-left: 3px solid #9ca3af;
+  border-left: 3px solid var(--chat-reply-border, #9ca3af);
   border-radius: 6px;
   border-bottom-left-radius: 0;
   border-top-left-radius: 0;
-  color: var(--text-muted);
+  color: var(--chat-muted, #6b7280);
   text-align: left;
   cursor: pointer;
-  background: rgba(229, 231, 235, 0.3);
+  background: var(--chat-reply-bg, #e9ecef);
+  transition: background-color 0.15s ease;
+
+  &:hover {
+    background: var(--chat-reply-hover, #e1e5e9);
+  }
 }
 
 .reply-card-sender {
   font-size: 11px;
   font-weight: 600;
   line-height: 18px;
+  color: #4b5563;
 }
 
 .reply-card-preview {
@@ -330,7 +361,7 @@ function handleDiscardSend() {
   font-weight: 500;
 
   &.uploading {
-    color: #2563eb;
+    color: #9a4f8d;
   }
 
   &.failed {
@@ -398,18 +429,27 @@ function handleDiscardSend() {
 
 .msg-item.mine .reply-card {
   border-left: 0;
-  border-right: 3px solid #111827;
-  background: rgba(230, 240, 255, 0.5);
+  border-right: 3px solid var(--chat-accent, #9a4f8d);
+  background: var(--chat-reply-self-bg, #eddfea);
   border-top-left-radius: 6px;
   border-bottom-left-radius: 6px;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
+
+  &:hover {
+    background: var(--chat-reply-self-hover, #ebd5e7);
+  }
+}
+
+.msg-item.mine .reply-card .reply-card-sender {
+  color: var(--chat-accent, #9a4f8d);
 }
 
 .msg-item.mine .recalled-message {
-  background: #e7f0ff;
+  background: var(--chat-accent-soft, #f7e8f4);
 }
 
+// 点击引用跳转到原消息时，用主题色呼吸描边 + 主题浅底提示
 .msg-item.highlighted :deep(.video-message),
 .msg-item.highlighted :deep(.audio-message),
 .msg-item.highlighted :deep(.document-message),
@@ -418,7 +458,7 @@ function handleDiscardSend() {
 .msg-item.highlighted .reply-card,
 .msg-item.highlighted .recalled-message,
 .msg-item.highlighted .system-notice-text {
-  box-shadow: 0 0 0 0 rgb(200 176 19 / 28%);
+  box-shadow: 0 0 0 1px rgb(154 79 141 / 28%);
   animation: highlighted-blink 1.1s ease-in-out infinite alternate;
 }
 
@@ -426,18 +466,22 @@ function handleDiscardSend() {
 .msg-item.highlighted .reply-card,
 .msg-item.highlighted .recalled-message,
 .msg-item.highlighted .system-notice-text {
-  background-color: #fff8d9 !important;
+  background-color: var(--chat-highlight-bg, #e9d8e6) !important;
 }
 
 @keyframes highlighted-blink {
   from {
-    box-shadow: 0 0 1px 1px rgb(200 176 19 / 18%);
+    box-shadow:
+      0 0 1px 1px rgb(154 79 141 / 28%),
+      0 0 6px rgb(154 79 141 / 18%);
     filter: brightness(1);
   }
 
   to {
-    box-shadow: 0 0 2px 2px rgb(200 176 19 / 42%);
-    filter: brightness(1.06);
+    box-shadow:
+      0 0 2px 2px rgb(154 79 141 / 55%),
+      0 0 14px rgb(154 79 141 / 32%);
+    filter: brightness(1.02);
   }
 }
 </style>

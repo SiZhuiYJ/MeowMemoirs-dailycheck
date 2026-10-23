@@ -368,22 +368,28 @@ function removeTimeSlot(index: number) {
   padding: 6px 10px;
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
+  background-color: var(--bg-elevated);
+  color: var(--text-color);
 }
 
 .icon-btn.danger {
   padding: 2px 8px;
   font-size: 11px;
-  background: none;
-  color: var(--danger-color);
-  border: 1px solid var(--danger-color);
+  background: transparent;
+  color: var(--el-color-danger);
+  border: 1px solid var(--el-color-danger);
+  transition: background-color 0.2s ease, color 0.2s ease;
+
+  &:hover {
+    background: var(--el-color-danger-light-9);
+    color: var(--el-color-danger);
+  }
 }
 
 .secondary {
   background-color: transparent;
-  border: 1px dashed var(--border-color);
-  color: var(--text-secondary);
+  border: 1px dashed var(--theme-color-muted);
+  color: var(--theme-color-strong);
 }
 
 input,
@@ -391,8 +397,8 @@ textarea {
   padding: 8px;
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
+  background-color: var(--bg-elevated);
+  color: var(--text-color);
 }
 
 input:focus,
@@ -414,7 +420,17 @@ button {
   border-radius: 6px;
   cursor: pointer;
   font-weight: 500;
-  transition: opacity 0.2s;
+  background-color: var(--theme-color-soft);
+  color: var(--theme-color-strong);
+  transition:
+    opacity 0.2s,
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+button:hover:not(:disabled) {
+  background-color: var(--theme-primary-bg);
+  color: var(--theme-color-contrast);
 }
 
 button:active {
@@ -422,12 +438,26 @@ button:active {
 }
 
 button.primary {
-  background-color: var(--accent-color);
-  color: white;
+  background-color: var(--theme-action-bg);
+  color: var(--theme-action-contrast);
+
+  &:hover:not(:disabled) {
+    background-color: var(--theme-action-hover);
+  }
 }
 
 button.danger {
-  background-color: #fee2e2;
-  color: #ef4444;
+  background-color: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+
+  &:hover:not(:disabled) {
+    background-color: var(--el-color-danger-light-8);
+    color: var(--el-color-danger);
+  }
+}
+
+button.secondary:hover:not(:disabled) {
+  background-color: var(--theme-color-soft);
+  color: var(--theme-color-strong);
 }
 </style>
