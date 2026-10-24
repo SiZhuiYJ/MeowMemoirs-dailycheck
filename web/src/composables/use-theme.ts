@@ -41,7 +41,7 @@ const THEME_STORAGE_KEY = "theme";
 const THEME_COLOR_STORAGE_KEY = "themeColor";
 
 /** 动画时长；CSS 侧通过 --theme-transition-duration 读取同一数值。 */
-export const THEME_TRANSITION_MS = 720;
+export const THEME_TRANSITION_MS = 1100;
 /** 降级动画的缓动；theme-transition.scss 的 --theme-transition-ease 必须一致。 */
 const THEME_TRANSITION_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
 

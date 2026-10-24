@@ -422,8 +422,8 @@ check("降级路径切到 light", fallback.theme === "light", JSON.stringify(fal
 check("降级路径挂上颜色过渡类", fallback.colorClass === true);
 check("降级路径波纹元素开始扩散", fallback.rippling === true);
 check(
-  "降级路径播放 720ms 波纹动画",
-  fallback.ringAnimations.length > 0 && fallback.ringAnimations.every((a) => a.duration === 720),
+  "降级路径播放 1100ms 波纹动画",
+  fallback.ringAnimations.length > 0 && fallback.ringAnimations.every((a) => a.duration === 1100),
   JSON.stringify(fallback.ringAnimations),
 );
 check(
@@ -462,7 +462,8 @@ await cdp.evaluate(`(() => {
   window.__themeTest.setTheme('dark');
   return true;
 })()`);
-await sleep(900);
+// 降级动画现在 1100ms，等它完整结束再断言，避免把「仍在切换」当成残留
+await sleep(1400);
 const rapid = await cdp.evaluate(`(() => {
   const root = document.documentElement;
   return {

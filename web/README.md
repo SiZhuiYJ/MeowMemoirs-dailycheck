@@ -106,7 +106,7 @@ Element Plus 默认值，不参与主题色替换。
    由 `theme-ripple-ring` 关键帧从圆心放大到视口对角线，并带主题色描边与发光。
    整页文字、面板、背景都会随波纹一起更新，不只是背景色。
 2. 不支持时：给 `<html>` 临时挂 `.theme-colors-transitioning`，
-   对颜色相关属性做 720ms transition；同一枚波纹退化为真实 DOM 元素播放缩放动画。
+   对颜色相关属性做 1100ms transition；同一枚波纹退化为真实 DOM 元素播放缩放动画。
 3. 系统开启 `prefers-reduced-motion: reduce` 时，程序化 `setTheme` 默认直接生效；
    但顶栏按钮是用户主动点击的明确反馈，`toggleTheme` 会 `force` 播放波纹，
    避免出现「点了按钮却只是瞬切」的无反馈状态。
