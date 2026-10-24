@@ -1,4 +1,5 @@
 import { onBeforeMount, onBeforeUnmount } from "vue";
+import { refreshThemePalette } from "@/composables/use-theme";
 
 /**
  * 固定浅色面标记。
@@ -18,6 +19,8 @@ function acquire(): void {
   holders += 1;
   if (typeof document !== "undefined") {
     document.documentElement.classList.add(LIGHT_SURFACE_CLASS);
+    // 浅色面必须用日间色阶：重新生成主题变量，而不是继承夜间的值
+    refreshThemePalette();
   }
 }
 
@@ -25,6 +28,7 @@ function release(): void {
   holders = Math.max(0, holders - 1);
   if (holders === 0 && typeof document !== "undefined") {
     document.documentElement.classList.remove(LIGHT_SURFACE_CLASS);
+    refreshThemePalette();
   }
 }
 

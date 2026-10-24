@@ -30,6 +30,7 @@ import { useAuthStore } from '@/stores';
 import MessageItem from './MessageItem.vue';
 import FileUploadButton from './FileUploadButton.vue';
 import ChatContextMenu, { type ChatContextMenuItem } from './ChatContextMenu.vue';
+import ChatDialog from './ChatDialog.vue';
 import { rememberBlobUrl, useFileDownloader } from '../composables/useFileDownloader';
 import { useChatContextMenu } from '../composables/useChatContextMenu';
 import { copyImageFromUrl, copyTextToClipboard } from '../utils/clipboard';
@@ -1691,8 +1692,9 @@ onBeforeUnmount(() => {
       <ChatContextMenu v-model="avatarMenuVisible" :x="avatarMenuX" :y="avatarMenuY" :items="avatarMenuItems"
         aria-label="用户头像操作" @select="handleAvatarMenuSelect" />
 
-      <el-dialog v-model="dropUploadDialogVisible" title="确认上传文件" width="560px" :close-on-click-modal="!dropUploadBusy"
-        :close-on-press-escape="!dropUploadBusy" :show-close="!dropUploadBusy" @closed="clearDroppedFiles">
+      <ChatDialog v-model="dropUploadDialogVisible" title="确认上传文件" content-width="640px"
+        :closable="!dropUploadBusy" :close-on-click-modal="!dropUploadBusy" :close-on-press-escape="!dropUploadBusy"
+        :show-close="!dropUploadBusy" @closed="clearDroppedFiles">
         <div class="drop-file-dialog">
           <div class="drop-file-question">是否上传这些文件到当前会话？</div>
           <div class="drop-file-summary">
@@ -1733,7 +1735,7 @@ onBeforeUnmount(() => {
             </el-button>
           </div>
         </template>
-      </el-dialog>
+      </ChatDialog>
     </div>
 
     <div v-else class="empty">请选择一个会话开始聊天。</div>
@@ -1849,8 +1851,7 @@ onBeforeUnmount(() => {
 .drop-file-list {
   display: grid;
   gap: 8px;
-  max-height: 320px;
-  overflow: auto;
+  // 弹层本身已有唯一滚动区（.chat-dialog-scrollbar），列表不再套第二层滚动。
   padding-right: 2px;
 }
 

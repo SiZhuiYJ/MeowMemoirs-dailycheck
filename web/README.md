@@ -12,39 +12,93 @@ npm run build    # vue-tsc -b 类型检查 + vite build
 
 ---
 
-## 主题切换（日间 / 夜间）
+## Miku 光标（内置动画指针）
+
+`src/libs/mikuCursor/` 用 Miku 主题的 `.ani` 动画指针替换系统光标。`src/assets/Miku/*.ani`
+是**源文件**，运行时不再解析它们；构建期由脚本拆成帧与动画信息：
+
+```bash
+npm run cursors   # 重新生成帧图 + cursors.generated.ts
+```
+
+产物（已提交，改完 `.ani` 记得重跑）：
+
+| 路径 | 内容 |
+| --- | --- |
+| `public/miku-cursors/<cursor>/<frame>.png` | 32×32 帧图；首帧由元数据 `steps[0]` 指定（本批素材都是 `0.png`） |
+| `src/libs/mikuCursor/cursors.generated.ts` | 每帧时长、总时长、准星（热点）、内容版本号（别手改） |
+
+运行时分两步：
+
+1. **启动**：只给每只光标装首帧（单帧动画）并预热首帧图片 —— 首屏就有 Miku 光标，
+   不用等 146 帧全部下载；
+2. **空闲**：`requestIdleCallback` 里逐只光标加载剩余帧，加载完把同一条 `<style>` 换成完整
+   `@keyframes`，光标开始动。
+
+光标**准星**也来自素材：ANI 每帧 CUR 头里的 hotspot，生成时按 `32 / 原始尺寸` 换算，
+不要在手写热点里调 —— 写错会让整只光标（比如按钮上的 Link）整体偏移。
+
+帧图放 `public/` 是为了「用到哪张才请求哪张」（放 `src/assets` 会被打进模块图，dev 启动
+多 146 个请求）；`?v=<版本号>` 负责缓存失效。选择器白名单在 `src/libs/mikuCursor/index.ts`
+的 `CURSOR_RULES`：新增「整块可点」的自定义元素（不是 `<button>`/`<a>`）时，把选择器补到
+`appInteractiveSelectors`，否则它会因为自己的 `cursor: pointer` 掉回系统光标。
+
+---
+
+## 主题切换（日间 / 夜间）与主题色自定义
 
 默认主题色（种子色）是 **`#e3c0df`**，以 `src/config/index.ts` 的 `DEFAULT_THEME` 为准。
-`src/styles/theme-colors.scss` 把种子色展开成全局色板，品牌色一律引用变量，
-不再在各组件里写蓝色 / 靛色 / 紫色：
+用户可以在聊天页「更多」或用户信息下拉点「主题色」，打开
+`ThemeColorDialog` 对话框调整：
+
+- 预设色点 / 原生取色器 / 恢复默认；
+- 取色后实时生成整套色阶，写入 `<html>` 行内 CSS 变量；
+- 颜色切换带 **500ms** 全局颜色过渡（`theme-color-transitioning`），不播整页波纹；
+- 种子色存 `localStorage.themeColor`，日夜模式存 `localStorage.theme`；
+- 刷新后 `index.html` 首屏脚本先写回种子色，`use-theme.ts` 再补齐完整色阶。
+
+色阶由 `src/composables/theme-palette.ts` 从种子色的 HSL 推导：日间压深强调色、
+加白浅底、深色动作按钮；夜间提亮强调色、半透明浅底、暗色动作按钮；
+Element Plus primary 的 light-3/5/7/8/9 / dark-2 也同步生成。
+`src/styles/theme-colors.scss` 保留默认色的首屏兜底。
+
+默认种子色生成的近似值：
 
 | 变量 | 日间 | 夜间 | 用途 |
 | --- | --- | --- | --- |
 | `--theme-color` | `#e3c0df` | `#e3c0df` | 种子色：波纹、浅色底、装饰 |
-| `--theme-color-strong` | `#9a4f8d` | `#e3c0df` | 可读强调：链接、文字、焦点、描边 |
-| `--theme-color-deep` | `#7a3a6f` | `#f0cdea` | hover / active |
-| `--theme-color-soft` | `#f7e8f4` | 半透明主题色 | 选中态、tag、浅底 |
+| `--theme-color-strong` | `#9b4f93` | `#e3c0df` | 可读强调：链接、文字、焦点、描边 |
+| `--theme-color-deep` | `#783a71` | `#e9cfe6` | hover / active |
+| `--theme-color-soft` | `#f7e9f5` | 半透明主题色 | 选中态、tag、浅底 |
 | `--theme-color-contrast` | `#2b1428` | `#2b1428` | 种子色 / 浅色底上的文字 |
 | `--theme-primary-bg` | `#e3c0df` | `#e3c0df` | 浅色主题底（次级按钮 / 展示块） |
-| `--theme-action-bg` | `#9a4f8d` | `#7e617a` | 深色动作按钮底（主操作） |
+| `--theme-primary-hover` | `#d6a4d1` | `#e9cee6` | 浅底 hover |
+| `--theme-action-bg` | `#9b4f93` | `#7f627c` | 深色动作按钮底（主操作） |
 | `--theme-action-contrast` | `#ffffff` | `#ffffff` | 深色动作按钮文字（白） |
 | `--theme-gradient` | 深梅 → 暗梅 | 同左 | 登录 / 确认按钮渐变 |
 
 深色动作按钮的底色是种子的深色变体（不是 `#e3c0df` 本身）：
 白字落在 `#e3c0df` 上只有 1.6:1 对比度，落在 `--theme-action-bg` 上约 5.4:1。
-浅色底上的文字由 `use-theme.ts` 的 `pickOnColor()` 按 WCAG 对比度自动挑白 / 深梅色；
+浅色底上的文字由 `theme-palette.ts` 的 `pickOnColor()` 按 WCAG 对比度自动挑白 / 深梅色；
 当前种子色会挑深梅色，主题色变深时自动切白。
 
-Element Plus 的 primary 也映射到同一色板：日间 `--el-color-primary: #9a4f8d`，
+Element Plus 的 primary 也映射到同一色板：日间 `--el-color-primary: #9b4f93`，
 夜间回到种子色；实心 primary 按钮统一用 `--theme-action-bg` + 白字，
 plain / link 版本仍用浅底 + 可读强调色字。success / warning / danger 等语义色保持
 Element Plus 默认值，不参与主题色替换。
 
-> 聊天页是固定的浅色面，使用自己的 `--chat-accent: #9a4f8d` / `--chat-accent-soft`，
-> 不跟随全局暗色 token，否则选中态在白色聊天面上会变成过淡的粉。
+> 聊天页是固定的浅色面，`useLightSurface()` 会给 `<html>` 挂 `.theme-light-surface`，
+> 并让主题色始终取**日间色阶**的 `--theme-color-strong` / `--theme-color-soft`
+> 作为 `--chat-accent` / `--chat-accent-soft`；离开聊天页后恢复当前日夜模式的色阶。
 
-切换入口是顶栏的太阳 / 月亮按钮（`Topbar.vue` → `useTheme().toggleTheme()`）。
-点击后不是全局瞬间换色，而是以**视口中心**为圆心扩散一圈环形波纹：
+切换入口：
+
+- **日 / 夜**：顶栏太阳 / 月亮按钮（`toggleTheme()`，带波纹动画）；
+- **主题色**：聊天页「更多」、用户信息下拉的「主题色」按钮 → 对话框
+  （`setThemeColor()` / `resetThemeColor()`，取色时 500ms 颜色过渡，
+  不播整页动画）。
+
+日 / 夜切换点击后不是全局瞬间换色，而是以**视口中心**为圆心扩散一圈环形波纹：
 
 1. 支持 View Transitions 的浏览器（Chrome / Edge / Safari 18+ 等）：
    旧、新主题各拍一张快照，新的那张按 `circle()` 从圆心向外揭开；
@@ -208,6 +262,52 @@ Element Plus 默认值，不参与主题色替换。
 > 聊天页把它们统一挂到 `var(--chat-control-h)` 上（见 `features/chat/style/index.scss`），
 > 否则会出现「输入框 24px、按钮 32px、下拉框 32px」的错位。
 
+
+### 聊天弹层（`ChatDialog`）
+
+聊天页里的弹层（会话详情 / 邀请成员 / 加群申请 / 禁言 / 好友列表 / 搜索好友 /
+好友申请 / 黑名单 / 申请加入群聊 / 拖拽上传确认 / 文件详情）统一使用
+`src/features/chat/components/ChatDialog.vue`，**不再使用 `el-dialog` / `el-drawer`**。
+
+它把聊天主界面的布局直接搬进弹层（整屏、三层）：
+
+```text
+.chat-dialog-overlay                 遮罩（fixed，跟随 --app-h）
+  └ .chat-dialog.conversation-detail 面板：100% 宽高（max 100vw / --app-h）
+      ├ .chat-header                 顶部栏（标题 + header-actions + 关闭）
+      ├ .el-scrollbar                中间内容栏（唯一滚动区，宽高 100%）
+      │   └ .chat-dialog-body        内容列（居中，max-width 默认 760px）
+      └ .composer                    底部栏（仅当传入 #footer 时渲染）
+```
+
+| 要点 | 规则 |
+| --- | --- |
+| 尺寸 | 面板宽高均为窗口的 100%，`max-width: 100vw`、`max-height: var(--app-h, 100dvh)`；中间 `.el-scrollbar` 同样是 100% / 100% |
+| 顶部 / 底部栏 | 绝对定位 + 毛玻璃渐变，沿用聊天页 `.chat-header` / `.composer` 的视觉；内容从它们下面滚过去 |
+| 内容宽度 | `content-width` 控制内容列（`760px` / `720px` / `640px` / …），只影响内容，不影响滚动区铺满窗口 |
+| 三档密度 | 大屏 32px 控件 / 12px 间距；平板·手机 24px / 6px（`device-mobile`），与聊天页同一套变量 |
+| 安全区 | 顶部、底部、左右都叠加 `--safe-*`，刘海屏 / 手势条不会压住标题和按钮 |
+| 层级 | 基准 z-index `1900`（低于 Element Plus 的 2000 档，`ElMessageBox.confirm` 与下拉框才能浮在上面）；嵌套弹层按打开顺序每层 +10 |
+| 滚动 | 弹层里只有 `.chat-dialog-scrollbar` 一个滚动区；调用方的长列表**不要再套 `el-scrollbar`**，成员列表 / 拖拽文件列表的内层 `max-height + overflow` 也一并去掉 |
+| 交互 | 打开锁 body 滚动（嵌套用计数）；ESC 只关最上层；Tab 焦圈限制在面板内，关闭后焦点还原到打开前元素 |
+| 事件 | `update:modelValue` / `open` / `opened` / `close` / `closed`；`closed` 在过渡结束后触发，与原 `el-dialog` 的 `@closed` 语义一致 |
+| 忙碌态 | `closable` 是总开关（关闭按钮 / 遮罩 / ESC）；`show-close`、`close-on-click-modal`、`close-on-press-escape` 与原 `el-dialog` 同名同义 |
+
+示例：
+
+```vue
+<ChatDialog v-model="visible" title="好友列表" content-width="640px"
+  @closed="reset">
+  <!-- 长列表直接铺开，交给弹层的唯一滚动区 -->
+  <div v-for="item in items" :key="item.id">…</div>
+
+  <template #footer>
+    <el-button @click="visible = false">关闭</el-button>
+  </template>
+</ChatDialog>
+```
+
+> `ChatDialog` 自己 Teleport 到 `body`，调用方不要在外面再包一层 `<Teleport>`。
 
 ### 规则实现在哪
 

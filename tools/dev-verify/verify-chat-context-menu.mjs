@@ -783,6 +783,29 @@ const openedDetail = await cdp.evaluate(`(() => {
 check("打开群聊详情", openedDetail);
 await sleep(900);
 
+const dialogShell = await cdp.evaluate(`(() => {
+  const overlay = document.querySelector('.chat-dialog-overlay');
+  if (!overlay) return null;
+  const overlayStyle = getComputedStyle(overlay);
+  const header = document.querySelector('.chat-dialog > .chat-header');
+  const headerStyle = header ? getComputedStyle(header) : null;
+  const appH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-h'));
+  const overlayRect = overlay.getBoundingClientRect();
+  return {
+    position: overlayStyle.position,
+    background: overlayStyle.backgroundColor,
+    heightDiff: Number.isFinite(appH) ? Math.round(Math.abs(overlayRect.height - appH)) : 0,
+    headerPosition: headerStyle?.position ?? null,
+    headerBackdrop: headerStyle?.backdropFilter ?? null,
+  };
+})()`);
+check("聊天弹层遮罩使用共享全屏浮层样式（fixed / 全高 / 半透明）",
+  dialogShell?.position === "fixed" && dialogShell?.heightDiff <= 2 && dialogShell?.background !== "rgba(0, 0, 0, 0)",
+  JSON.stringify(dialogShell));
+check("聊天弹层头部仍是悬浮毛玻璃",
+  dialogShell?.headerPosition === "absolute" && dialogShell?.headerBackdrop !== "none",
+  JSON.stringify(dialogShell));
+
 const memberAvatarInfo = await cdp.evaluate(`(() => {
   const avatar = document.querySelector('.member-avatar-link');
   if (!avatar) return null;

@@ -90,22 +90,43 @@ function handlePopState() {
 }
 
 /**
+ * 清掉 URL 里的一次性 conversationId。
+ *
+ * 它是「主页 -> 会话」的一次性交接参数：消费后必须从地址栏移除，
+ * 否则用户切到别的会话再刷新页面，又会被它带回旧会话。
+ */
+async function clearConversationQuery() {
+  if (!(CHAT_CONVERSATION_QUERY in route.query)) return;
+
+  const query = { ...route.query };
+  delete query[CHAT_CONVERSATION_QUERY];
+  await router.replace({ path: route.path, query, hash: route.hash });
+}
+
+/**
  * 打开 URL 里带回来的会话（用户主页「发消息」/「返回聊天」）。
  *
  * 只有同时满足下面两个条件才真的切换会话：
  *   1. conversationId 是合法正整数；
  *   2. 它仍在该用户当前的会话列表里（可能已被删除、退出群聊或本来就不属于自己）。
  * 任一条件不满足就「什么都不动」，保持现有界面原样。
+ *
+ * 无论是否命中，参数都会在消费后清掉，避免下次刷新时重复触发。
  */
 async function restoreConversationFromQuery() {
+  if (!(CHAT_CONVERSATION_QUERY in route.query)) return;
+
   const targetConversationId = parseConversationId(
     route.query[CHAT_CONVERSATION_QUERY],
   );
-  if (!targetConversationId) return;
+  const target = targetConversationId
+    ? chat.conversations.value.find((item) => item.id === targetConversationId)
+    : null;
 
-  const target = chat.conversations.value.find(
-    (item) => item.id === targetConversationId,
-  );
+  // 先清 URL 再选中：手机端选中会话会临时 pushState，
+  // 这一步必须在地址栏已经干净时执行，新的历史记录才不会又带上旧 ID。
+  await clearConversationQuery();
+
   if (!target) return;
 
   await handleSelectConversation(target);

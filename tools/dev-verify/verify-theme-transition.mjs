@@ -41,6 +41,24 @@ const skip = (reason) => {
 };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const colorLuminance = (hex) => {
+  const value = String(hex).replace("#", "");
+  if (!/^[\da-f]{6}$/i.test(value)) return NaN;
+  const channels = [0, 2, 4].map((offset) => {
+    const channel = Number.parseInt(value.slice(offset, offset + 2), 16) / 255;
+    return channel <= 0.03928
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+};
+const colorContrast = (a, b) => {
+  const [lighter, darker] = [colorLuminance(a), colorLuminance(b)].sort(
+    (left, right) => right - left,
+  );
+  return (lighter + 0.05) / (darker + 0.05);
+};
+
 if (typeof WebSocket === "undefined") skip("当前 Node 没有全局 WebSocket（需要 Node >= 22）");
 
 function findChromium() {
@@ -258,21 +276,23 @@ const initial = await cdp.evaluate(`(() => {
 check("初始主题为日间", initial.theme === "light" && initial.dark === false, JSON.stringify(initial));
 check("默认主题色 #e3c0df 作为种子色生效（--theme-color）", initial.themeColor === "#e3c0df", JSON.stringify(initial));
 check(
-  "日间强调色 / EP primary 压深到可读的 #9a4f8d",
-  initial.strong === "#9a4f8d" &&
-    initial.accent === "#9a4f8d" &&
-    initial.elPrimary === "#9a4f8d",
+  "日间强调色 / EP primary 压深到可读色（白底对比度 >= 4.5）",
+  initial.strong === initial.accent &&
+    initial.accent === initial.elPrimary &&
+    colorContrast(initial.strong, "#ffffff") >= 4.5,
   JSON.stringify(initial),
 );
 check(
-  "日间柔和底色 / 渐变第二色都属于主题色（不再有蓝色 accent-alt）",
-  initial.soft === "#f7e8f4" &&
+  "日间柔和底色是主题浅色，accent-alt 仍是种子色（不再有蓝色）",
+  colorLuminance(initial.soft) > 0.8 &&
     (initial.accentAlt === "#e3c0df" || initial.accentAlt === "rgb(227, 192, 223)"),
   JSON.stringify(initial),
 );
 check(
-  "日间深色动作按钮用深梅底 + 白字",
-  initial.actionBg === "#9a4f8d" && initial.actionContrast === "#ffffff",
+  "日间深色动作按钮 = 强调色，白字对比度 >= 4.5",
+  initial.actionBg === initial.strong &&
+    initial.actionContrast === "#ffffff" &&
+    colorContrast(initial.actionBg, "#ffffff") >= 4.5,
   JSON.stringify(initial),
 );
 check("当前 chromium 支持 View Transitions", initial.vt === "function", initial.vt);
@@ -362,8 +382,9 @@ check(
   JSON.stringify(afterVt),
 );
 check(
-  "夜间深色动作按钮用暗梅底 + 白字",
-  afterVt.actionBg === "#7e617a" && afterVt.actionContrast === "#ffffff",
+  "夜间深色动作按钮保持深色底 + 可读白字",
+  afterVt.actionContrast === "#ffffff" &&
+    colorContrast(afterVt.actionBg, "#ffffff") >= 4.5,
   JSON.stringify(afterVt),
 );
 check("动画结束后波纹层恢复未命名", afterVt.layerSwitching === "none", afterVt.layerSwitching);
@@ -542,6 +563,91 @@ check(
     afterForced.colorClass === false &&
     afterForced.stored === "dark",
   JSON.stringify(afterForced),
+);
+
+// ── 6. 自定义主题色：生成全套色阶 + 持久化 ────────────────────────────────
+await cdp.evaluate(`window.__themeTest.setThemeColor('#e3c0df')`);
+await cdp.evaluate(`window.__themeTest.setTheme('light', { animate: false })`);
+const customLight = await cdp.evaluate(`(() => {
+  const m = window.__themeTest;
+  const ok = m.setThemeColor('#4f8cff');
+  const cs = getComputedStyle(document.documentElement);
+  return {
+    ok,
+    seed: cs.getPropertyValue('--theme-color').trim().toLowerCase(),
+    strong: cs.getPropertyValue('--theme-color-strong').trim().toLowerCase(),
+    actionBg: cs.getPropertyValue('--theme-action-bg').trim().toLowerCase(),
+    actionContrast: cs.getPropertyValue('--theme-action-contrast').trim().toLowerCase(),
+    ep: cs.getPropertyValue('--el-color-primary').trim().toLowerCase(),
+    stored: localStorage.getItem('themeColor'),
+    transitioning: document.documentElement.classList.contains('theme-color-transitioning'),
+    duration: cs.getPropertyValue('--theme-color-transition-duration').trim(),
+  };
+})()`);
+check(
+  "自定义主题色写入种子色并持久化",
+  customLight.ok === true &&
+    customLight.seed === "#4f8cff" &&
+    customLight.stored === "#4f8cff",
+  JSON.stringify(customLight),
+);
+check(
+  "自定义主题色同步 Element Plus primary 与深色动作按钮",
+  customLight.ep === customLight.strong &&
+    customLight.actionContrast === "#ffffff" &&
+    colorContrast(customLight.actionBg, "#ffffff") >= 4.5,
+  JSON.stringify(customLight),
+);
+check(
+  "主题色变化时挂上 500ms 纯颜色过渡类",
+  customLight.transitioning === true && customLight.duration === "500ms",
+  JSON.stringify(customLight),
+);
+await sleep(650);
+const colorTransitionSettled = await cdp.evaluate(
+  `!document.documentElement.classList.contains('theme-color-transitioning')`,
+);
+check("颜色过渡结束后清理类", colorTransitionSettled === true);
+
+// 先切到夜间，再读自定义色在夜间的色阶
+await cdp.evaluate(`window.__themeTest.setTheme('dark', { animate: false })`);
+const customDarkAfter = await cdp.evaluate(`(() => {
+  const cs = getComputedStyle(document.documentElement);
+  return {
+    theme: document.documentElement.dataset.theme,
+    seed: cs.getPropertyValue('--theme-color').trim().toLowerCase(),
+    strong: cs.getPropertyValue('--theme-color-strong').trim().toLowerCase(),
+    actionBg: cs.getPropertyValue('--theme-action-bg').trim().toLowerCase(),
+    actionContrast: cs.getPropertyValue('--theme-action-contrast').trim().toLowerCase(),
+    ep: cs.getPropertyValue('--el-color-primary').trim().toLowerCase(),
+  };
+})()`);
+check(
+  "自定义色夜间生成更亮的强调色并保持白字动作按钮",
+  customDarkAfter.theme === 'dark' &&
+    customDarkAfter.seed === "#4f8cff" &&
+    customDarkAfter.ep === customDarkAfter.strong &&
+    customDarkAfter.actionContrast === "#ffffff" &&
+    colorContrast(customDarkAfter.actionBg, "#ffffff") >= 4.5,
+  JSON.stringify(customDarkAfter),
+);
+
+await cdp.evaluate(`window.__themeTest.setThemeColor('#e3c0df')`);
+await cdp.evaluate(`window.__themeTest.setTheme('light', { animate: false })`);
+const restored = await cdp.evaluate(`(() => {
+  const cs = getComputedStyle(document.documentElement);
+  return {
+    seed: cs.getPropertyValue('--theme-color').trim().toLowerCase(),
+    stored: localStorage.getItem('themeColor'),
+    theme: document.documentElement.dataset.theme,
+  };
+})()`);
+check(
+  "恢复默认主题色 #e3c0df",
+  restored.seed === "#e3c0df" &&
+    restored.stored === "#e3c0df" &&
+    restored.theme === "light",
+  JSON.stringify(restored),
 );
 
 check("页面没有未捕获异常", cdp.pageExceptions.length === 0, cdp.pageExceptions.join(" | "));

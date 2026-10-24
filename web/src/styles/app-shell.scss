@@ -1,0 +1,130 @@
+// ==============================================
+// 应用外壳（App Shell）通用样式
+// ==============================================
+// 聊天页、用户主页、聊天弹层共用同一套「页面 → 白色圆角面板 → 内容 → 悬浮头/底栏」
+// 结构。这里只提取**结构与皮肤**，具体页面用各自的语义 class，不再互相复用
+// `.chat-page` / `.main-panel` / `.chat-header` / `.composer` 这些聊天专用类名。
+//
+// 使用方式：
+//   @use "@/styles/app-shell" as shell;
+//   .my-page   { @include shell.app-shell-tokens; @include shell.app-page-shell; }
+//   .my-panel  { @include shell.app-surface-panel; }
+//   .my-body   { @include shell.app-panel-body; }
+//   .my-header { @include shell.app-floating-header; }
+//   .my-footer { @include shell.app-floating-bar; }
+//   .my-scroll { @include shell.app-scroll-region-padding; }
+//
+// 所有 mixin 读取 `--shell-*` 变量：
+//   · 新页面直接 @include app-shell-tokens；
+//   · 聊天页保留自己的 --chat-* 变量，再用 --shell-*: var(--chat-*) 做一次别名即可。
+
+@mixin app-shell-tokens {
+  --shell-gap: 12px;
+  --shell-pad: 12px;
+  --shell-control-h: 32px;
+  --shell-radius: 8px;
+  --shell-title-fs: 16px;
+  --shell-bar-h: calc(var(--shell-control-h) + var(--shell-pad) * 2);
+
+  --shell-bg: linear-gradient(180deg, #f7f7f5 0%, #ebeae4 100%);
+  --shell-surface: rgba(255, 255, 255, 0.94);
+  --shell-border: rgba(17, 24, 39, 0.08);
+  --shell-shadow: 0 18px 40px rgba(17, 24, 39, 0.08);
+  --shell-muted: #6b7280;
+  // 与聊天主题共用强调色软背景；直接取全局主题 token，保留浅色/主题切换能力。
+  --shell-accent-soft: var(--chat-accent-soft, #f7e8f4);
+}
+
+/** 移动端密度：24px 控件 / 6px 间距（与聊天页、弹层共用）。 */
+@mixin app-shell-tokens-mobile {
+  --shell-gap: 6px;
+  --shell-pad: 6px;
+  --shell-control-h: 24px;
+  --shell-radius: 6px;
+  --shell-title-fs: 14px;
+}
+
+/**
+ * 整页外壳：占满真实视口（--app-h），安全区内边距，纵向 flex。
+ * 同时接管 EP 按钮高度，保证头部 / 底部控件与面板密度一致。
+ */
+@mixin app-page-shell {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--app-h);
+  min-height: var(--app-h);
+  gap: var(--shell-gap);
+  padding: calc(var(--shell-pad) + var(--safe-top)) calc(var(--shell-pad) + var(--safe-right)) calc(var(--shell-pad) + var(--safe-bottom)) calc(var(--shell-pad) + var(--safe-left));
+  overflow: hidden;
+  background: var(--shell-bg);
+
+  .el-button:not(.is-link) {
+    height: var(--shell-control-h);
+  }
+}
+
+/** 白色圆角面板：聊天主面板、会话侧栏、用户主页共用。 */
+@mixin app-surface-panel {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--shell-border);
+  border-radius: var(--shell-radius);
+  background: var(--shell-surface);
+  box-shadow: var(--shell-shadow);
+}
+
+/** 面板内部定位容器：作为浮动 header / footer 的包含块。 */
+@mixin app-panel-body {
+  position: relative;
+  height: 100%;
+}
+
+/** 悬浮顶部栏：绝对定位 + 毛玻璃渐变，内容从下面滚过去。 */
+@mixin app-floating-header {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--shell-gap);
+  padding: var(--shell-pad);
+  background: linear-gradient(var(--shell-surface), transparent);
+  backdrop-filter: blur(6px);
+}
+
+/** 悬浮底部操作栏：与聊天输入区 .composer 完全同一套皮肤。 */
+@mixin app-floating-bar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding: var(--shell-pad);
+  background: linear-gradient(to top, var(--shell-surface), transparent);
+  backdrop-filter: blur(6px);
+}
+
+/** 滚动区上下留白：给浮动的 header / footer 让位。 */
+@mixin app-scroll-region-padding {
+  padding: var(--shell-bar-h) var(--shell-pad);
+}
+
+/** 全屏弹层遮罩：聊天弹层等使用（固定视口高度，不随 body 滚动）。 */
+@mixin app-fullscreen-overlay($background: rgba(17, 24, 39, 0.32)) {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  height: var(--app-h, 100dvh);
+  background: $background;
+  overscroll-behavior: contain;
+}

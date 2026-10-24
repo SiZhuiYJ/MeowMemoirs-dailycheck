@@ -4,9 +4,9 @@
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-  <!-- 首屏主题：在 CSS 和 Vue 之前先把 data-theme 写到 <html>，
-       否则记住夜间模式的用户会先看到一帧日间主题。
-       逻辑与 src/composables/use-theme.ts 保持一致（存储键 "theme"）。 -->
+  <!-- 首屏主题：在 CSS 和 Vue 之前先把 data-theme / 主题色写到 <html>，
+       否则记住夜间模式或自定义色的用户会先看到一帧默认主题。
+       逻辑与 src/composables/use-theme.ts 保持一致（存储键 "theme" / "themeColor"）。 -->
   <script>
     (function () {
       try {
@@ -15,6 +15,20 @@
         var root = document.documentElement;
         root.setAttribute("data-theme", theme);
         if (theme === "dark") root.classList.add("dark");
+
+        var savedColor = localStorage.getItem("themeColor");
+        if (/^#[0-9a-f]{6}$/i.test(savedColor || "")) {
+          root.style.setProperty("--theme-color", savedColor);
+          var color = savedColor.slice(1);
+          root.style.setProperty(
+            "--theme-color-rgb",
+            parseInt(color.slice(0, 2), 16) +
+              ", " +
+              parseInt(color.slice(2, 4), 16) +
+              ", " +
+              parseInt(color.slice(4, 6), 16),
+          );
+        }
       } catch (error) {
         /* 存储不可用时保持默认日间主题 */
         try {

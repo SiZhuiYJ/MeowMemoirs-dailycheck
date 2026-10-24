@@ -2,14 +2,12 @@
 /**
  * 文件详情面板的**内容**（缩略图 icon、大小、发送时间、下载/预览按钮）。
  *
- * 单独拆出来是为了让「抽屉」和「对话框」两种外壳**共用同一份内容**：
- * 外壳（FileMessageDetail.vue）只负责决定用 el-drawer 还是 el-dialog，
- * 字段和按钮样式不会因为写了两份而漂移。
+ * 单独拆出来是为了让外壳（FileMessageDetail.vue）只负责套 ChatDialog 的
+ * 「顶部栏 / 内容栏 / 底部栏」，文件名、大小、按钮这些字段与样式都留在这里，
+ * 以后换外壳不会牵动内容。
  *
- * 不用 `<component :is>` 动态组件的原因：那样得从 element-plus 里**显式导入**
- * ElDrawer / ElDialog，而本项目的 Element Plus 是按需引入（unplugin-vue-components
- * + ElementPlusResolver），样式跟着模板标签注入 —— 动态组件绕开了静态分析，
- * 抽屉的 CSS 根本不会被引入，表现就是弹层不贴底（position 仍是 static）。
+ * 按钮区在手机档改成两列铺满（见文件末尾的 device-mobile 块）：整屏弹层里
+ * 左右两个按钮各占一半，比缩在左边一小撮更好点。
  */
 import { computed } from 'vue';
 import { Download, View } from '@element-plus/icons-vue';
@@ -91,6 +89,8 @@ const sentAtText = computed(() => formatChatDateTime(props.sentAt));
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .file-detail-body {
   display: grid;
   gap: 16px;
@@ -181,5 +181,18 @@ const sentAtText = computed(() => formatChatDateTime(props.sentAt));
   align-items: center;
   justify-content: center;
   gap: 6px;
+}
+
+// 手机 / 平板：下载与预览各占一半，整行更好点按。
+@include rp.device-mobile {
+  .file-detail-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .file-detail-action {
+    width: 100%;
+  }
 }
 </style>

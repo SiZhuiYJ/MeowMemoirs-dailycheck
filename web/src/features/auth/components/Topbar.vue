@@ -1,7 +1,8 @@
 <script setup lang="ts">
 
-import { ArrowDown } from "@element-plus/icons-vue";
+import { ArrowDown, Brush } from "@element-plus/icons-vue";
 import ProgressiveAvatar from "@/components/ProgressiveAvatar/index.vue";
+import ThemeColorDialog from "@/components/ThemeColorDialog.vue";
 import { useAuthStore } from "@/features/auth/stores";
 import { authApi } from "@/features/auth/api/index";
 import type { PasswordPayload } from "@/features/auth/types";
@@ -43,6 +44,7 @@ const authStore = useAuthStore();
 // 主题状态与切换动画统一由 use-theme 管理：
 // 点击后新的主题画面会以视口中心为圆心，用环形波纹向外扩散。
 const { theme, toggleTheme } = useTheme();
+const themeColorDialogVisible = ref(false);
 
 function handleCommand(command: string): void {
   if (command === "logout") {
@@ -58,6 +60,8 @@ function handleCommand(command: string): void {
     router.push("/chat");
   } else if (command === "changePassword") {
     openChangePasswordDialog();
+  } else if (command === "themeColor") {
+    themeColorDialogVisible.value = true;
   } else if (command === "deactivate") {
     openDeactivateDialog();
   }
@@ -259,6 +263,7 @@ async function handleDeactivateConfirm(): Promise<void> {
           <el-dropdown-menu>
             <el-dropdown-item command="profile">个人设置</el-dropdown-item>
             <el-dropdown-item command="changePassword">修改密码</el-dropdown-item>
+            <el-dropdown-item command="themeColor" :icon="Brush">主题色</el-dropdown-item>
             <el-dropdown-item command="chat" divided style="color: var(--theme-color-strong)">飞猫传书</el-dropdown-item>
             <el-dropdown-item command="deactivate" divided style="color: #ef4444">注销账号</el-dropdown-item>
             <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
@@ -351,6 +356,9 @@ async function handleDeactivateConfirm(): Promise<void> {
       </template>
     </el-dialog>
   </header>
+
+    <!-- 主题色设置 -->
+    <ThemeColorDialog v-model="themeColorDialogVisible" />
 </template>
 
 <style scoped lang="scss">

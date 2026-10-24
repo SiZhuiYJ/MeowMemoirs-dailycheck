@@ -1,28 +1,34 @@
-import { setANICursor, type CursorController } from "ani-cursor.js";
+/**
+ * Miku 动画光标。
+ *
+ * 素材在 `src/assets/Miku/*.ani`，但**运行时不解码 ANI**：构建期
+ * `scripts/build-miku-cursors.mjs` 已经把每个 .ani 拆成 32×32 的 PNG 帧，并把
+ * 每帧时长写进 `cursors.generated.ts`。这里只负责两件事：
+ *
+ *   1. 启动：给每类元素装「首帧」光标（单帧动画）并预热首帧图片，首屏即可用；
+ *   2. 空闲：逐只光标加载剩余帧，加载完替换成完整 @keyframes，开始播放。
+ *
+ * 选择器是白名单：元素自己写了 `cursor: pointer` 就会覆盖「继承来的」动画光标，
+ * 所以「整块可点但不是 button/a」的元素必须登记到 appInteractiveSelectors。
+ */
+import {
+  MIKU_CURSOR_VERSION,
+  MIKU_CURSORS,
+  type MikuCursorAnimation,
+  type MikuCursorKey,
+} from "./cursors.generated";
 
-import alternateCursorUrl from "@/assets/Miku/Alternate Select.ani?url";
-import busyCursorUrl from "@/assets/Miku/Busy.ani?url";
-import diagonalResizeOneCursorUrl from "@/assets/Miku/Diagonal Resize 1.ani?url";
-import diagonalResizeTwoCursorUrl from "@/assets/Miku/Diagonal Resize 2.ani?url";
-import handwritingCursorUrl from "@/assets/Miku/handwriting.ani?url";
-import helpCursorUrl from "@/assets/Miku/Help Select.ani?url";
-import horizontalResizeCursorUrl from "@/assets/Miku/Horizontal Resize.ani?url";
-import linkCursorUrl from "@/assets/Miku/Link.ani?url";
-import locationCursorUrl from "@/assets/Miku/Location Select.ani?url";
-import moveCursorUrl from "@/assets/Miku/Move.ani?url";
-import normalCursorUrl from "@/assets/Miku/Normal Select.ani?url";
-import personCursorUrl from "@/assets/Miku/Person Select.ani?url";
-import precisionCursorUrl from "@/assets/Miku/Precision Select.ani?url";
-import textCursorUrl from "@/assets/Miku/Text Select.ani?url";
-import unavailableCursorUrl from "@/assets/Miku/Unavailable.ani?url";
-import verticalResizeCursorUrl from "@/assets/Miku/Vertical Resize.ani?url";
-import workCursorUrl from "@/assets/Miku/Work.ani?url";
-
+/**
+ * 一条「选择器 → 光标」规则。
+ *
+ * 光标本身在构建期就被拆成了 32×32 的帧图（scripts/build-miku-cursors.mjs），
+ * 这里只负责说明「哪些元素用哪只光标、热点在哪」。
+ */
 type CursorRule = {
+  /** `cursors.generated.ts` 里的光标 key（准星/时长都跟着它走） */
+  cursor: MikuCursorKey;
   selectors: readonly string[];
-  cursorUrl: string;
   fallback: string;
-  hotspot: readonly [number, number];
 };
 
 type WindowWithOptionalIdleCallback = {
@@ -30,7 +36,18 @@ type WindowWithOptionalIdleCallback = {
   cancelIdleCallback?: (handle: number) => void;
 };
 
-const CURSOR_SIZE = 32;
+/**
+ * 帧图放在 `public/miku-cursors/`：构建时原样拷到站点根目录，不参与打包。
+ *
+ * 为什么不放 src/assets 用 import.meta.glob 拿 URL：146 张帧图会变成 146 个模块
+ * 请求（dev 启动时全部加载）或 146 个 chunk（build），而我们只需要「用到哪张才
+ * 请求哪张」。代价是没有内容 hash，所以用生成时的版本号 `?v=` 当缓存戳。
+ */
+const FRAME_BASE = `${import.meta.env.BASE_URL}miku-cursors/`;
+
+function frameUrl(file: string) {
+  return `${FRAME_BASE}${file}?v=${MIKU_CURSOR_VERSION}`;
+}
 
 const nativeInteractiveSelectors = [
   "a[href]",
@@ -265,39 +282,37 @@ const verticalResizeSelectors = [
   "[style*=\"row-resize\"]",
 ] as const;
 
-const immediateCursorRules: readonly CursorRule[] = [
+/**
+ * 选择器 → 光标。顺序就是注入顺序：同一个元素命中多条规则时，后面的覆盖前面的
+ * （disabled / help 这类状态光标必须压过 link，和旧实现保持一致）。
+ */
+const CURSOR_RULES: readonly CursorRule[] = [
   {
+    cursor: "normal-select",
     selectors: ["html", "body", "#app"],
-    cursorUrl: normalCursorUrl,
     fallback: "auto",
-    hotspot: [0, 0],
   },
   {
+    cursor: "link",
     selectors: [
       ...nativeInteractiveSelectors,
       ...elementPlusInteractiveSelectors,
       ...appInteractiveSelectors,
     ],
-    cursorUrl: linkCursorUrl,
     fallback: "pointer",
-    hotspot: [8, 0],
   },
   {
+    cursor: "text-select",
     selectors: textSelectors,
-    cursorUrl: textCursorUrl,
     fallback: "text",
-    hotspot: [16, 16],
   },
-];
-
-const idleCursorRules: readonly CursorRule[] = [
   {
+    cursor: "unavailable",
     selectors: disabledSelectors,
-    cursorUrl: unavailableCursorUrl,
     fallback: "not-allowed",
-    hotspot: [16, 16],
   },
   {
+    cursor: "help-select",
     selectors: [
       "[title]:not(a):not(button)",
       "abbr[title]",
@@ -305,52 +320,45 @@ const idleCursorRules: readonly CursorRule[] = [
       ".cursor-help",
       ".el-tooltip__trigger",
     ],
-    cursorUrl: helpCursorUrl,
     fallback: "help",
-    hotspot: [0, 0],
   },
   {
+    cursor: "work",
     selectors: loadingSelectors,
-    cursorUrl: workCursorUrl,
     fallback: "progress",
-    hotspot: [0, 0],
   },
   {
+    cursor: "busy",
     selectors: waitSelectors,
-    cursorUrl: busyCursorUrl,
     fallback: "wait",
-    hotspot: [16, 16],
   },
   {
+    cursor: "precision-select",
     selectors: [
       "[data-cursor=\"crosshair\"]",
       ".cursor-crosshair",
       "[style*=\"cursor: crosshair\"]",
       "[style*=\"cursor:crosshair\"]",
     ],
-    cursorUrl: precisionCursorUrl,
     fallback: "crosshair",
-    hotspot: [16, 16],
   },
   {
+    cursor: "move",
     selectors: moveSelectors,
-    cursorUrl: moveCursorUrl,
     fallback: "move",
-    hotspot: [16, 16],
   },
   {
+    cursor: "horizontal-resize",
     selectors: horizontalResizeSelectors,
-    cursorUrl: horizontalResizeCursorUrl,
     fallback: "ew-resize",
-    hotspot: [16, 16],
   },
   {
+    cursor: "vertical-resize",
     selectors: verticalResizeSelectors,
-    cursorUrl: verticalResizeCursorUrl,
     fallback: "ns-resize",
-    hotspot: [16, 16],
   },
   {
+    cursor: "diagonal-resize-1",
     selectors: [
       "[data-cursor=\"nwse-resize\"]",
       ".cursor-nwse-resize",
@@ -358,11 +366,10 @@ const idleCursorRules: readonly CursorRule[] = [
       "[style*=\"nwse-resize\"]",
       "[style*=\"se-resize\"]",
     ],
-    cursorUrl: diagonalResizeOneCursorUrl,
     fallback: "nwse-resize",
-    hotspot: [16, 16],
   },
   {
+    cursor: "diagonal-resize-2",
     selectors: [
       "[data-cursor=\"nesw-resize\"]",
       ".cursor-nesw-resize",
@@ -370,57 +377,129 @@ const idleCursorRules: readonly CursorRule[] = [
       "[style*=\"nesw-resize\"]",
       "[style*=\"sw-resize\"]",
     ],
-    cursorUrl: diagonalResizeTwoCursorUrl,
     fallback: "nesw-resize",
-    hotspot: [16, 16],
   },
   {
+    cursor: "handwriting",
     selectors: [
       "[data-cursor=\"handwriting\"]",
       ".cursor-handwriting",
       "[style*=\"cursor: cell\"]",
       "[style*=\"cursor:cell\"]",
     ],
-    cursorUrl: handwritingCursorUrl,
     fallback: "cell",
-    hotspot: [2, 30],
   },
   {
+    cursor: "alternate-select",
     selectors: [
       "[data-cursor=\"alternate\"]",
       ".cursor-alternate",
       "[style*=\"cursor: alias\"]",
       "[style*=\"cursor:alias\"]",
     ],
-    cursorUrl: alternateCursorUrl,
     fallback: "alias",
-    hotspot: [0, 0],
   },
   {
+    cursor: "location-select",
     selectors: [
       "[data-cursor=\"pin\"]",
       "[data-cursor=\"location\"]",
       ".cursor-location",
       ".cursor-pin",
     ],
-    cursorUrl: locationCursorUrl,
     fallback: "pointer",
-    hotspot: [16, 16],
   },
   {
-    selectors: [
-      "[data-cursor=\"person\"]",
-      ".cursor-person",
-    ],
-    cursorUrl: personCursorUrl,
+    cursor: "person-select",
+    selectors: ["[data-cursor=\"person\"]", ".cursor-person"],
     fallback: "pointer",
-    hotspot: [16, 16],
   },
 ];
 
-let controllers: CursorController[] = [];
+/** `cursor` 的值：`url(...) 0 0, pointer`；准星取自素材的 CUR hotspot。 */
+function cursorValue(rule: CursorRule, url: string) {
+  const [hotspotX, hotspotY] = MIKU_CURSORS[rule.cursor].hotspot;
+  return `url("${url}") ${hotspotX} ${hotspotY}, ${rule.fallback}`;
+}
+
+function keyframesName(index: number) {
+  return `miku-cursor-${index}`;
+}
+
+function formatPercent(value: number) {
+  return `${Number(value.toFixed(5))}%`;
+}
+
+/**
+ * 首帧样式。
+ *
+ * 用「只有 0% 的动画」而不是普通 `cursor` 声明，是为了让两个阶段的层叠行为完全一致：
+ * 动画天然压过元素自己的 `cursor: pointer`（.conversation-item / .file-message 就靠
+ * `.file-message:not(.uploading)` 这类规则拿回 Miku 光标），换成普通声明会输给
+ * `.conversation-list li` 这种更高特异性的写法，首帧阶段就会闪回系统光标。
+ */
+function buildFirstFrameCss(rule: CursorRule, index: number, url: string) {
+  return [
+    `@keyframes ${keyframesName(index)} {`,
+    `  0% { cursor: ${cursorValue(rule, url)}; }`,
+    `}`,
+    // 同时写一条普通 cursor 兜底：支持 cursor 动画的浏览器由动画覆盖，
+    // 不支持的浏览器至少还能拿到首帧，而不是系统光标。
+    `${rule.selectors.join(",\n")} { cursor: ${cursorValue(rule, url)}; animation: ${keyframesName(index)} 1000ms step-end infinite; }`,
+  ].join("\n");
+}
+
+/**
+ * 完整动画：按生成的字幕表把每一步换算成百分比位置。
+ *
+ * `step-end` + 每步一个关键帧 = 到点硬切；最后一步的百分比不一定是 100%，
+ * 剩余区间会保持最后一帧直到循环回到 0%，与 ani-cursor.js 的行为一致。
+ */
+function buildAnimationCss(rule: CursorRule, index: number, animation: MikuCursorAnimation) {
+  let position = 0;
+  let firstUrl: string | undefined;
+  const frames: string[] = [];
+
+  for (const step of animation.steps) {
+    const url = frameUrl(step.file);
+    firstUrl ??= url;
+    frames.push(`  ${formatPercent(position)} { cursor: ${cursorValue(rule, url)}; }`);
+    position += (step.duration / animation.totalDuration) * 100;
+  }
+
+  // 普通 cursor 兜底：支持 cursor 动画的浏览器由动画覆盖，
+  // 不支持的浏览器至少停在首帧，而不是系统光标。
+  const staticCursor = firstUrl ? ` cursor: ${cursorValue(rule, firstUrl)};` : "";
+
+  return [
+    `@keyframes ${keyframesName(index)} {`,
+    ...frames,
+    `}`,
+    `${rule.selectors.join(",\n")} {${staticCursor} animation: ${keyframesName(index)} ${Number(
+      animation.totalDuration.toFixed(3),
+    )}ms step-end infinite; }`,
+  ].join("\n");
+}
+
+/** 预加载图片（失败也 resolve：宁可少这一帧，也不能让升级流程卡住）。 */
+function preload(urls: readonly string[]) {
+  return Promise.all(
+    urls.map(
+      (url) =>
+        new Promise<void>((resolve) => {
+          const image = new Image();
+          image.onload = () => resolve();
+          image.onerror = () => resolve();
+          image.src = url;
+        }),
+    ),
+  ).then(() => undefined);
+}
+
+const mountedStyles: Array<HTMLStyleElement | undefined> = [];
 let idleHandle: number | undefined;
 let idleHandleType: "idle" | "timeout" | undefined;
+let mounted = false;
 
 function isFinePointerDevice() {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -434,68 +513,117 @@ function isFinePointerDevice() {
   return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 }
 
-function registerCursorRule(rule: CursorRule) {
-  const [hotspotX, hotspotY] = rule.hotspot;
-  const controller = setANICursor(
-    rule.selectors.join(","),
-    rule.cursorUrl,
-    rule.fallback,
-    CURSOR_SIZE,
-    CURSOR_SIZE,
-    hotspotX,
-    hotspotY,
-  );
+/**
+ * 启动阶段：只加载每只光标的**首帧**。
+ *
+ * 每只光标一条 <style>，内容是「首帧 + 1000ms 的单帧动画」。等剩余帧加载完，
+ * 直接替换同一个 <style> 的内容（keyframes 名字不变），光标就从静态首帧切到动画。
+ */
+function mountFirstFrames() {
+  const firstFrames: string[] = [];
 
-  void controller.ready.catch((error: unknown) => {
-    console.warn("Miku ani cursor failed to load:", error);
+  CURSOR_RULES.forEach((rule, index) => {
+    const animation = MIKU_CURSORS[rule.cursor];
+    const first = animation.steps[0];
+    if (!first) {
+      mountedStyles[index] = undefined;
+      return;
+    }
+
+    const url = frameUrl(first.file);
+    firstFrames.push(url);
+
+    const style = document.createElement("style");
+    style.dataset.mikuCursor = rule.cursor;
+    style.dataset.mikuCursorPhase = "first-frame";
+    style.textContent = buildFirstFrameCss(rule, index, url);
+    document.head.appendChild(style);
+    mountedStyles[index] = style;
   });
 
-  controllers.push(controller);
+  // 首帧预热：真正悬停时不用再等这一次网络请求。
+  void preload(firstFrames);
 }
 
-function scheduleIdleRegistration() {
-  const registerIdleRules = () => {
-    idleHandle = undefined;
-    idleHandleType = undefined;
-    idleCursorRules.forEach(registerCursorRule);
-  };
+/**
+ * 空闲阶段：逐只光标加载剩余帧，加载完就把该光标升级成完整动画。
+ *
+ * 按光标逐个处理（而不是把所有帧一次性丢出去），既限制并发，也让先加载完的
+ * 光标先动起来，不必等最慢的那只。
+ */
+async function loadRemainingFrames() {
+  for (let index = 0; index < CURSOR_RULES.length; index += 1) {
+    if (!mounted) return;
+
+    const rule = CURSOR_RULES[index];
+    const style = mountedStyles[index];
+    if (!rule || !style) continue;
+
+    const animation = MIKU_CURSORS[rule.cursor];
+
+    // 首帧在启动阶段已经预热过，这里只等剩下的帧（单帧光标没有后续帧要等）。
+    const laterFrames = animation.steps.slice(1).map((step) => frameUrl(step.file));
+    if (laterFrames.length) await preload(laterFrames);
+    if (!mounted) return;
+
+    style.dataset.mikuCursorPhase = "animated";
+    style.textContent = buildAnimationCss(rule, index, animation);
+  }
+}
+
+function scheduleIdle(task: () => void) {
   const idleWindow = window as unknown as WindowWithOptionalIdleCallback;
 
   if (typeof idleWindow.requestIdleCallback === "function") {
-    idleHandle = idleWindow.requestIdleCallback(registerIdleRules, { timeout: 3000 });
     idleHandleType = "idle";
+    idleHandle = idleWindow.requestIdleCallback(
+      () => {
+        idleHandle = undefined;
+        idleHandleType = undefined;
+        task();
+      },
+      { timeout: 3000 },
+    );
     return;
   }
 
-  idleHandle = window.setTimeout(registerIdleRules, 800);
   idleHandleType = "timeout";
+  idleHandle = window.setTimeout(() => {
+    idleHandle = undefined;
+    idleHandleType = undefined;
+    task();
+  }, 800);
+}
+
+function cancelIdle() {
+  if (idleHandle === undefined) return;
+
+  const idleWindow = window as unknown as WindowWithOptionalIdleCallback;
+  if (idleHandleType === "idle" && typeof idleWindow.cancelIdleCallback === "function") {
+    idleWindow.cancelIdleCallback(idleHandle);
+  } else {
+    window.clearTimeout(idleHandle);
+  }
+
+  idleHandle = undefined;
+  idleHandleType = undefined;
 }
 
 export function setupMikuCursor() {
-  if (controllers.length > 0 || !isFinePointerDevice()) {
+  if (mounted || !isFinePointerDevice()) {
     return;
   }
 
-  immediateCursorRules.forEach(registerCursorRule);
-  scheduleIdleRegistration();
+  mounted = true;
+  mountFirstFrames();
+  scheduleIdle(() => void loadRemainingFrames());
 }
 
 export function destroyMikuCursor() {
-  if (idleHandle !== undefined) {
-    const idleWindow = window as unknown as WindowWithOptionalIdleCallback;
-
-    if (idleHandleType === "idle" && typeof idleWindow.cancelIdleCallback === "function") {
-      idleWindow.cancelIdleCallback(idleHandle);
-    } else {
-      window.clearTimeout(idleHandle);
-    }
-
-    idleHandle = undefined;
-    idleHandleType = undefined;
-  }
-
-  controllers.forEach((controller) => controller.destroy());
-  controllers = [];
+  mounted = false;
+  cancelIdle();
+  mountedStyles.forEach((style) => style?.remove());
+  mountedStyles.length = 0;
 }
 
 if (import.meta.hot) {

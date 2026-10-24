@@ -271,9 +271,9 @@ async function copyAccount() {
 </script>
 
 <template>
-  <div class="chat-page user-home-page">
-    <div class="main-panel user-home-panel">
-      <div class="conversation-detail">
+  <div class="user-home-page">
+    <div class="user-home-panel">
+      <div class="user-home-detail">
         <el-scrollbar class="user-home-scrollbar">
           <div class="user-home-scroll-content">
             <section v-if="profile" class="user-home-card">
@@ -332,9 +332,9 @@ async function copyAccount() {
           </div>
         </el-scrollbar>
 
-        <!-- 与聊天页 .chat-header 完全同一套样式（绝对定位 + 玻璃渐变） -->
-        <div class="chat-header user-home-header">
-          <div class="chat-header-main">
+        <!-- 顶部栏：app-shell 提供的悬浮毛玻璃样式 -->
+        <div class="user-home-header">
+          <div class="user-home-header-main">
             <el-button :icon="ArrowLeft" @click="returnToChat">返回</el-button>
             <h3>{{ displayName }}</h3>
           </div>
@@ -343,8 +343,8 @@ async function copyAccount() {
           </el-button>
         </div>
 
-        <!-- 与聊天页 .composer 完全同一套样式（绝对定位 + 玻璃渐变） -->
-        <div class="composer user-home-composer" role="toolbar" aria-label="用户主页操作">
+        <!-- 底部操作栏：app-shell 提供的悬浮毛玻璃样式 -->
+        <div class="user-home-composer" role="toolbar" aria-label="用户主页操作">
           <el-button v-if="canStartChat" :icon="ChatDotRound" type="primary" @click="startChat">
             发消息
           </el-button>
@@ -364,35 +364,62 @@ async function copyAccount() {
   </div>
 </template>
 
-<style lang="scss">
-// 用户主页直接复用聊天页的 .chat-page / .main-panel / .conversation-detail /
-// .chat-header / .composer 样式，保证头部与底部和聊天界面一模一样。
-@use "@/features/chat/style/index.scss";
-</style>
-
 <style scoped lang="scss">
+@use "@/styles/app-shell" as shell;
 @use "@/styles/responsive-mixins" as rp;
 
+.user-home-page {
+  @include shell.app-shell-tokens;
+  @include shell.app-page-shell;
+}
+
 .user-home-panel {
+  @include shell.app-surface-panel;
   flex: 1;
   min-height: 0;
+}
+
+.user-home-detail {
+  @include shell.app-panel-body;
 }
 
 .user-home-scrollbar {
   height: 100%;
 }
 
-// 与聊天消息列表同一套上下留白：内容滚动时可以钻到 .chat-header / .composer 下面，
+// 与聊天消息列表同一套上下留白：内容滚动时可以钻到顶部栏 / 底部操作栏下面，
 // 初始位置又不会被两个浮层压住。
 .user-home-scroll-content {
   box-sizing: border-box;
   min-height: 100%;
-  padding: var(--chat-bar-h) var(--chat-pad);
+  @include shell.app-scroll-region-padding;
 }
 
-// .composer 本身已经是绝对定位 + 玻璃渐变；这里只把两个按钮排到右侧，
-// 与聊天输入区「发送」按钮的位置保持一致。
+.user-home-header {
+  @include shell.app-floating-header;
+}
+
+.user-home-header-main {
+  display: flex;
+  align-items: center;
+  gap: var(--shell-gap);
+  min-width: 0;
+}
+
+.user-home-header h3 {
+  margin: 0;
+  padding-left: 6px;
+  overflow: hidden;
+  color: #111827;
+  font-size: var(--shell-title-fs);
+  font-weight: 700;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .user-home-composer {
+  @include shell.app-floating-bar;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
@@ -415,7 +442,7 @@ async function copyAccount() {
   flex-shrink: 0;
   color: #111827;
   font-size: 32px;
-  background: var(--chat-accent-soft, #f7e8f4);
+  background: var(--shell-accent-soft);
 }
 
 .user-home-identity {
@@ -518,6 +545,10 @@ async function copyAccount() {
 }
 
 @include rp.device-mobile {
+  .user-home-page {
+    @include shell.app-shell-tokens-mobile;
+  }
+
   .user-home-card {
     padding: 16px;
   }
@@ -547,7 +578,7 @@ async function copyAccount() {
   }
 }
 
-// 聊天页的 .chat-page 下已经有 3px 规则；这里再兜一层，保证直接打开 /user 也一致。
+// 与聊天页一致：手机档把 el-scrollbar 的纵向滚动条收窄到 3px。
 @include rp.device-phone {
   .user-home-scrollbar :deep(.el-scrollbar__bar.is-vertical) {
     width: 3px;

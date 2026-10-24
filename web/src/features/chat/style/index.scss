@@ -37,6 +37,7 @@
 
 // 断点 mixin（设备档位）。必须放在最前面，@use 之前不能有其他规则。
 @use "@/styles/responsive-mixins" as rp;
+@use "@/styles/app-shell" as shell;
 
 .el-button+.el-button {
   margin-left: 0 !important;
@@ -65,10 +66,10 @@
   --chat-surface: rgba(255, 255, 255, 0.94);
   --chat-border: rgba(17, 24, 39, 0.08);
   --chat-shadow: 0 18px 40px rgba(17, 24, 39, 0.08);
-  // 聊天页是固定的浅色面，使用浅色主题下的强调色，
-  // 不跟随全局暗色 token（否则浅底上会变成过淡的粉）。
-  --chat-accent: #9a4f8d;
-  --chat-accent-soft: #f7e8f4;
+  // 聊天页是固定浅色面。.theme-light-surface 会把全局主题变量
+  // 切成日间色阶，这里直接继承，才能跟随用户自定义的主题色。
+  --chat-accent: var(--theme-color-strong, #9a4f8d);
+  --chat-accent-soft: var(--theme-color-soft, #f7e8f4);
   // 引用卡片：左侧消息用中性变种，自己消息用主题色变种。
   // 这样「左侧普通气泡 + 中性引用」「右侧主题气泡 + 主题引用」各自成对。
   --chat-reply-bg: #e9ecef;
@@ -84,6 +85,20 @@
   // 100vh 在移动端不随地址栏收缩，也不随软键盘变化，会把底部输入框顶出屏幕。
   --chat-vh: var(--app-h);
 
+  // 通用 app-shell mixin 读取的中性变量：聊天页保留自己的 --chat-*，
+  // 这里做一次别名映射，页面外壳 / 面板 / 浮层样式由 app-shell 统一提供。
+  --shell-gap: var(--chat-gap);
+  --shell-pad: var(--chat-pad);
+  --shell-control-h: var(--chat-control-h);
+  --shell-radius: var(--chat-radius);
+  --shell-title-fs: var(--chat-title-fs);
+  --shell-bar-h: var(--chat-bar-h);
+  --shell-bg: var(--chat-bg);
+  --shell-surface: var(--chat-surface);
+  --shell-border: var(--chat-border);
+  --shell-shadow: var(--chat-shadow);
+  --shell-muted: var(--chat-muted);
+
   // Element Plus 的控件高度统一挂到 --chat-control-h 上。
   // EP 的 .el-button 高度是写死的（32px），根本不读 --el-component-size，
   // 所以下面还要接管 .el-button / .el-select__wrapper 的高度，
@@ -91,26 +106,8 @@
   --el-component-size: var(--chat-control-h);
   --el-component-size-small: var(--chat-control-h);
 
-  min-height: var(--chat-vh);
-  height: var(--chat-vh);
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: var(--chat-gap);
-  box-sizing: border-box;
-  // 左右与顶部让开刘海/灵动岛，底部让开手势条，避免输入框被系统手势区压住。
-  padding: calc(var(--chat-pad) + var(--safe-top)) calc(var(--chat-pad) + var(--safe-right)) calc(var(--chat-pad) + var(--safe-bottom)) calc(var(--chat-pad) + var(--safe-left));
-  background: var(--chat-bg);
-  overflow: hidden;
-
-  // 控件高度：EP 写死的 32px 必须显式接管。
-  // 这里写法比 EP 的 .el-button / .el-button--small 特异性高，
-  // 与打包顺序无关（详见 styles/responsive.scss 的同名规则）。
-  // :not(.is-link) —— 引用/撤回这类文字按钮靠 `height: auto` 贴着行内文字，
-  // 一起拉成 24/32px 会把每条消息的元信息行撑高。
-  .el-button:not(.is-link) {
-    height: var(--chat-control-h);
-  }
+  // 页面外壳（整页高度 / 安全区 / 纵向 flex / 按钮高度）由 app-shell 统一提供。
+  @include shell.app-page-shell;
 
   // 圆形按钮的**宽度**必须和高度一起接管，否则就是个椭圆：
   //   - 高度：上面接管成 --chat-control-h（桌面 32px）
@@ -168,12 +165,7 @@
 
 .left-panel,
 .main-panel {
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius);
-  background: var(--chat-surface);
-  box-shadow: var(--chat-shadow);
+  @include shell.app-surface-panel;
 }
 
 .left-panel {
@@ -312,19 +304,16 @@
 // ==============================================
 // 右侧主面板 - 会话详情
 // ==============================================
+// .conversation-detail / .chat-header / .composer 也被 components/ChatDialog.vue
+// 复用（聊天页弹层）。弹层 Teleport 到 body，拿不到 .chat-page 上的 --chat-* 变量，
+// 所以 ChatDialog 在 .chat-dialog 上重新声明了一套同样的变量与三档密度。
+// 改这里的变量 / 间距 / 三档边界时，记得同步 ChatDialog.vue 的样式块。
 .conversation-detail {
-  position: relative;
-  height: 100%;
+  @include shell.app-panel-body;
 }
 
 .chat-header {
-  @extend %glass;
-  @extend %flex-center;
-  gap: var(--chat-gap);
-  justify-content: space-between;
-  padding: var(--chat-pad);
-  top: 0;
-  background: linear-gradient(var(--chat-surface), transparent);
+  @include shell.app-floating-header;
 }
 
 .chat-header-main {
@@ -344,12 +333,7 @@
 }
 
 .composer {
-  @extend %glass;
-  @extend %flex-center;
-  gap: 6px;
-  padding: var(--chat-pad);
-  bottom: 0;
-  background: linear-gradient(to top, var(--chat-surface), transparent);
+  @include shell.app-floating-bar;
 }
 
 // ==============================================
@@ -363,8 +347,8 @@
   //   表现为「窗口缩小了，卡片却还是那么宽」。
   grid-template-columns: minmax(0, 1fr);
   gap: var(--chat-gap);
-  // 上下留白给浮层头部 / 输入区让位
-  padding: var(--chat-bar-h) var(--chat-pad);
+  // 上下留白给浮层头部 / 输入区让位（app-shell 统一提供）
+  @include shell.app-scroll-region-padding;
 }
 
 .msg-item {

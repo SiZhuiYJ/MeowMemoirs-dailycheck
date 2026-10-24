@@ -8,6 +8,7 @@ import { storeToRefs } from "pinia";
 import { useAuthStore } from "@/stores";
 import router from "@/routers";
 import IsPin from "./IsPin.vue";
+import ChatDialog from "./ChatDialog.vue";
 import type {
   ConversationDetail,
   ConversationDetailUpdateOptions,
@@ -643,7 +644,7 @@ watch(
 </script>
 
 <template>
-  <el-dialog :model-value="modelValue" title="会话详情" width="min(92vw, 700px)"
+  <ChatDialog :model-value="modelValue" title="会话详情" content-width="760px"
     @update:model-value="emit('update:modelValue', $event)">
     <div class="conversation-detail-dialog">
 
@@ -811,9 +812,9 @@ watch(
         <el-button type="primary" class="load-more" @click="emit('load-more')">加载更早消息</el-button>
       </div>
     </div>
-  </el-dialog>
+  </ChatDialog>
 
-  <el-dialog v-model="inviteDialogVisible" title="邀请好友入群" width="min(92vw, 460px)" append-to-body
+  <ChatDialog v-model="inviteDialogVisible" title="邀请好友入群" content-width="520px" :closable="!inviting"
     :close-on-click-modal="!inviting" :close-on-press-escape="!inviting" :show-close="!inviting"
     @closed="resetInviteDialog">
     <div class="invite-dialog-body">
@@ -838,11 +839,12 @@ watch(
         </el-button>
       </div>
     </template>
-  </el-dialog>
+  </ChatDialog>
 
-  <el-dialog v-model="joinRequestDialogVisible" title="加群申请" width="min(92vw, 560px)" append-to-body
-    :close-on-click-modal="joinRequestHandlingId === null" :close-on-press-escape="joinRequestHandlingId === null"
-    :show-close="joinRequestHandlingId === null" @closed="resetJoinRequestDialog">
+  <ChatDialog v-model="joinRequestDialogVisible" title="加群申请" content-width="640px"
+    :closable="joinRequestHandlingId === null" :close-on-click-modal="joinRequestHandlingId === null"
+    :close-on-press-escape="joinRequestHandlingId === null" :show-close="joinRequestHandlingId === null"
+    @closed="resetJoinRequestDialog">
     <div class="join-request-panel">
       <div class="join-request-toolbar">
         <el-button plain :loading="joinRequestLoading" @click="loadJoinRequests">刷新</el-button>
@@ -850,7 +852,7 @@ watch(
 
       <el-empty v-if="!joinRequestLoading && joinRequests.length === 0" description="暂无待处理的加群申请" />
 
-      <el-scrollbar v-else max-height="360px">
+      <div v-else class="join-request-list">
         <div v-for="item in joinRequests" :key="item.id" class="join-request-row">
           <div class="join-request-main">
             <div class="join-request-title">
@@ -873,11 +875,11 @@ watch(
             </el-button>
           </div>
         </div>
-      </el-scrollbar>
+      </div>
     </div>
-  </el-dialog>
+  </ChatDialog>
 
-  <el-dialog v-model="muteDialogVisible" title="设置禁言" width="min(92vw, 420px)" append-to-body
+  <ChatDialog v-model="muteDialogVisible" title="设置禁言" content-width="480px" :closable="!muteConfirmLoading"
     :close-on-click-modal="!muteConfirmLoading" :close-on-press-escape="!muteConfirmLoading"
     :show-close="!muteConfirmLoading" @closed="resetMuteDialog">
     <div class="mute-dialog-body">
@@ -896,7 +898,7 @@ watch(
         </el-button>
       </div>
     </template>
-  </el-dialog>
+  </ChatDialog>
 </template>
 
 <style scoped lang="scss">
@@ -905,6 +907,8 @@ watch(
 .conversation-detail-dialog {
   display: grid;
   gap: 20px;
+  // 内容由 ChatDialog 的整屏内容栏承载，这里只负责块间距。
+  min-width: 0;
 }
 
 .avatar-container {
@@ -1051,8 +1055,7 @@ watch(
 .member-list {
   display: grid;
   gap: 10px;
-  max-height: 320px;
-  overflow: auto;
+  // 弹层已有唯一滚动区（.chat-dialog-scrollbar），成员列表不再套第二层滚动。
 }
 
 .member-row {
@@ -1219,6 +1222,14 @@ watch(
 
 // 单列化调整：手机 / 平板档（600~1200 的横屏手机与平板）同样需要，故用 device-mobile。
 @include rp.device-mobile {
+  .conversation-detail-dialog {
+    gap: 14px;
+  }
+
+  .avatar-container {
+    grid-template-columns: 1fr;
+  }
+
   .direct-friend-main {
     grid-template-columns: 1fr;
   }

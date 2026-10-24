@@ -15,6 +15,8 @@
   // JS 会写入同样的值（composables/use-theme.ts），这里只是首帧兜底
   --theme-transition-duration: 720ms;
   --theme-transition-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  // 主题色取色的纯颜色过渡（0.2~2s 之间）
+  --theme-color-transition-duration: 500ms;
 }
 
 // ==============================================
@@ -164,6 +166,19 @@ html.theme-colors-transitioning *::after {
   transition-property: background-color, color, border-color, outline-color,
     fill, stroke, box-shadow, text-shadow !important;
   transition-duration: var(--theme-transition-duration) !important;
+  transition-timing-function: ease !important;
+  transition-delay: 0ms !important;
+}
+
+// 主题色取色：只过渡颜色，不播放整页波纹。
+// 取色器连续触发时该类会一直保留到最后一次变化后 580ms。
+html.theme-color-transitioning,
+html.theme-color-transitioning *,
+html.theme-color-transitioning *::before,
+html.theme-color-transitioning *::after {
+  transition-property: background-color, color, border-color, outline-color,
+    fill, stroke, box-shadow, text-shadow !important;
+  transition-duration: var(--theme-color-transition-duration) !important;
   transition-timing-function: ease !important;
   transition-delay: 0ms !important;
 }

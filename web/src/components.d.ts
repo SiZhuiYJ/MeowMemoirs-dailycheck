@@ -57,6 +57,8 @@ declare module 'vue' {
     SettingsMenuItem: typeof import('./components/Menu/SettingsMenuItem.vue')['default']
     SvgIcon: typeof import('./components/SvgIcon/index.vue')['default']
     Text: typeof import('./components/Text/index.vue')['default']
+    ThemeColorDialog: typeof import('./components/ThemeColorDialog.vue')['default']
+    ThemeColorPicker: typeof import('./components/ThemeColorPicker.vue')['default']
     ToWebM: typeof import('./components/ToWebM/index.vue')['default']
   }
   export interface GlobalDirectives {

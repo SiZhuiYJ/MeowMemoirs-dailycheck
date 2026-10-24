@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   ArrowDown,
+  Brush,
   ChatRound,
   CircleClose,
   HomeFilled,
@@ -8,6 +9,8 @@ import {
 } from "@element-plus/icons-vue";
 import { ref } from "vue";
 import ProgressiveAvatar from "@/components/ProgressiveAvatar/index.vue";
+import ChatDialog from "./ChatDialog.vue";
+import ThemeColorDialog from "@/components/ThemeColorDialog.vue";
 import router from "@/routers";
 import { getUserAvatarUrl, getUserAvatarSources } from "@/utils/avatar";
 import {
@@ -126,13 +129,15 @@ const {
 /** 「好友列表」与「发起群聊」从创建区移入「更多」后，由这两个弹窗承载。 */
 const friendListDialogVisible = ref(false);
 const createGroupDialogVisible = ref(false);
+const themeColorDialogVisible = ref(false);
 
 type CreatePanelCommand =
   | SidebarActionCommand
   | "friendList"
   | "createGroup"
   | "refresh"
-  | "togglePush";
+  | "togglePush"
+  | "themeColor";
 
 function openFriendList() {
   friendListDialogVisible.value = true;
@@ -171,6 +176,9 @@ function handleSocialCommand(command: CreatePanelCommand) {
       break;
     case "togglePush":
       emit("togglePush");
+      break;
+    case "themeColor":
+      themeColorDialogVisible.value = true;
       break;
     default:
       handleActionCommand(command);
@@ -248,308 +256,314 @@ function handleMoreMenuVisibleChange(visible: boolean) {
             <el-dropdown-item command="togglePush" :icon="CircleClose" :disabled="pushLoading">
               {{ polling ? "停止推送" : "开启推送" }}
             </el-dropdown-item>
+            <el-dropdown-item command="themeColor" divided :icon="Brush">
+              主题色
+            </el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
     </div>
 
-    <Teleport to="body">
-      <el-dialog v-model="friendListDialogVisible" title="好友列表" width="min(92vw, 560px)">
-        <div v-loading="friendLoading" class="friend-list-panel">
-          <div class="friend-list-toolbar">
-            <span class="friend-list-count">共 {{ friends.length }} 位好友</span>
-            <el-button plain :loading="friendLoading" @click="refreshFriendData(false)">
-              刷新
-            </el-button>
-          </div>
+    <ChatDialog v-model="friendListDialogVisible" title="好友列表" content-width="640px">
+      <div v-loading="friendLoading" class="friend-list-panel">
+        <div class="friend-list-toolbar">
+          <span class="friend-list-count">共 {{ friends.length }} 位好友</span>
+          <el-button plain :loading="friendLoading" @click="refreshFriendData(false)">
+            刷新
+          </el-button>
+        </div>
 
-          <el-empty v-if="!friendLoading && friends.length === 0" description="暂无好友，先去添加好友吧" />
+        <el-empty v-if="!friendLoading && friends.length === 0" description="暂无好友，先去添加好友吧" />
 
-          <el-scrollbar v-else max-height="420px">
-            <button v-for="item in friendOptions" :key="item.userId" class="friend-list-row" type="button"
-              @click="startDirectChat(item)">
+        <div v-else>
+          <button v-for="item in friendOptions" :key="item.userId" class="friend-list-row" type="button"
+            @click="startDirectChat(item)">
+            <ProgressiveAvatar class="conversation-avatar" :src="getUserAvatarUrl(item.userId, item.avatarKey)"
+              :thumbnail-src="getUserAvatarUrl(item.userId, item.avatarKey, { thumbnail: true })" :size="44"
+              shape="square">
+              {{ item.label.slice(0, 1) }}
+            </ProgressiveAvatar>
+            <span class="friend-list-text">
+              <strong>{{ item.label }}</strong>
+              <span class="friend-list-meta">{{ item.meta }}</span>
+            </span>
+            <span class="friend-list-action">发起聊天</span>
+          </button>
+        </div>
+
+        <p class="friend-list-tip">点击好友即可开始单聊；需要拉多人时用「发起群聊」。</p>
+      </div>
+    </ChatDialog>
+
+    <ChatDialog v-model="createGroupDialogVisible" title="发起群聊" content-width="640px">
+      <div class="create-group-panel">
+        <el-input v-model="createTitle" clearable placeholder="群聊标题（可选）" />
+        <el-select v-model="createMemberUserIds" class="member-select" multiple filterable clearable collapse-tags
+          collapse-tags-tooltip :loading="friendLoading" placeholder="选择至少两位好友">
+          <el-option v-for="item in friendOptions" :key="item.userId" :label="item.label" :value="item.userId">
+            <span class="member-select-item">
               <ProgressiveAvatar class="conversation-avatar" :src="getUserAvatarUrl(item.userId, item.avatarKey)"
-                :thumbnail-src="getUserAvatarUrl(item.userId, item.avatarKey, { thumbnail: true })" :size="44"
+                :thumbnail-src="getUserAvatarUrl(item.userId, item.avatarKey, { thumbnail: true })" :size="20"
                 shape="square">
                 {{ item.label.slice(0, 1) }}
               </ProgressiveAvatar>
-              <span class="friend-list-text">
-                <strong>{{ item.label }}</strong>
-                <span class="friend-list-meta">{{ item.meta }}</span>
-              </span>
-              <span class="friend-list-action">发起聊天</span>
-            </button>
-          </el-scrollbar>
+              {{ item.label }}({{ item.meta }})
+            </span>
+          </el-option>
+          <template #tag>
+            <ProgressiveAvatar v-for="item in createMemberUserIds" :key="item" class="conversation-avatar"
+              :src="getFriendAvatarSources(item).src" :thumbnail-src="getFriendAvatarSources(item).thumbnailSrc"
+              :size="20" shape="square">
+              {{ getSelectedFriendInitial(item) }}
+            </ProgressiveAvatar>
+          </template>
+        </el-select>
+        <p class="create-group-tip">选择至少两位好友即可创建群聊，群聊标题可以留空。</p>
+      </div>
 
-          <p class="friend-list-tip">点击好友即可开始单聊；需要拉多人时用「发起群聊」。</p>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="createGroupDialogVisible = false">取消</el-button>
+          <el-button :icon="ChatRound" type="primary" :disabled="!isGroupConversation" @click="submitCreateGroup">
+            创建群聊
+          </el-button>
         </div>
-      </el-dialog>
+      </template>
+    </ChatDialog>
 
-      <el-dialog v-model="createGroupDialogVisible" title="发起群聊" width="min(92vw, 560px)">
-        <div class="create-group-panel">
-          <el-input v-model="createTitle" clearable placeholder="群聊标题（可选）" />
-          <el-select v-model="createMemberUserIds" class="member-select" multiple filterable clearable collapse-tags
-            collapse-tags-tooltip :loading="friendLoading" placeholder="选择至少两位好友">
-            <el-option v-for="item in friendOptions" :key="item.userId" :label="item.label" :value="item.userId">
-              <span class="member-select-item">
-                <ProgressiveAvatar class="conversation-avatar" :src="getUserAvatarUrl(item.userId, item.avatarKey)"
-                  :thumbnail-src="getUserAvatarUrl(item.userId, item.avatarKey, { thumbnail: true })" :size="20"
-                  shape="square">
-                  {{ item.label.slice(0, 1) }}
-                </ProgressiveAvatar>
-                {{ item.label }}({{ item.meta }})
-              </span>
-            </el-option>
-            <template #tag>
-              <ProgressiveAvatar v-for="item in createMemberUserIds" :key="item" class="conversation-avatar"
-                :src="getFriendAvatarSources(item).src" :thumbnail-src="getFriendAvatarSources(item).thumbnailSrc"
-                :size="20" shape="square">
-                {{ getSelectedFriendInitial(item) }}
-              </ProgressiveAvatar>
-            </template>
-          </el-select>
-          <p class="create-group-tip">选择至少两位好友即可创建群聊，群聊标题可以留空。</p>
-        </div>
-
-        <template #footer>
-          <div class="dialog-footer">
-            <el-button @click="createGroupDialogVisible = false">取消</el-button>
-            <el-button :icon="ChatRound" type="primary" :disabled="!isGroupConversation" @click="submitCreateGroup">
-              创建群聊
-            </el-button>
-          </div>
-        </template>
-      </el-dialog>
-
-      <el-dialog v-model="friendSearchDialogVisible" title="搜索好友" width="min(92vw, 560px)"
-        :close-on-click-modal="canCloseFriendSearchDialog" :close-on-press-escape="canCloseFriendSearchDialog"
-        :show-close="canCloseFriendSearchDialog" @closed="resetFriendSearchDialog">
-        <div class="friend-search-panel">
-          <div class="search-toolbar">
-            <el-input v-model="friendSearchKeyword" clearable placeholder="输入昵称或账号搜索用户"
-              :disabled="friendSearchLoading || friendSearchSubmittingId !== null" @keyup.enter="executeFriendSearch()">
-              <template #append>
-                <el-button :loading="friendSearchLoading"
-                  :disabled="!canSearchFriend || friendSearchSubmittingId !== null" @click="executeFriendSearch()">
-                  搜索
-                </el-button>
-              </template>
-            </el-input>
-          </div>
-
-          <el-input v-model="friendSearchRequestMessage" type="textarea" :rows="3" maxlength="255" show-word-limit
-            placeholder="好友申请附言（可选）" :disabled="friendSearchSubmittingId !== null" />
-
-          <p class="search-tip">账号需完全匹配，昵称支持包含搜索，命中部分会高亮显示。</p>
-
-          <el-empty v-if="
-            friendSearchSearched &&
-            !friendSearchLoading &&
-            friendSearchResults.length === 0
-          " description="未找到匹配的用户" />
-
-          <el-scrollbar v-else-if="friendSearchResults.length > 0" max-height="320px">
-            <div v-for="item in friendSearchResults" :key="item.userId" class="search-result-row">
-              <div class="search-result-main">
-                <ProgressiveAvatar class="search-result-avatar search-result-avatar-link"
-                  :src="getFriendSearchAvatar(item).src" :thumbnail-src="getFriendSearchAvatar(item).thumbnailSrc"
-                  :data-user-id="item.userId" :size="60" shape="square" :title="`查看 ${getFriendSearchName(item)} 的主页`"
-                  role="button" tabindex="0" @click.stop="openUserProfile(item.userId)"
-                  @keydown.enter.prevent="openUserProfile(item.userId)">
-                  {{ getFriendSearchName(item).slice(0, 1) }}
-                </ProgressiveAvatar>
-                <div class="search-result-text">
-                  <div class="search-result-title">
-                    <strong v-html="renderFriendSearchName(item)"></strong>
-                    <el-tag v-if="item.isFriend" size="small" type="success">已是好友</el-tag>
-                    <el-tag v-else-if="item.hasPendingSentRequest" size="small" type="warning">
-                      已发送申请
-                    </el-tag>
-                    <el-tag v-else-if="item.hasPendingReceivedRequest" size="small" type="primary">
-                      对方已申请
-                    </el-tag>
-                  </div>
-                  <div class="search-result-meta">账号：{{ getFriendSearchMeta(item) }}</div>
-                  <div class="search-result-meta">用户 ID：{{ item.userId }}</div>
-                </div>
-              </div>
-
-              <div class="search-result-ops">
-                <el-button size="small" type="primary" :loading="friendSearchSubmittingId === item.userId"
-                  :disabled="item.isFriend || item.hasPendingSentRequest" @click="handleSendFriendRequest(item)">
-                  {{ getFriendSearchActionText(item) }}
-                </el-button>
-              </div>
-            </div>
-          </el-scrollbar>
-        </div>
-      </el-dialog>
-
-      <el-dialog v-model="friendRequestDialogVisible" title="好友申请" width="min(92vw, 640px)">
-        <div class="friend-request-panel">
-          <div class="friend-request-toolbar">
-            <el-button plain :loading="friendRequestLoading || friendLoading" @click="refreshFriendData(true)">
-              刷新
-            </el-button>
-          </div>
-
-          <el-empty v-if="!friendRequestLoading && sortedFriendRequests.length === 0" description="暂无好友申请" />
-
-          <el-scrollbar v-else max-height="420px">
-            <div v-for="item in sortedFriendRequests" :key="item.id" class="friend-request-row">
-              <div class="friend-request-main">
-                <div class="friend-request-title">
-                  <strong>
-                    {{
-                      item.direction === "received"
-                        ? `${getFriendLabel(item)} 请求添加你为好友`
-                        : `你向 ${getFriendLabel(item)} 发起了好友申请`
-                    }}
-                  </strong>
-                  <el-tag size="small" :type="getRequestStatusType(item.requestStatus)">
-                    {{ friendRequestStatusMap[item.requestStatus] }}
-                  </el-tag>
-                </div>
-
-                <div class="friend-request-Subject">
-
-                  <ProgressiveAvatar class="conversation-avatar"
-                    :src="getUserAvatarSources(item.receiver.userId, item.receiver.avatarKey).src"
-                    :thumbnail-src="getUserAvatarSources(item.receiver.userId, item.receiver.avatarKey).thumbnailSrc"
-                    :is-preview="true" :size="60" shape="square">
-                    {{ getFriendLabel(item).slice(0, 1) }}
-                  </ProgressiveAvatar>
-
-                  <div class="friend-request-text">
-                    <div class="friend-request-meta">账号：{{ getFriendMeta(item) }}</div>
-                    <div v-if="item.requestMessage" class="friend-request-meta">
-                      附言：{{ item.requestMessage }}
-                    </div>
-                    <div v-if="item.rejectReason" class="friend-request-meta">
-                      拒绝原因：{{ item.rejectReason }}
-                    </div>
-                    <div class="friend-request-meta">
-                      申请时间：{{ formatFriendRequestTime(item.createdAt) }}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="item.direction === 'received' && item.requestStatus === 'pending'" class="friend-request-ops">
-                <el-button size="small" type="primary" :loading="handlingRequestId === item.id"
-                  @click="handleAcceptRequest(item)">
-                  通过
-                </el-button>
-                <el-button size="small" type="danger" plain :loading="handlingRequestId === item.id"
-                  @click="handleRejectRequest(item)">
-                  拒绝
-                </el-button>
-              </div>
-            </div>
-          </el-scrollbar>
-        </div>
-      </el-dialog>
-
-      <el-dialog v-model="blacklistDialogVisible" title="黑名单" width="min(92vw, 560px)">
-        <div v-loading="blacklistLoading" class="blacklist-panel">
-          <div class="blacklist-toolbar">
-            <span class="blacklist-count">共 {{ blacklist.length }} 位用户</span>
-            <el-button plain :loading="blacklistLoading" @click="openBlacklistDialog">
-              刷新
-            </el-button>
-          </div>
-
-          <el-empty v-if="!blacklistLoading && blacklist.length === 0" description="黑名单为空，暂无被拉黑的用户" />
-
-          <el-scrollbar v-else max-height="420px">
-            <div v-for="item in blacklist" :key="item.id" class="blacklist-row">
-              <ProgressiveAvatar class="conversation-avatar blacklist-avatar" :src="getBlockedUserAvatar(item).src"
-                :thumbnail-src="getBlockedUserAvatar(item).thumbnailSrc" :data-user-id="item.userId" :size="44"
-                shape="square" :title="`查看 ${getBlockedUserLabel(item)} 的主页`" role="button" tabindex="0"
-                @click="openUserProfile(item.userId)" @keydown.enter.prevent="openUserProfile(item.userId)">
-                {{ getBlockedUserLabel(item).slice(0, 1) }}
-              </ProgressiveAvatar>
-              <span class="blacklist-text">
-                <strong>{{ getBlockedUserLabel(item) }}</strong>
-                <span class="blacklist-meta">账号：{{ getBlockedUserMeta(item) }}</span>
-                <span class="blacklist-meta">拉黑于 {{ formatBlockedAt(item.createdAt) }}</span>
-              </span>
-              <el-button size="small" type="danger" plain :loading="blacklistUnblockingId === item.userId"
-                :disabled="blacklistUnblockingId !== null && blacklistUnblockingId !== item.userId"
-                @click="handleUnblockUser(item)">
-                解除拉黑
+    <ChatDialog v-model="friendSearchDialogVisible" title="搜索好友" content-width="640px"
+      :closable="canCloseFriendSearchDialog" :close-on-click-modal="canCloseFriendSearchDialog"
+      :close-on-press-escape="canCloseFriendSearchDialog" :show-close="canCloseFriendSearchDialog"
+      @closed="resetFriendSearchDialog">
+      <div class="friend-search-panel">
+        <div class="search-toolbar">
+          <el-input v-model="friendSearchKeyword" clearable placeholder="输入昵称或账号搜索用户"
+            :disabled="friendSearchLoading || friendSearchSubmittingId !== null" @keyup.enter="executeFriendSearch()">
+            <template #append>
+              <el-button :loading="friendSearchLoading"
+                :disabled="!canSearchFriend || friendSearchSubmittingId !== null" @click="executeFriendSearch()">
+                搜索
               </el-button>
-            </div>
-          </el-scrollbar>
-
-          <p class="blacklist-tip">
-            拉黑后，对方无法添加你为好友、与你发起单聊或搜索到你；主页仍可查看，好友状态会保留，群聊也不受影响。
-          </p>
+            </template>
+          </el-input>
         </div>
-      </el-dialog>
 
-      <el-dialog v-model="groupJoinDialogVisible" title="申请加入群聊" width="min(92vw, 520px)"
-        :close-on-click-modal="canCloseGroupJoinDialog" :close-on-press-escape="canCloseGroupJoinDialog"
-        :show-close="canCloseGroupJoinDialog" @closed="resetGroupJoinDialog">
-        <div class="group-join-panel">
-          <div class="search-toolbar">
-            <el-input v-model="groupJoinConversationIdInput" placeholder="输入群聊 ID，精确搜索" clearable
-              :disabled="groupJoinSubmitting || groupSearchLoading" @keyup.enter="executeGroupSearch()">
-              <template #append>
-                <el-button :loading="groupSearchLoading" :disabled="!canSearchGroup || groupJoinSubmitting"
-                  @click="executeGroupSearch()">
-                  搜索
-                </el-button>
-              </template>
-            </el-input>
-          </div>
+        <el-input v-model="friendSearchRequestMessage" type="textarea" :rows="3" maxlength="255" show-word-limit
+          placeholder="好友申请附言（可选）" :disabled="friendSearchSubmittingId !== null" />
 
-          <p class="group-join-tip">仅支持按群聊 ID 完全匹配搜索。</p>
+        <p class="search-tip">账号需完全匹配，昵称支持包含搜索，命中部分会高亮显示。</p>
 
-          <el-empty v-if="groupSearchSearched && !groupSearchLoading && !groupSearchResult" description="未找到匹配的群聊" />
+        <el-empty v-if="
+          friendSearchSearched &&
+          !friendSearchLoading &&
+          friendSearchResults.length === 0
+        " description="未找到匹配的用户" />
 
-          <div v-else-if="groupSearchResult" class="group-search-card">
+        <div v-else-if="friendSearchResults.length > 0">
+          <div v-for="item in friendSearchResults" :key="item.userId" class="search-result-row">
             <div class="search-result-main">
-              <ProgressiveAvatar class="search-result-avatar" :src="getGroupSearchAvatar(groupSearchResult).src"
-                :thumbnail-src="getGroupSearchAvatar(groupSearchResult).thumbnailSrc" :is-preview="true" :size="60"
-                shape="square">
-                {{ getGroupSearchTitle(groupSearchResult).slice(0, 1) }}
+              <ProgressiveAvatar class="search-result-avatar search-result-avatar-link"
+                :src="getFriendSearchAvatar(item).src" :thumbnail-src="getFriendSearchAvatar(item).thumbnailSrc"
+                :data-user-id="item.userId" :size="60" shape="square" :title="`查看 ${getFriendSearchName(item)} 的主页`"
+                role="button" tabindex="0" @click.stop="openUserProfile(item.userId)"
+                @keydown.enter.prevent="openUserProfile(item.userId)">
+                {{ getFriendSearchName(item).slice(0, 1) }}
               </ProgressiveAvatar>
               <div class="search-result-text">
                 <div class="search-result-title">
-                  <strong>{{ getGroupSearchTitle(groupSearchResult) }}</strong>
-                  <el-tag v-if="groupSearchResult.isMember" size="small" type="success">
-                    你已在群内
+                  <strong v-html="renderFriendSearchName(item)"></strong>
+                  <el-tag v-if="item.isFriend" size="small" type="success">已是好友</el-tag>
+                  <el-tag v-else-if="item.hasPendingSentRequest" size="small" type="warning">
+                    已发送申请
                   </el-tag>
-                  <el-tag v-else-if="groupSearchResult.hasPendingJoinRequest" size="small" type="warning">
-                    申请待处理
+                  <el-tag v-else-if="item.hasPendingReceivedRequest" size="small" type="primary">
+                    对方已申请
                   </el-tag>
                 </div>
-                <div class="search-result-meta">群聊 ID：{{ groupSearchResult.id }}</div>
-                <div class="search-result-meta">成员数：{{ groupSearchResult.memberCount }}</div>
+                <div class="search-result-meta">账号：{{ getFriendSearchMeta(item) }}</div>
+                <div class="search-result-meta">用户 ID：{{ item.userId }}</div>
               </div>
             </div>
-          </div>
 
-          <el-input v-model="groupJoinRequestMessage" type="textarea" :rows="4" maxlength="255" show-word-limit
-            placeholder="申请附言（可选）" :disabled="groupJoinSubmitting || !canSubmitGroupJoin" />
-          <p class="group-join-tip">搜索到群聊后可提交申请，等待群主或管理员审核。</p>
+            <div class="search-result-ops">
+              <el-button size="small" type="primary" :loading="friendSearchSubmittingId === item.userId"
+                :disabled="item.isFriend || item.hasPendingSentRequest" @click="handleSendFriendRequest(item)">
+                {{ getFriendSearchActionText(item) }}
+              </el-button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </ChatDialog>
+
+    <ChatDialog v-model="friendRequestDialogVisible" title="好友申请" content-width="720px">
+      <div class="friend-request-panel">
+        <div class="friend-request-toolbar">
+          <el-button plain :loading="friendRequestLoading || friendLoading" @click="refreshFriendData(true)">
+            刷新
+          </el-button>
         </div>
 
-        <template #footer>
-          <div class="dialog-footer">
-            <el-button :disabled="groupJoinSubmitting" @click="resetGroupJoinDialog">
-              取消
-            </el-button>
-            <el-button type="primary" :loading="groupJoinSubmitting" :disabled="!canSubmitGroupJoin"
-              @click="handleSubmitGroupJoin">
-              提交申请
+        <el-empty v-if="!friendRequestLoading && sortedFriendRequests.length === 0" description="暂无好友申请" />
+
+        <div v-else>
+          <div v-for="item in sortedFriendRequests" :key="item.id" class="friend-request-row">
+            <div class="friend-request-main">
+              <div class="friend-request-title">
+                <strong>
+                  {{
+                    item.direction === "received"
+                      ? `${getFriendLabel(item)} 请求添加你为好友`
+                      : `你向 ${getFriendLabel(item)} 发起了好友申请`
+                  }}
+                </strong>
+                <el-tag size="small" :type="getRequestStatusType(item.requestStatus)">
+                  {{ friendRequestStatusMap[item.requestStatus] }}
+                </el-tag>
+              </div>
+
+              <div class="friend-request-Subject">
+
+                <ProgressiveAvatar class="conversation-avatar"
+                  :src="getUserAvatarSources(item.receiver.userId, item.receiver.avatarKey).src"
+                  :thumbnail-src="getUserAvatarSources(item.receiver.userId, item.receiver.avatarKey).thumbnailSrc"
+                  :is-preview="true" :size="60" shape="square">
+                  {{ getFriendLabel(item).slice(0, 1) }}
+                </ProgressiveAvatar>
+
+                <div class="friend-request-text">
+                  <div class="friend-request-meta">账号：{{ getFriendMeta(item) }}</div>
+                  <div v-if="item.requestMessage" class="friend-request-meta">
+                    附言：{{ item.requestMessage }}
+                  </div>
+                  <div v-if="item.rejectReason" class="friend-request-meta">
+                    拒绝原因：{{ item.rejectReason }}
+                  </div>
+                  <div class="friend-request-meta">
+                    申请时间：{{ formatFriendRequestTime(item.createdAt) }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="item.direction === 'received' && item.requestStatus === 'pending'" class="friend-request-ops">
+              <el-button size="small" type="primary" :loading="handlingRequestId === item.id"
+                @click="handleAcceptRequest(item)">
+                通过
+              </el-button>
+              <el-button size="small" type="danger" plain :loading="handlingRequestId === item.id"
+                @click="handleRejectRequest(item)">
+                拒绝
+              </el-button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </ChatDialog>
+
+    <ChatDialog v-model="blacklistDialogVisible" title="黑名单" content-width="640px">
+      <div v-loading="blacklistLoading" class="blacklist-panel">
+        <div class="blacklist-toolbar">
+          <span class="blacklist-count">共 {{ blacklist.length }} 位用户</span>
+          <el-button plain :loading="blacklistLoading" @click="openBlacklistDialog">
+            刷新
+          </el-button>
+        </div>
+
+        <el-empty v-if="!blacklistLoading && blacklist.length === 0" description="黑名单为空，暂无被拉黑的用户" />
+
+        <div v-else>
+          <div v-for="item in blacklist" :key="item.id" class="blacklist-row">
+            <ProgressiveAvatar class="conversation-avatar blacklist-avatar" :src="getBlockedUserAvatar(item).src"
+              :thumbnail-src="getBlockedUserAvatar(item).thumbnailSrc" :data-user-id="item.userId" :size="44"
+              shape="square" :title="`查看 ${getBlockedUserLabel(item)} 的主页`" role="button" tabindex="0"
+              @click="openUserProfile(item.userId)" @keydown.enter.prevent="openUserProfile(item.userId)">
+              {{ getBlockedUserLabel(item).slice(0, 1) }}
+            </ProgressiveAvatar>
+            <span class="blacklist-text">
+              <strong>{{ getBlockedUserLabel(item) }}</strong>
+              <span class="blacklist-meta">账号：{{ getBlockedUserMeta(item) }}</span>
+              <span class="blacklist-meta">拉黑于 {{ formatBlockedAt(item.createdAt) }}</span>
+            </span>
+            <el-button size="small" type="danger" plain :loading="blacklistUnblockingId === item.userId"
+              :disabled="blacklistUnblockingId !== null && blacklistUnblockingId !== item.userId"
+              @click="handleUnblockUser(item)">
+              解除拉黑
             </el-button>
           </div>
-        </template>
-      </el-dialog>
-    </Teleport>
+        </div>
+
+        <p class="blacklist-tip">
+          拉黑后，对方无法添加你为好友、与你发起单聊或搜索到你；主页仍可查看，好友状态会保留，群聊也不受影响。
+        </p>
+      </div>
+    </ChatDialog>
+
+    <ChatDialog v-model="groupJoinDialogVisible" title="申请加入群聊" content-width="600px"
+      :closable="canCloseGroupJoinDialog" :close-on-click-modal="canCloseGroupJoinDialog"
+      :close-on-press-escape="canCloseGroupJoinDialog" :show-close="canCloseGroupJoinDialog"
+      @closed="resetGroupJoinDialog">
+      <div class="group-join-panel">
+        <div class="search-toolbar">
+          <el-input v-model="groupJoinConversationIdInput" placeholder="输入群聊 ID，精确搜索" clearable
+            :disabled="groupJoinSubmitting || groupSearchLoading" @keyup.enter="executeGroupSearch()">
+            <template #append>
+              <el-button :loading="groupSearchLoading" :disabled="!canSearchGroup || groupJoinSubmitting"
+                @click="executeGroupSearch()">
+                搜索
+              </el-button>
+            </template>
+          </el-input>
+        </div>
+
+        <p class="group-join-tip">仅支持按群聊 ID 完全匹配搜索。</p>
+
+        <el-empty v-if="groupSearchSearched && !groupSearchLoading && !groupSearchResult" description="未找到匹配的群聊" />
+
+        <div v-else-if="groupSearchResult" class="group-search-card">
+          <div class="search-result-main">
+            <ProgressiveAvatar class="search-result-avatar" :src="getGroupSearchAvatar(groupSearchResult).src"
+              :thumbnail-src="getGroupSearchAvatar(groupSearchResult).thumbnailSrc" :is-preview="true" :size="60"
+              shape="square">
+              {{ getGroupSearchTitle(groupSearchResult).slice(0, 1) }}
+            </ProgressiveAvatar>
+            <div class="search-result-text">
+              <div class="search-result-title">
+                <strong>{{ getGroupSearchTitle(groupSearchResult) }}</strong>
+                <el-tag v-if="groupSearchResult.isMember" size="small" type="success">
+                  你已在群内
+                </el-tag>
+                <el-tag v-else-if="groupSearchResult.hasPendingJoinRequest" size="small" type="warning">
+                  申请待处理
+                </el-tag>
+              </div>
+              <div class="search-result-meta">群聊 ID：{{ groupSearchResult.id }}</div>
+              <div class="search-result-meta">成员数：{{ groupSearchResult.memberCount }}</div>
+            </div>
+          </div>
+        </div>
+
+        <el-input v-model="groupJoinRequestMessage" type="textarea" :rows="4" maxlength="255" show-word-limit
+          placeholder="申请附言（可选）" :disabled="groupJoinSubmitting || !canSubmitGroupJoin" />
+        <p class="group-join-tip">搜索到群聊后可提交申请，等待群主或管理员审核。</p>
+      </div>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button :disabled="groupJoinSubmitting" @click="resetGroupJoinDialog">
+            取消
+          </el-button>
+          <el-button type="primary" :loading="groupJoinSubmitting" :disabled="!canSubmitGroupJoin"
+            @click="handleSubmitGroupJoin">
+            提交申请
+          </el-button>
+        </div>
+      </template>
+    </ChatDialog>
   </div>
+
+    <!-- 主题色设置 -->
+    <ThemeColorDialog v-model="themeColorDialogVisible" />
 </template>
 
 <style scoped lang="scss">

@@ -1,23 +1,26 @@
 import { computed, nextTick, readonly, ref } from "vue";
 import { DEFAULT_THEME } from "@/config";
+import {
+  buildThemePalette,
+  normalizeHexColor,
+} from "@/composables/theme-palette";
 
 /**
- * 日间 / 夜间主题切换。
+ * 主题模式（日间 / 夜间）与主题色（用户自定义）。
  *
- * 切换时不是「全局瞬间换色」，而是以视口中心为圆心扩散一圈环形波纹：
- * 新主题的画面从圆心向外揭开，波纹扫过的区域随之更新；波纹本身用
- * DEFAULT_THEME（默认 #e3c0df）描边 + 发光。
+ * 日 / 夜切换以视口中心为圆心扩散一圈环形波纹：
+ * 新主题的画面从圆心向外揭开，波纹本身用当前主题色描边 + 发光。
+ *
+ * 主题色由用户在下拉里选择，持久化到 localStorage。种子色会实时生成
+ * 整套色阶（强调色、浅底、深色动作按钮、Element Plus primary、聊天浅色面），
+ * 因此任意颜色都能保持文字可读，不需要为每个颜色单独写样式。
  *
  * 实现分两条路径：
- * 1. 浏览器支持 View Transitions API：把「旧主题画面」和「新主题画面」
- *    各拍一张快照，用 clip-path 圆形裁切动画揭开新快照，同时单独给
- *    波纹层做缩放动画。整页（文字、面板、背景）都会随波纹一起更新。
- * 2. 不支持时（或过渡被跳过）：给 <html> 临时加颜色 transition，
- *    再用同一套波纹元素做一枚扩散的环形光波。颜色仍然平滑过渡。
+ * 1. 支持 View Transitions API：旧 / 新主题各拍一张快照，用 clip-path 圆形裁切。
+ * 2. 不支持时：给 <html> 临时加颜色 transition，再用真实 DOM 元素做波纹。
  *
  * 系统开启「减少动态效果」时，程序化 setTheme 默认直接生效；
- * 但顶栏按钮是用户主动点击的明确反馈，toggleTheme 会 force 播放波纹，
- * 避免出现「点了按钮却什么都没有」的瞬切。
+ * 但顶栏按钮是用户主动点击的明确反馈，toggleTheme 会 force 播放波纹。
  */
 
 export type ThemeMode = "light" | "dark";
@@ -35,6 +38,7 @@ export interface SetThemeOptions {
 
 /** localStorage 键名：index.html 首屏脚本与本文件两处必须一致。 */
 const THEME_STORAGE_KEY = "theme";
+const THEME_COLOR_STORAGE_KEY = "themeColor";
 
 /** 动画时长；CSS 侧通过 --theme-transition-duration 读取同一数值。 */
 export const THEME_TRANSITION_MS = 720;
@@ -43,14 +47,20 @@ const THEME_TRANSITION_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
 
 const SWITCHING_CLASS = "theme-switching";
 const COLOR_TRANSITION_CLASS = "theme-colors-transitioning";
+/** 只做颜色过渡、不播放整页波纹：主题色取色时使用。 */
+const COLOR_ONLY_TRANSITION_CLASS = "theme-color-transitioning";
+const COLOR_ONLY_TRANSITION_MS = 500;
 const RIPPLE_LAYER_ID = "theme-ripple-layer";
 const RIPPLE_LAYER_CLASS = "theme-ripple-ring";
 
 const currentTheme = ref<ThemeMode>(readStoredTheme() ?? "light");
+const currentThemeColor = ref<string>(readStoredThemeColor());
 const isDark = computed(() => currentTheme.value === "dark");
 
 let initialized = false;
 let switching = false;
+/** 主题色连续取色时，延长颜色过渡类的移除时间。 */
+let colorTransitionTimer: number | null = null;
 /** 动画过程中用户又点了切换：等当前动画结束再应用最终状态。 */
 let queuedTheme: ThemeMode | null = null;
 
@@ -62,6 +72,18 @@ function readStoredTheme(): ThemeMode | null {
   } catch {
     // 隐私模式 / 禁用存储时照常使用默认主题
     return null;
+  }
+}
+
+function readStoredThemeColor(): string {
+  if (typeof window === "undefined") return DEFAULT_THEME;
+  try {
+    return (
+      normalizeHexColor(window.localStorage.getItem(THEME_COLOR_STORAGE_KEY) ?? "") ??
+      DEFAULT_THEME
+    );
+  } catch {
+    return DEFAULT_THEME;
   }
 }
 
@@ -80,65 +102,24 @@ function supportsViewTransition(): boolean {
   );
 }
 
-/** #e3c0df -> "227, 192, 223"，供 rgba(var(--theme-color-rgb), α) 使用。 */
-function hexToRgbChannels(hex: string): string {
-  const value = hex.replace("#", "");
-  const full =
-    value.length === 3
-      ? value
-          .split("")
-          .map((char) => char + char)
-          .join("")
-      : value;
-  const int = Number.parseInt(full, 16);
-  if (Number.isNaN(int)) return "227, 192, 223";
-  return `${(int >> 16) & 255}, ${(int >> 8) & 255}, ${int & 255}`;
-}
-
-/** 相对亮度（WCAG 2.x），用于给主题底自动挑白字 / 黑字。 */
-function relativeLuminance(hex: string): number {
-  const channels = hexToRgbChannels(hex)
-    .split(",")
-    .map((channel) => Number.parseInt(channel.trim(), 10) / 255)
-    .map((channel) =>
-      channel <= 0.03928
-        ? channel / 12.92
-        : ((channel + 0.055) / 1.055) ** 2.4,
-    );
-  return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
-}
-
-function contrastRatio(a: string, b: string): number {
-  const [lighter, darker] = [relativeLuminance(a), relativeLuminance(b)].sort(
-    (left, right) => right - left,
-  );
-  return (lighter! + 0.05) / (darker! + 0.05);
-}
-
 /**
- * 根据背景色挑对比度更高的前景色。
- * 当前种子色 #e3c0df 会选深梅色；主题色变深时自动切到白色。
+ * 把当前主题色生成的全套变量写到 <html> 行内样式。
+ *
+ * 聊天页 / 用户主页挂载时 <html> 带 .theme-light-surface：
+ * 这类固定浅色面要用日间色阶，即使全局主题是夜间。
  */
-function pickOnColor(background: string): string {
-  return contrastRatio(background, "#ffffff") >
-    contrastRatio(background, "#2b1428")
-    ? "#ffffff"
-    : "#2b1428";
-}
-
-/**
- * 把主题色写进 CSS 变量。
- * 颜色本身只在 config/index.ts 维护一份，样式表里的值只是首屏兜底。
- */
-function applyThemeColorVariables(): void {
+export function refreshThemePalette(): void {
+  if (typeof document === "undefined") return;
   const root = document.documentElement;
-  root.style.setProperty("--theme-color", DEFAULT_THEME);
-  root.style.setProperty("--theme-color-rgb", hexToRgbChannels(DEFAULT_THEME));
-  // 浅色主题底上的文字色按对比度自动选白 / 深梅
-  root.style.setProperty(
-    "--theme-color-contrast",
-    pickOnColor(DEFAULT_THEME),
-  );
+  const lightSurface = root.classList.contains("theme-light-surface");
+  const mode: ThemeMode =
+    lightSurface || root.getAttribute("data-theme") !== "dark"
+      ? "light"
+      : "dark";
+  const palette = buildThemePalette(currentThemeColor.value, mode);
+  for (const [name, value] of Object.entries(palette)) {
+    root.style.setProperty(name, value);
+  }
   root.style.setProperty(
     "--theme-transition-duration",
     `${THEME_TRANSITION_MS}ms`,
@@ -198,7 +179,8 @@ async function runViewTransition(next: ThemeMode): Promise<void> {
   try {
     transition = document.startViewTransition(async () => {
       applyThemeAttributes(next);
-      // 等 Vue 把按钮图标等响应式内容更新完，再拍新快照
+      refreshThemePalette();
+      // 等 Vue 把内容更新完，再拍新快照
       await nextTick();
     });
   } catch {
@@ -214,6 +196,7 @@ async function runViewTransition(next: ThemeMode): Promise<void> {
     // 过渡被中途跳过（页面隐藏、被中断等）：主题已经写入，
     // 再补一枚环形波纹作为反馈，不能变成无提示的瞬切。
     applyThemeAttributes(next);
+    refreshThemePalette();
     root.classList.remove(SWITCHING_CLASS);
     await runColorTransitionFallback(next);
     return;
@@ -244,6 +227,7 @@ function runColorTransitionFallback(next: ThemeMode): Promise<void> {
     root.classList.add(COLOR_TRANSITION_CLASS);
     void root.getBoundingClientRect();
     applyThemeAttributes(next);
+    refreshThemePalette();
 
     layer.classList.add("is-rippling");
     try {
@@ -273,6 +257,7 @@ function applyImmediately(next: ThemeMode): void {
   const root = document.documentElement;
   root.classList.remove(SWITCHING_CLASS, COLOR_TRANSITION_CLASS);
   applyThemeAttributes(next);
+  refreshThemePalette();
 }
 
 /**
@@ -282,19 +267,21 @@ function applyImmediately(next: ThemeMode): void {
 export function initTheme(): void {
   if (initialized || typeof document === "undefined") return;
   initialized = true;
-  applyThemeColorVariables();
+
+  // index.html 的首屏脚本已经按 localStorage 写过一次 data-theme / 种子色；
+  // 这里以同一份存储为准再做一次幂等校正，并把完整色阶写入行内变量。
+  const mode = readStoredTheme() ?? currentTheme.value;
+  applyThemeAttributes(mode);
+  currentThemeColor.value = readStoredThemeColor();
+  refreshThemePalette();
+
   // 首帧就建好透明波纹层：切换时它已经参与过渲染，
   // 旧 / 新快照都能稳定拿到 theme-ripple 这个命名元素。
   ensureRippleLayer();
-
-  // index.html 的首屏脚本已经按 localStorage 写过一次 data-theme；
-  // 这里以同一份存储为准再做一次幂等校正，顺便把状态同步到 ref。
-  const mode = readStoredTheme() ?? currentTheme.value;
-  applyThemeAttributes(mode);
 }
 
 /**
- * 切换主题。返回 Promise 便于测试等待动画结束。
+ * 切换日 / 夜主题。返回 Promise 便于测试等待动画结束。
  * 动画进行中再次调用会合并为最终状态，不会叠加两层波纹。
  */
 export function setTheme(
@@ -330,8 +317,6 @@ export function setTheme(
     applyImmediately(next);
     task = Promise.resolve();
   } else if (supportsViewTransition()) {
-    // startViewTransition 在当前 TS DOM 类型里是必有方法，
-    // 但旧内核运行时没有；supportsViewTransition 已做运行时兜底。
     task = runViewTransition(next);
   } else {
     task = runColorTransitionFallback(next);
@@ -354,12 +339,55 @@ export function toggleTheme(): Promise<void> {
   });
 }
 
+/**
+ * 修改主题色并持久化。非法 hex 返回 false。
+ * 颜色变化不播整页 View Transition（取色器会连续触发 input），
+ * 但所有色阶是实时更新的。
+ */
+export function setThemeColor(color: string): boolean {
+  const normalized = normalizeHexColor(color);
+  if (!normalized) return false;
+  if (normalized === currentThemeColor.value) return true;
+
+  const root = document.documentElement;
+  currentThemeColor.value = normalized;
+  try {
+    window.localStorage.setItem(THEME_COLOR_STORAGE_KEY, normalized);
+  } catch {
+    // 存不下也照常应用
+  }
+
+  // 取色时不做整页 View Transition，只让页面已有颜色平滑过渡。
+  // 连续拖动取色器时复用同一个类，过渡会从当前颜色继续追到新颜色。
+  root.classList.add(COLOR_ONLY_TRANSITION_CLASS);
+  // 先强制一次样式计算，确保浏览器把旧颜色作为 transition 起点
+  void root.getBoundingClientRect();
+  refreshThemePalette();
+
+  if (colorTransitionTimer !== null) {
+    window.clearTimeout(colorTransitionTimer);
+  }
+  colorTransitionTimer = window.setTimeout(() => {
+    colorTransitionTimer = null;
+    root.classList.remove(COLOR_ONLY_TRANSITION_CLASS);
+  }, COLOR_ONLY_TRANSITION_MS + 80);
+  return true;
+}
+
+/** 恢复默认主题色。 */
+export function resetThemeColor(): void {
+  setThemeColor(DEFAULT_THEME);
+}
+
 /** 组件里读取主题状态。 */
 export function useTheme() {
   return {
     theme: readonly(currentTheme),
+    themeColor: readonly(currentThemeColor),
     isDark,
     setTheme,
     toggleTheme,
+    setThemeColor,
+    resetThemeColor,
   };
 }
