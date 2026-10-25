@@ -399,7 +399,7 @@ async function toggleBind(bindName: string) {
     border-radius: 16px;
     padding: 24px;
     border: 1px solid var(--border-color);
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
+    box-shadow: var(--theme-outer-glow);
 }
 
 .setting-header {

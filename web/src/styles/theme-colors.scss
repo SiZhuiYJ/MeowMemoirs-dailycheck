@@ -30,6 +30,18 @@
   --theme-color: #e3c0df;
   --theme-color-rgb: 227, 192, 223;
 
+  // 首屏兜底；完整值由 theme-palette.ts 按当前种子色写入行内变量
+  --theme-outer-glow: 0 24px 70px rgba(227, 192, 223, 0.24),
+    0 12px 30px rgba(17, 24, 39, 0.14);
+  --theme-outer-glow-soft: 0 12px 36px rgba(227, 192, 223, 0.18),
+    0 6px 16px rgba(17, 24, 39, 0.1);
+  --theme-outer-glow-lighter: 0 6px 18px rgba(227, 192, 223, 0.14),
+    0 3px 8px rgba(17, 24, 39, 0.06);
+  --el-box-shadow: var(--theme-outer-glow);
+  --el-box-shadow-light: var(--theme-outer-glow-soft);
+  --el-box-shadow-lighter: var(--theme-outer-glow-lighter);
+  --el-box-shadow-dark: var(--theme-outer-glow-soft);
+
   // —— 夜间模式（默认根变量）——
   --theme-color-strong: #e3c0df;
   --theme-color-deep: #f0cdea;

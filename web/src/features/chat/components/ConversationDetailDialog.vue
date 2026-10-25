@@ -803,15 +803,22 @@ watch(
         </div>
       </div>
 
+    </div>
+
+    <!-- 底部操作收进 .composer（弹层底栏），靠右排列 -->
+    <template #footer>
       <div class="action-icons">
-        <el-icon @click="toggleMuted">
-          <MuteNotification v-if="conversation.isMuted" />
-          <Bell v-else />
-        </el-icon>
+        <button class="action-mute" type="button" :aria-label="conversation.isMuted ? '取消消息免打扰' : '消息免打扰'"
+          :title="conversation.isMuted ? '取消消息免打扰' : '消息免打扰'" @click="toggleMuted">
+          <el-icon>
+            <MuteNotification v-if="conversation.isMuted" />
+            <Bell v-else />
+          </el-icon>
+        </button>
         <IsPin v-model:is-pinned="conversation.isPinned" @toggle-pinned="togglePinned" />
         <el-button type="primary" class="load-more" @click="emit('load-more')">加载更早消息</el-button>
       </div>
-    </div>
+    </template>
   </ChatDialog>
 
   <ChatDialog v-model="inviteDialogVisible" title="邀请好友入群" content-width="520px" :closable="!inviting"
@@ -907,7 +914,7 @@ watch(
 .conversation-detail-dialog {
   display: grid;
   gap: 20px;
-  // 内容由 ChatDialog 的整屏内容栏承载，这里只负责块间距。
+  // 内容由 ChatDialog 的弹性内容栏承载，这里只负责块间距。
   min-width: 0;
 }
 
@@ -950,8 +957,12 @@ watch(
   display: grid;
   gap: 8px;
   padding: 14px 16px;
+  // 对话框现在是近白 / 浅粉的主题底，纯白信息卡容易和背景糊在一起：
+  // 用「主题色描边 + 极浅主题色底 + 微投影」把卡片边界做出来。
+  border: 1px solid color-mix(in srgb, var(--theme-color-strong, #9a4f8d) 12%, #e5e7eb);
   border-radius: 12px;
-  background: #f9fafb;
+  background: color-mix(in srgb, var(--theme-color-strong, #9a4f8d) 4%, #f7f7f9);
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.05);
 }
 
 .meta-item {
@@ -1129,14 +1140,42 @@ watch(
 
 .action-icons {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 14px;
   color: #111827;
   font-size: 18px;
 }
 
+// 免打扰开关：与置顶控件同样占 32 / 24px 的点击区，键盘也能聚焦。
+.action-mute {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--chat-control-h, 32px);
+  height: var(--chat-control-h, 32px);
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--chat-control-h, 32px) * 0.22);
+  color: inherit;
+  font-size: inherit;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+
+  &:hover {
+    background: #f4eeff;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--chat-accent, #9a4f8d);
+    outline-offset: 2px;
+  }
+}
+
 .load-more {
-  justify-self: flex-start;
+  flex-shrink: 0;
 }
 
 .invite-dialog-body,
@@ -1222,6 +1261,13 @@ watch(
 
 // 单列化调整：手机 / 平板档（600~1200 的横屏手机与平板）同样需要，故用 device-mobile。
 @include rp.device-mobile {
+
+  // 底栏里的操作按 24px 控件高收间距，避免「图标 + 按钮」在窄屏换行后散开。
+  .action-icons {
+    gap: 8px;
+    font-size: 16px;
+  }
+
   .conversation-detail-dialog {
     gap: 14px;
   }

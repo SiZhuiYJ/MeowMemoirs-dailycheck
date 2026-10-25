@@ -170,7 +170,7 @@ export function useChatCore() {
   }
 
   // 选择会话：重置状态 -> 拉详情 -> 拉消息 -> 标记已读 -> 订阅 -> 批量已读状态
-  async function selectConversation(item: ConversationSummary) {
+  async function selectConversation(item: { id: number }) {
     clearReplyingMessage();
     messagesModule.resetMessages();
     readModule.clearReadStatus();
@@ -263,10 +263,15 @@ export function useChatCore() {
       title: createTitle.value || undefined,
       memberUserIds,
     });
-    if (detail) {
-      createTitle.value = "";
-      createMemberUserIds.value = [];
-    }
+    if (!detail) return null;
+
+    createTitle.value = "";
+    createMemberUserIds.value = [];
+
+    // 好友列表点好友 / 建群之后也要走统一的「切换会话」流程：
+    // 重置消息、拉历史、标记已读、订阅推送。以前这里只创建不切换，
+    // 列表虽然高亮到新会话，右侧却还停留在上一个会话的消息上。
+    return await selectConversation(detail);
   }
 
   async function handleSendText(replyToMessageId?: number | null) {

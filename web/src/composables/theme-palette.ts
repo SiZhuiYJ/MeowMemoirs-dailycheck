@@ -157,11 +157,27 @@ function contrastRatio(a: string, b: string): number {
   return (lighter! + 0.05) / (darker! + 0.05);
 }
 
-/** 根据背景色挑对比度更高的前景色。 */
+/** 根据背景色挑对比度更高的前景色（用于浅底 / 种子色背景，按 4.5:1 倾向）。 */
 export function pickOnColor(background: string): string {
   return contrastRatio(background, WHITE) > contrastRatio(background, INK)
     ? WHITE
     : INK;
+}
+
+/**
+ * 深色动作按钮的字体色。
+ *
+ * 动作按钮文字加粗、字号不大，优先用白字；只要白字对底色达到 3:1
+ * （WCAG 大字号 / UI 组件的门槛）就用白色，否则回退到深色字。
+ * 这样 #80cbc4 这类中等明度的主题色会得到白字，而浅黄等颜色仍会自动
+ * 切回深色字，不需要为每个颜色手写例外。
+ */
+export function pickActionOnColor(background: string): string {
+  const whiteContrast = contrastRatio(background, WHITE);
+  const inkContrast = contrastRatio(background, INK);
+  if (whiteContrast >= 3) return WHITE;
+  if (inkContrast >= 3) return INK;
+  return whiteContrast >= inkContrast ? WHITE : INK;
 }
 
 /**
@@ -267,7 +283,13 @@ export function buildThemePalette(
   const gradientStart = isLight ? actionBg : actionHover;
   const gradientEnd = isLight ? actionHover : actionActive;
   const contrast = pickOnColor(normalized);
-  const actionContrast = pickOnColor(actionBg);
+  const actionContrast = pickActionOnColor(actionBg);
+
+  // 主题色外发光：与主题色设置对话框原来的投影保持一致，
+  // 抽成全局 token 后，普通弹窗 / 卡片 / 面板都复用同一套效果。
+  const outerGlow = `0 24px 70px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.24), 0 12px 30px rgba(17, 24, 39, 0.14)`;
+  const outerGlowSoft = `0 12px 36px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.18), 0 6px 16px rgba(17, 24, 39, 0.1)`;
+  const outerGlowLighter = `0 6px 18px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.14), 0 3px 8px rgba(17, 24, 39, 0.06)`;
 
   const primary = strong;
   const lightMixBase = isLight ? WHITE : DARK_SURFACE;
@@ -285,6 +307,14 @@ export function buildThemePalette(
     "--theme-color-soft": soft,
     "--theme-color-softer": softer,
     "--theme-color-contrast": contrast,
+    "--theme-outer-glow": outerGlow,
+    "--theme-outer-glow-soft": outerGlowSoft,
+    "--theme-outer-glow-lighter": outerGlowLighter,
+    // Element Plus 的弹窗 / 下拉 / 卡片统一使用主题色外发光
+    "--el-box-shadow": outerGlow,
+    "--el-box-shadow-light": outerGlowSoft,
+    "--el-box-shadow-lighter": outerGlowLighter,
+    "--el-box-shadow-dark": outerGlowSoft,
     "--theme-primary": strong,
     "--theme-primary-bg": normalized,
     "--theme-primary-hover": primaryHover,

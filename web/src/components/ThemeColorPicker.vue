@@ -57,7 +57,7 @@ function handleCustomColor(event: Event): void {
         />
         <span>自定义颜色</span>
       </label>
-      <button type="button" class="theme-color-picker__reset" @click="resetThemeColor">
+      <button type="button" class="theme-color-picker__reset" @click="resetThemeColor()">
         恢复默认
       </button>
     </div>

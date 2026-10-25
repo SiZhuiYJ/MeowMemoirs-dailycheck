@@ -29,20 +29,23 @@ const emit = defineEmits<{
 }
 
 .pin {
-    width: 15px;
+    // 随控件高度缩放：32px 时约 15px、24px 时约 11px
+    width: 47%;
     height: auto;
     transform: rotate(35deg);
 }
 
 .container {
-    width: 45px;
-    height: 45px;
+    // 与聊天页 / ChatDialog 的控件高度对齐（桌面 32px，手机平板 24px）。
+    // 弹层把它放进了 .composer，45px 的旧尺寸会把底栏撑高。
+    width: var(--chat-control-h, 45px);
+    height: var(--chat-control-h, 45px);
     background-color: transparent;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    border-radius: 10px;
+    border-radius: calc(var(--chat-control-h, 45px) * 0.22);
 }
 
 .container input:checked~.pin {

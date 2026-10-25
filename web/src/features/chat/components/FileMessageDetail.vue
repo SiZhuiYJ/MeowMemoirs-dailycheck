@@ -10,8 +10,8 @@
  * ## 形态
  *
  * 以前是「手机 el-drawer 底部抽屉 / 平板·电脑 el-dialog 居中对话框」两套外壳；
- * 现在统一成整屏 ChatDialog（顶部 .chat-header / 中间 .el-scrollbar /
- * 底部 .composer），三种设备结构一致：
+ * 现在统一成自适应高度的 ChatDialog（顶部 .chat-header / 中间 .el-scrollbar /
+ * 底部 .composer）：内容少时是一张居中卡片，内容多才撑满窗口，三种设备结构一致：
  *
  *   - 不再需要按 isPhoneTier / isPhone 切外壳，少一条判定分支；
  *   - 抽屉高度按内容撑开的问题、超长文件名被关闭按钮压住的问题一并消失；

@@ -566,12 +566,69 @@ check(
   JSON.stringify(afterForced),
 );
 
-// ── 6. 自定义主题色：生成全套色阶 + 持久化 ────────────────────────────────
-await cdp.evaluate(`window.__themeTest.setThemeColor('#e3c0df')`);
+// ── 6. 取色防抖：停止操作 1s 后才应用 ─────────────────────────────────────
+await cdp.evaluate(`window.__themeTest.setTheme('light', { animate: false })`);
+await cdp.evaluate(`window.__themeTest.setThemeColor('#e3c0df', { immediate: true })`);
+const debounceStart = await cdp.evaluate(`(() => {
+  const m = window.__themeTest;
+  m.setThemeColor('#ff8a65');
+  const cs = getComputedStyle(document.documentElement);
+  return {
+    appliedSeed: cs.getPropertyValue('--theme-color').trim().toLowerCase(),
+    selected: m.useTheme().themeColor.value.toLowerCase(),
+    stored: localStorage.getItem('themeColor'),
+  };
+})()`);
+check(
+  "选色后 1s 内只更新选择状态，不切换页面色阶",
+  debounceStart.appliedSeed === "#e3c0df" &&
+    debounceStart.selected === "#ff8a65" &&
+    (debounceStart.stored === null || debounceStart.stored === "#e3c0df"),
+  JSON.stringify(debounceStart),
+);
+// 400ms 后再改一次：1s 计时必须重置，不能在第 1000ms 应用中间色
+await sleep(400);
+await cdp.evaluate(`window.__themeTest.setThemeColor('#4f8cff')`);
+await sleep(700);
+const debounceMiddle = await cdp.evaluate(`(() => {
+  const cs = getComputedStyle(document.documentElement);
+  return {
+    appliedSeed: cs.getPropertyValue('--theme-color').trim().toLowerCase(),
+    selected: window.__themeTest.useTheme().themeColor.value.toLowerCase(),
+    stored: localStorage.getItem('themeColor'),
+  };
+})()`);
+check(
+  "连续调整会重置 1s 计时，不应用中间色",
+  debounceMiddle.appliedSeed === "#e3c0df" &&
+    debounceMiddle.selected === "#4f8cff" &&
+    (debounceMiddle.stored === null || debounceMiddle.stored === "#e3c0df"),
+  JSON.stringify(debounceMiddle),
+);
+await sleep(500);
+const debounceEnd = await cdp.evaluate(`(() => {
+  const cs = getComputedStyle(document.documentElement);
+  return {
+    appliedSeed: cs.getPropertyValue('--theme-color').trim().toLowerCase(),
+    stored: localStorage.getItem('themeColor'),
+    transitioning: document.documentElement.classList.contains('theme-color-transitioning'),
+  };
+})()`);
+check(
+  "停止操作 1s 后才应用最后一次主题色并持久化",
+  debounceEnd.appliedSeed === "#4f8cff" &&
+    debounceEnd.stored === "#4f8cff" &&
+    debounceEnd.transitioning === true,
+  JSON.stringify(debounceEnd),
+);
+await cdp.evaluate(`window.__themeTest.setThemeColor('#e3c0df', { immediate: true })`);
+
+// ── 7. 自定义主题色：生成全套色阶 + 持久化 ────────────────────────────────
+await cdp.evaluate(`window.__themeTest.setThemeColor('#e3c0df', { immediate: true })`);
 await cdp.evaluate(`window.__themeTest.setTheme('light', { animate: false })`);
 const customLight = await cdp.evaluate(`(() => {
   const m = window.__themeTest;
-  const ok = m.setThemeColor('#4f8cff');
+  const ok = m.setThemeColor('#4f8cff', { immediate: true });
   const cs = getComputedStyle(document.documentElement);
   return {
     ok,
@@ -583,6 +640,8 @@ const customLight = await cdp.evaluate(`(() => {
     stored: localStorage.getItem('themeColor'),
     transitioning: document.documentElement.classList.contains('theme-color-transitioning'),
     duration: cs.getPropertyValue('--theme-color-transition-duration').trim(),
+    outerGlow: cs.getPropertyValue('--theme-outer-glow').trim(),
+    epShadow: cs.getPropertyValue('--el-box-shadow').trim(),
   };
 })()`);
 check(
@@ -600,11 +659,17 @@ check(
   JSON.stringify(customLight),
 );
 check(
-  "主题色变化时挂上 500ms 纯颜色过渡类",
-  customLight.transitioning === true && customLight.duration === "500ms",
+  "主题色变化时挂上 1000ms 纯颜色过渡类",
+  customLight.transitioning === true && customLight.duration === "1000ms",
   JSON.stringify(customLight),
 );
-await sleep(650);
+check(
+  "Element Plus 全局外阴影复用当前主题色光晕",
+  customLight.epShadow === customLight.outerGlow &&
+    customLight.epShadow.includes("79, 140, 255"),
+  JSON.stringify(customLight),
+);
+await sleep(1150);
 const colorTransitionSettled = await cdp.evaluate(
   `!document.documentElement.classList.contains('theme-color-transitioning')`,
 );
@@ -633,7 +698,7 @@ check(
   JSON.stringify(customDarkAfter),
 );
 
-await cdp.evaluate(`window.__themeTest.setThemeColor('#e3c0df')`);
+await cdp.evaluate(`window.__themeTest.setThemeColor('#e3c0df', { immediate: true })`);
 await cdp.evaluate(`window.__themeTest.setTheme('light', { animate: false })`);
 const restored = await cdp.evaluate(`(() => {
   const cs = getComputedStyle(document.documentElement);
@@ -650,6 +715,44 @@ check(
     restored.theme === "light",
   JSON.stringify(restored),
 );
+
+// 动作按钮字体色算法：中等明度的 #80cbc4 用白字，
+// 浅黄色这种白字对比度不足的颜色回退深色字。
+const tealAction = await cdp.evaluate(`(() => {
+  window.__themeTest.setThemeColor('#80cbc4', { immediate: true });
+  const cs = getComputedStyle(document.documentElement);
+  return {
+    seed: cs.getPropertyValue('--theme-color').trim().toLowerCase(),
+    actionBg: cs.getPropertyValue('--theme-action-bg').trim().toLowerCase(),
+    actionContrast: cs.getPropertyValue('--theme-action-contrast').trim().toLowerCase(),
+  };
+})()`);
+check(
+  "#80cbc4 主题色的深色动作按钮自动选白字（对比度 >= 3）",
+  tealAction.seed === "#80cbc4" &&
+    tealAction.actionContrast === "#ffffff" &&
+    colorContrast(tealAction.actionBg, "#ffffff") >= 3,
+  JSON.stringify(tealAction),
+);
+
+const yellowAction = await cdp.evaluate(`(() => {
+  window.__themeTest.setThemeColor('#ffd54f', { immediate: true });
+  const cs = getComputedStyle(document.documentElement);
+  return {
+    seed: cs.getPropertyValue('--theme-color').trim().toLowerCase(),
+    actionBg: cs.getPropertyValue('--theme-action-bg').trim().toLowerCase(),
+    actionContrast: cs.getPropertyValue('--theme-action-contrast').trim().toLowerCase(),
+  };
+})()`);
+check(
+  "浅黄色主题色的动作按钮自动回退深色字",
+  yellowAction.seed === "#ffd54f" &&
+    yellowAction.actionContrast === "#2b1428" &&
+    colorContrast(yellowAction.actionBg, "#2b1428") >= 3,
+  JSON.stringify(yellowAction),
+);
+
+await cdp.evaluate(`window.__themeTest.setThemeColor('#e3c0df', { immediate: true })`);
 
 check("页面没有未捕获异常", cdp.pageExceptions.length === 0, cdp.pageExceptions.join(" | "));
 

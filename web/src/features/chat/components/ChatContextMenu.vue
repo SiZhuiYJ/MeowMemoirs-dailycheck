@@ -188,10 +188,19 @@ function selectItem(item: ChatContextMenuItem) {
   max-height: min(420px, calc(100vh - 16px));
   padding: 4px;
   overflow-y: auto;
-  border: 1px solid rgba(17, 24, 39, 0.1);
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--theme-color) 24%,
+      var(--el-border-color-lighter, #ebeef5)
+    );
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 12px 32px rgba(17, 24, 39, 0.18);
+  background: color-mix(
+    in srgb,
+    var(--theme-color) 7%,
+    var(--el-bg-color-overlay, #fff)
+  );
+  box-shadow: var(--theme-outer-glow-soft);
   backdrop-filter: blur(8px);
   user-select: none;
 }
@@ -206,7 +215,7 @@ function selectItem(item: ChatContextMenuItem) {
   padding: 7px 10px;
   border: 0;
   border-radius: 5px;
-  color: #111827;
+  color: var(--el-text-color-regular);
   font-size: 12px;
   line-height: 18px;
   text-align: left;
@@ -215,25 +224,34 @@ function selectItem(item: ChatContextMenuItem) {
   transition: background-color 0.12s ease, color 0.12s ease;
 
   &:hover:not(:disabled) {
-    background: #f7e8f4;
-    color: #9a4f8d;
+    background: var(--theme-color-soft);
+    color: var(--theme-color-strong);
   }
 
   &:active:not(:disabled) {
-    background: #efdcec;
-    color: #9a4f8d;
+    background: color-mix(
+      in srgb,
+      var(--theme-color) 22%,
+      var(--el-bg-color-overlay, #fff)
+    );
+    color: var(--theme-color-strong);
   }
 
   &.is-danger {
-    color: #b91c1c;
+    color: var(--el-color-danger, #f56c6c);
 
     &:hover:not(:disabled) {
-      background: rgba(220, 38, 38, 0.08);
+      background: color-mix(
+        in srgb,
+        var(--el-color-danger, #f56c6c) 12%,
+        transparent
+      );
+      color: var(--el-color-danger, #f56c6c);
     }
   }
 
   &.is-disabled {
-    color: #9ca3af;
+    color: var(--el-text-color-disabled, #a8abb2);
     cursor: not-allowed;
   }
 }
@@ -255,7 +273,7 @@ function selectItem(item: ChatContextMenuItem) {
   flex-shrink: 0;
   max-width: 118px;
   overflow: hidden;
-  color: #9ca3af;
+  color: var(--el-text-color-secondary, #909399);
   font-size: 10px;
   line-height: 16px;
   text-overflow: ellipsis;
@@ -265,7 +283,11 @@ function selectItem(item: ChatContextMenuItem) {
 .chat-context-menu__divider {
   height: 1px;
   margin: 4px 6px;
-  background: rgba(17, 24, 39, 0.08);
+  background: color-mix(
+    in srgb,
+    var(--theme-color) 16%,
+    var(--el-border-color-lighter, #ebeef5)
+  );
 }
 
 .chat-context-menu-fade-enter-active,

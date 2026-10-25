@@ -38,6 +38,8 @@ function unlockBodyScroll() {
 <script setup lang="ts">
 /**
  * 聊天页专用弹层（替代 Element Plus 的 `el-dialog`）。
+ * 全局的 `components/ThemeColorDialog.vue` 也复用它：同一套主题色底、悬浮
+ * 毛玻璃栏和高度自适应，避免主题色对话框再维护一套 el-dialog 皮肤。
  *
  * ## 为什么不用 el-dialog
  *
@@ -46,27 +48,46 @@ function unlockBodyScroll() {
  * 结构是「居中卡片 + 标题 + 正文 + 可选 footer」。在手机上它只有 92vw 宽，
  * 长列表要么在弹窗里再套一层滚动条（双层滚动），要么把整页撑出屏幕。
  *
- * 这里改成和聊天主界面**同一套布局**的整屏弹层：
+ * 这里改成和聊天主界面**同一套布局**的弹层：宽度跟随 `content-width`，
+ * 高度**随内容自适应**；内容超过窗口高度时才撑满高度并让中间内容区滚动，
+ * 窗口窄到面板宽度铺满视口时也按全屏处理。
  *
- *   .chat-dialog-overlay                    遮罩（app 可视高度，不在 body 上滚动）
- *     └ .chat-dialog.conversation-detail    整屏面板（100% 窗口宽高）
+ *   .chat-dialog-overlay                    遮罩（app 可视高度，内容居中）
+ *     └ .chat-dialog.conversation-detail    自适应面板（width = contentWidth）
  *         ├ .chat-header                    顶部栏（标题 + 关闭 / 头部操作）
- *         ├ .el-scrollbar                   中间内容栏（唯一滚动区，宽高 100%）
+ *         ├ .el-scrollbar                   内容栏（唯一滚动区）
  *         │   └ .chat-dialog-body           内容列（居中，宽度可配）
  *         └ .composer                       底部栏（footer 操作按钮）
  *
- * 顶部 / 底部栏沿用聊天页的 `.chat-header` / `.composer`：绝对定位 + 毛玻璃
- * 渐变，内容从它们下面滚过去，视觉与聊天页完全一致。区别只是弹层被 Teleport
- * 到 body，脱离了 `.chat-page` 的 CSS 变量作用域，所以本组件在 `.chat-dialog`
- * 上重新声明一整套 `--chat-*` 变量（值与 features/chat/style/index.scss 对齐），
- * 三档设备（大屏电脑 32px / 平板·手机 24px）的密度也在这里再切一次。
+ * 顶栏 / 底栏仍然是聊天页那套**悬浮毛玻璃栏**（绝对定位 + 半透明渐变 +
+ * backdrop blur）：内容从它们下面滚过去，视觉和聊天主界面一致。面板高度则
+ * 由内容撑开（内容列的上下留白正好等于两条栏的高度），所以内容少时是一张
+ * 居中卡片；内容多时面板被 `max-height` 夹到窗口高度，中间 `.el-scrollbar`
+ * 收缩并接管滚动，才变成整屏。面板的**宽度或高度任一**触到窗口的 100%
+ * 就算全屏（`chat-dialog--fullscreen`），此时去掉圆角，避免圆角在屏幕边缘
+ * 露出底色。
+ *
+ * 顶部 / 底部栏沿用聊天页的 `.chat-header` / `.composer` 类名和皮肤；
+ * 弹层被 Teleport 到 body，脱离了 `.chat-page` 的 CSS 变量作用域，所以本组件
+ * 在 `.chat-dialog` 上重新声明一整套 `--chat-*` 变量（值与
+ * features/chat/style/index.scss 对齐），三档设备（大屏电脑 32px /
+ * 平板·手机 24px）的密度也在这里再切一次。
+ *
+ * 面板背景与 `components/ThemeColorDialog.vue` 的「主题色对话框」同一套配方：
+ * 10% 主题色 + 两处主题色径向光晕（左上 / 右下），描边和投影也带主题色，
+ * 这样取色器里看到的主题色和聊天弹层是同一块底色，而不是中性灰。
  *
  * ## 尺寸
  *
- * - 面板：`width: 100%` / `height: 100%`，`max-width: 100vw` /
- *   `max-height: var(--app-h, 100dvh)` —— 即「最大宽高均为当前窗口的 100%」。
- * - 内容栏 `.el-scrollbar`：同样 `width/height: 100%`，`max-width/height` 同上；
- *   它是弹层里**唯一**的滚动容器（调用方的长列表不要再套 el-scrollbar）。
+ * - 面板：`width: contentWidth`（窄窗口由 `max-width: 100vw` 夹住）、
+ *   `height: auto`，`max-height: var(--app-h, 100dvh)` —— 内容少时是卡片，
+ *   内容多时最多到窗口高度。
+ * - 内容栏 `.el-scrollbar`：`flex: 1 1 auto` + `min-height: 0`，
+ *   短内容按内容高、长内容收缩滚动；它是弹层里**唯一**的滚动容器
+ *   （调用方的长列表不要再套 el-scrollbar）。
+ * - 面板宽度或高度任一触顶（内容装不下，或窗口窄到内容宽度铺满），
+ *   `.chat-dialog--fullscreen` 生效，圆角归零；这个状态由 ResizeObserver
+ *   观察面板 / 遮罩的尺寸实时维护。
  * - 内容列 `.chat-dialog-body`：默认居中、`max-width: 760px`，避免在 2K 屏上
  *   一行文字拉得过长；传 `content-width="100%"` 可铺满。
  *
@@ -130,12 +151,53 @@ const emit = defineEmits<{
 const instanceId = ++instanceSeed;
 
 const panelRef = ref<HTMLElement | null>(null);
+const overlayRef = ref<HTMLElement | null>(null);
 const scrollbarRef = ref<{ setScrollTop: (top: number) => void } | null>(null);
+
+/**
+ * 面板是否已经「全屏」：宽度或高度**任一**触到窗口的 100% 就算全屏。
+ * 典型情况是内容多到撑满窗口高度；窄窗口下内容宽度铺满整个视口也算。
+ * 用于在全屏时去掉圆角，避免屏幕边缘露出遮罩底色。
+ */
+const isFullscreen = ref(false);
+let fullscreenObserver: ResizeObserver | null = null;
+
+function updateFullscreenState() {
+  const panel = panelRef.value;
+  const overlay = overlayRef.value;
+  if (!panel || !overlay) return;
+  const availableWidth = overlay.clientWidth;
+  const availableHeight = overlay.clientHeight;
+  if (availableWidth <= 0 || availableHeight <= 0) return;
+  // offsetWidth / offsetHeight 不受打开动画的 scale 影响，避免过渡期间误判。
+  isFullscreen.value =
+    panel.offsetWidth >= availableWidth - 1 ||
+    panel.offsetHeight >= availableHeight - 1;
+}
+
+function stopFullscreenObserver() {
+  fullscreenObserver?.disconnect();
+  fullscreenObserver = null;
+}
+
+function startFullscreenObserver() {
+  stopFullscreenObserver();
+  updateFullscreenState();
+  if (typeof ResizeObserver === 'undefined') return;
+
+  // 面板尺寸变化（内容增减 / 重排）和遮罩尺寸变化（视口 / 软键盘 / 地址栏 /
+  // 窗口宽度变化）都会影响「是否触顶」，两个都观察。
+  fullscreenObserver = new ResizeObserver(() => updateFullscreenState());
+  if (panelRef.value) fullscreenObserver.observe(panelRef.value);
+  if (overlayRef.value) fullscreenObserver.observe(overlayRef.value);
+}
 
 const titleId = `chat-dialog-title-${instanceId}`;
 
 const zIndex = ref(BASE_Z_INDEX + Z_INDEX_STEP);
 const contentStyle = computed(() => ({ maxWidth: props.contentWidth }));
+/** 面板宽度 = contentWidth：内容少时是一张居中卡片，窗口更窄时才被 max-width 夹住。 */
+const panelStyle = computed(() => ({ width: props.contentWidth }));
 
 /** 打开前的焦点元素：关闭后还回去。 */
 let previousActiveElement: HTMLElement | null = null;
@@ -255,6 +317,8 @@ function handleAfterLeave() {
   // 过渡期间又被打开时 Vue 会取消 leave；这里再兜一层，避免误清栈 / 误解锁。
   if (props.modelValue) return;
   opened = false;
+  stopFullscreenObserver();
+  isFullscreen.value = false;
   if (stacked) {
     const index = openStack.indexOf(instanceId);
     if (index >= 0) openStack.splice(index, 1);
@@ -289,6 +353,9 @@ function onOpen() {
   acquireBodyLock();
   emit('open');
 
+  // 先测一次「是否触顶」，避免长内容弹层在首帧还带着圆角。
+  startFullscreenObserver();
+
   nextTick(() => {
     scrollbarRef.value?.setScrollTop(0);
     panelRef.value?.focus({ preventScroll: true });
@@ -296,6 +363,7 @@ function onOpen() {
 }
 
 onBeforeUnmount(() => {
+  stopFullscreenObserver();
   if (stacked) {
     const index = openStack.indexOf(instanceId);
     if (index >= 0) openStack.splice(index, 1);
@@ -320,10 +388,11 @@ watch(
 <template>
   <Teleport to="body">
     <Transition name="chat-dialog-fade" @after-enter="handleAfterEnter" @after-leave="handleAfterLeave">
-      <div v-if="modelValue" class="chat-dialog-overlay" :style="{ zIndex }" @mousedown.self="handleOverlayMousedown"
-        @click.self="handleOverlayClick">
-        <section ref="panelRef" class="chat-dialog conversation-detail"
-          :class="{ 'chat-dialog--with-footer': $slots.footer }" role="dialog" aria-modal="true" tabindex="-1"
+      <div v-if="modelValue" ref="overlayRef" class="chat-dialog-overlay" :style="{ zIndex }"
+        @mousedown.self="handleOverlayMousedown" @click.self="handleOverlayClick">
+        <section ref="panelRef" class="chat-dialog conversation-detail" :style="panelStyle"
+          :class="{ 'chat-dialog--with-footer': $slots.footer, 'chat-dialog--fullscreen': isFullscreen }"
+          role="dialog" aria-modal="true" tabindex="-1"
           :aria-labelledby="title ? titleId : undefined" @keydown="handlePanelKeydown">
           <header class="chat-header">
             <div class="chat-dialog-header-inner" :style="contentStyle">
@@ -368,7 +437,7 @@ watch(
 // 弹层被 Teleport 到 body，拿不到 .chat-page 上的变量，所以在这里重新声明一份。
 // 全局 .chat-header / .composer 的规则也会读这些变量（毛玻璃背景等）。
 .chat-dialog {
-  // 打开时脚本会 focus 面板自身（读屏播报标题），不要因此在整屏外圈出现焦点框。
+  // 打开时脚本会 focus 面板自身（读屏播报标题），不要因此在面板外圈出现焦点框。
   &:focus {
     outline: none;
   }
@@ -383,13 +452,30 @@ watch(
   // —— 派生量 ——
   --chat-bar-h: calc(var(--chat-control-h) + var(--chat-pad) * 2);
 
-  --chat-bg: linear-gradient(180deg, #f7f7f5 0%, #ebeae4 100%);
-  --chat-surface: rgba(255, 255, 255, 0.94);
-  --chat-border: rgba(17, 24, 39, 0.08);
-  --chat-shadow: 0 18px 40px rgba(17, 24, 39, 0.08);
+  // 与 ThemeColorDialog 同款主题色底：左上 / 右下两处径向光晕 + 10% 主题色。
+  // 聊天页 / 弹层是固定浅色面，基底用 light-surface 下的 --el-bg-color-overlay
+  // （白色），夜间模式下也不会变成深色板。
+  --chat-bg:
+    radial-gradient(
+      120% 95% at 0% 0%,
+      color-mix(in srgb, var(--theme-color) 30%, transparent),
+      transparent 58%
+    ),
+    radial-gradient(
+      100% 85% at 100% 100%,
+      color-mix(in srgb, var(--theme-color-strong) 16%, transparent),
+      transparent 55%
+    ),
+    color-mix(in srgb, var(--theme-color) 10%, var(--el-bg-color-overlay, #fff));
+  // 表面 / 文字 / 描边全部取当前主题面（Element Plus 变量）：
+  // 聊天页挂了 .theme-light-surface，拿到浅色值；主题色对话框被顶栏在暗色页面
+  // 打开时拿到暗色值，不会出现「深底深字」。
+  --chat-surface: color-mix(in srgb, var(--el-bg-color-overlay, #fff) 94%, transparent);
+  --chat-border: color-mix(in srgb, var(--el-text-color-primary, #111827) 10%, transparent);
+  --chat-shadow: var(--theme-outer-glow);
   --chat-accent: #9a4f8d;
   --chat-accent-soft: #f7e8f4;
-  --chat-muted: #6b7280;
+  --chat-muted: var(--el-text-color-secondary, #6b7280);
   --chat-danger: #dc2626;
 
   // 全局 .chat-header / .composer 现在由 app-shell 的通用 mixin 提供，
@@ -411,16 +497,25 @@ watch(
   --el-component-size-small: var(--chat-control-h);
 
   position: relative;
-  display: block;
-  // 宽高 = 当前窗口的 100%（max-* 再兜一层，软键盘/地址栏变化时不会超出）。
-  width: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  // 宽度由 panelStyle 内联给出（contentWidth）；高度随内容。
+  // max-* 是「全屏上限」：只有内容超过窗口高 / 窗口比 contentWidth 还窄时才触顶。
   max-width: 100vw;
-  height: 100%;
+  height: auto;
   max-height: var(--app-h, 100dvh);
   overflow: hidden;
-  color: #111827;
+  color: var(--el-text-color-primary, #111827);
   background: var(--chat-bg);
+  border: 1px solid color-mix(in srgb, var(--theme-color) 30%, var(--chat-border));
+  border-radius: 14px;
   box-shadow: var(--chat-shadow);
+
+  // 宽或高任一触到窗口的 100%（全屏）时不要圆角，否则四角会漏出遮罩底色。
+  &.chat-dialog--fullscreen {
+    border-radius: 0;
+  }
 
   // 按钮 / 输入框高度与聊天页一致（EP 的 32px 是写死的，必须显式接管）。
   :deep(.el-button:not(.is-link)) {
@@ -433,28 +528,22 @@ watch(
   }
 }
 
-// 整屏遮罩与用户主页 / 聊天页共用 app-shell 的全屏浮层结构。
+// 遮罩与用户主页 / 聊天页共用 app-shell 的全屏浮层结构；弹层居中显示。
 .chat-dialog-overlay {
   @include shell.app-fullscreen-overlay;
+
+  align-items: center;
+  justify-content: center;
 }
 
 // ==============================================
-// 顶部栏：复用聊天页 .chat-header 的绝对定位 + 毛玻璃
+// 顶部栏：聊天页同款悬浮毛玻璃（内容从下面滚过去）
 // ==============================================
 .chat-dialog>.chat-header {
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--chat-gap);
+  @include shell.app-floating-header;
+
   min-height: calc(var(--chat-bar-h) + var(--safe-top, 0px));
   padding: calc(var(--chat-pad) + var(--safe-top, 0px)) calc(var(--chat-pad) + var(--safe-right, 0px)) var(--chat-pad) calc(var(--chat-pad) + var(--safe-left, 0px));
-  background: linear-gradient(var(--chat-surface), transparent);
-  backdrop-filter: blur(6px);
 }
 
 .chat-dialog-header-inner {
@@ -480,7 +569,7 @@ watch(
   margin: 0;
   padding-left: 6px;
   overflow: hidden;
-  color: #111827;
+  color: var(--el-text-color-primary, #111827);
   font-size: var(--chat-title-fs);
   font-weight: 600;
   line-height: 20px;
@@ -512,29 +601,45 @@ watch(
   border-radius: 50%;
 
   &:hover {
-    color: #111827;
-    background: rgba(17, 24, 39, 0.06);
+    color: var(--el-text-color-primary, #111827);
+    background: color-mix(in srgb, var(--el-text-color-primary, #111827) 8%, transparent);
   }
 }
 
 // ==============================================
-// 中间内容栏：唯一滚动区，宽高均为窗口的 100%
+// 内容栏：唯一滚动区（短 = 内容高，长 = 剩余空间）
 // ==============================================
 .chat-dialog-scrollbar {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
-  max-width: 100vw;
-  height: 100%;
-  max-height: var(--app-h, 100dvh);
+  max-width: 100%;
+  // 覆盖 EP 的 height: 100%：面板高度是 auto，短内容时让内容决定高度；
+  // 内容超过 max-height 后，flex 会把这里收缩到剩余空间并滚动。
+  height: auto;
+  max-height: none;
 
+  // wrap 也改成 flex 子项：根节点被 flex 分配了确定高度时，wrap 跟着撑满；
+  // 根节点还是 auto 时，wrap 按内容撑开。两种状态都不依赖百分比高度。
   :deep(.el-scrollbar__wrap) {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
     overflow-x: hidden;
   }
 
-  // 滚动条避开顶部 / 底部浮层栏。
+  // 滚动条轨道避开顶部 / 底部悬浮栏。
   :deep(.el-scrollbar__bar.is-vertical) {
     top: calc(var(--chat-bar-h) + var(--safe-top, 0px));
     bottom: calc(var(--chat-bar-h) + var(--safe-bottom, 0px));
   }
+}
+
+// 没有底部栏时，滚动条轨道也贴到内容底部。
+.chat-dialog:not(.chat-dialog--with-footer) .chat-dialog-scrollbar :deep(.el-scrollbar__bar.is-vertical) {
+  bottom: calc(var(--chat-pad) + var(--safe-bottom, 0px));
 }
 
 .chat-dialog-body {
@@ -544,18 +649,14 @@ watch(
   width: 100%;
   min-width: 0;
   margin: 0 auto;
-  // 上下留白 = 浮层头部 / 底部栏高度，让内容可以钻到毛玻璃栏下面。
+  // 上下留白 = 悬浮顶栏 / 底栏的高度，内容可以钻到毛玻璃栏下面；
+  // 面板高度随之被撑开（两条栏是绝对定位，不参与高度计算）。
   padding: calc(var(--chat-bar-h) + var(--safe-top, 0px)) calc(var(--chat-pad) + var(--safe-right, 0px)) calc(var(--chat-bar-h) + var(--safe-bottom, 0px)) calc(var(--chat-pad) + var(--safe-left, 0px));
 }
 
 // 没有底部操作栏时不需要给 composer 留位置。
 .chat-dialog:not(.chat-dialog--with-footer) .chat-dialog-body {
   padding-bottom: calc(var(--chat-pad) + var(--safe-bottom, 0px));
-}
-
-// 没有底部栏时，滚动条轨道也贴到内容底部。
-.chat-dialog:not(.chat-dialog--with-footer) .chat-dialog-scrollbar :deep(.el-scrollbar__bar.is-vertical) {
-  bottom: calc(var(--chat-pad) + var(--safe-bottom, 0px));
 }
 
 // 内容块的 grid item 默认 min-width: auto，长文件名 / nowrap 文本会顶宽内容列；
@@ -565,20 +666,13 @@ watch(
 }
 
 // ==============================================
-// 底部栏：复用聊天页 .composer 的绝对定位 + 毛玻璃
+// 底部栏：聊天页同款悬浮毛玻璃（内容从上面滚过去）
 // ==============================================
 .chat-dialog>.composer {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
+  @include shell.app-floating-bar;
+
   gap: var(--chat-gap);
   padding: var(--chat-pad) calc(var(--chat-pad) + var(--safe-right, 0px)) calc(var(--chat-pad) + var(--safe-bottom, 0px)) calc(var(--chat-pad) + var(--safe-left, 0px));
-  background: linear-gradient(to top, var(--chat-surface), transparent);
-  backdrop-filter: blur(6px);
 }
 
 .chat-dialog-footer {
@@ -644,8 +738,6 @@ watch(
   .chat-dialog-body {
     // 内容块之间的呼吸感比控件间距稍大一点，否则卡片会糊成一片。
     gap: 12px;
-    padding-left: calc(var(--chat-pad) + var(--safe-left, 0px));
-    padding-right: calc(var(--chat-pad) + var(--safe-right, 0px));
   }
 
   .chat-dialog-title {

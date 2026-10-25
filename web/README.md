@@ -49,10 +49,10 @@ npm run cursors   # 重新生成帧图 + cursors.generated.ts
 
 默认主题色（种子色）是 **`#e3c0df`**，以 `src/config/index.ts` 的 `DEFAULT_THEME` 为准。
 用户可以在聊天页「更多」或用户信息下拉点「主题色」，打开
-`ThemeColorDialog` 对话框调整：
+`ThemeColorDialog` 对话框调整（外壳复用聊天页的 `ChatDialog`，跟随所在主题面）：
 
 - 预设色点 / 原生取色器 / 恢复默认；
-- 取色后实时生成整套色阶，写入 `<html>` 行内 CSS 变量；
+- 选色后**停止操作 1 秒**才应用并生成整套色阶，连续调整只应用最后一次；
 - 颜色切换带 **500ms** 全局颜色过渡（`theme-color-transitioning`），不播整页波纹；
 - 种子色存 `localStorage.themeColor`，日夜模式存 `localStorage.theme`；
 - 刷新后 `index.html` 首屏脚本先写回种子色，`use-theme.ts` 再补齐完整色阶。
@@ -75,12 +75,20 @@ Element Plus primary 的 light-3/5/7/8/9 / dark-2 也同步生成。
 | `--theme-primary-hover` | `#d6a4d1` | `#e9cee6` | 浅底 hover |
 | `--theme-action-bg` | `#9b4f93` | `#7f627c` | 深色动作按钮底（主操作） |
 | `--theme-action-contrast` | `#ffffff` | `#ffffff` | 深色动作按钮文字（白） |
+| `--theme-outer-glow` | 主题色光晕 + 中性投影 | 同左 | 全局弹窗 / 面板 / 卡片外阴影 |
 | `--theme-gradient` | 深梅 → 暗梅 | 同左 | 登录 / 确认按钮渐变 |
 
 深色动作按钮的底色是种子的深色变体（不是 `#e3c0df` 本身）：
 白字落在 `#e3c0df` 上只有 1.6:1 对比度，落在 `--theme-action-bg` 上约 5.4:1。
 浅色底上的文字由 `theme-palette.ts` 的 `pickOnColor()` 按 WCAG 对比度自动挑白 / 深梅色；
-当前种子色会挑深梅色，主题色变深时自动切白。
+当前种子色会挑深梅色，主题色变深时自动切白。深色动作按钮的文字由
+`pickActionOnColor()` 单独判断：白字达到 3:1 就优先白色，否则回退深色字。
+因此 `#80cbc4` 这类中等明度主题色会用白字，浅黄色仍会自动用深色字。
+
+全局外阴影使用主题色光晕：`--theme-outer-glow` 会按当前种子色生成
+`0 24px 70px rgba(var(--theme-color-rgb), .24)`，并同步给
+`--el-box-shadow`、`--shell-shadow` 以及设置页卡片；弹窗、下拉、面板和卡片
+因此共享同一套外发光效果。小浮层使用 `--theme-outer-glow-soft`。
 
 Element Plus 的 primary 也映射到同一色板：日间 `--el-color-primary: #9b4f93`，
 夜间回到种子色；实心 primary 按钮统一用 `--theme-action-bg` + 白字，
@@ -94,8 +102,9 @@ Element Plus 默认值，不参与主题色替换。
 切换入口：
 
 - **日 / 夜**：顶栏太阳 / 月亮按钮（`toggleTheme()`，带波纹动画）；
-- **主题色**：聊天页「更多」、用户信息下拉的「主题色」按钮 → 对话框
-  （`setThemeColor()` / `resetThemeColor()`，取色时 500ms 颜色过渡，
+- **主题色**：聊天页「更多」、用户信息下拉、设置页（含 `/setting/profile`）
+  顶栏下拉里的「主题色」按钮 → 对话框
+  （`setThemeColor()` / `resetThemeColor()`，取色时 1000ms 颜色过渡，
   不播整页动画）。
 
 日 / 夜切换点击后不是全局瞬间换色，而是以**视口中心**为圆心扩散一圈环形波纹：
@@ -268,28 +277,33 @@ Element Plus 默认值，不参与主题色替换。
 聊天页里的弹层（会话详情 / 邀请成员 / 加群申请 / 禁言 / 好友列表 / 搜索好友 /
 好友申请 / 黑名单 / 申请加入群聊 / 拖拽上传确认 / 文件详情）统一使用
 `src/features/chat/components/ChatDialog.vue`，**不再使用 `el-dialog` / `el-drawer`**。
+全局的主题色对话框（`components/ThemeColorDialog.vue`）也复用它。
 
-它把聊天主界面的布局直接搬进弹层（整屏、三层）：
+它把聊天主界面的布局直接搬进弹层：**宽度跟随 `content-width`，高度随内容自适应**；
+只有内容超过窗口高度时才撑满并让中间内容区滚动。
 
 ```text
-.chat-dialog-overlay                 遮罩（fixed，跟随 --app-h）
-  └ .chat-dialog.conversation-detail 面板：100% 宽高（max 100vw / --app-h）
-      ├ .chat-header                 顶部栏（标题 + header-actions + 关闭）
-      ├ .el-scrollbar                中间内容栏（唯一滚动区，宽高 100%）
+.chat-dialog-overlay                 遮罩（fixed，跟随 --app-h，弹层居中）
+  └ .chat-dialog.conversation-detail 自适应面板（width = content-width）
+      ├ .chat-header                 悬浮顶栏（毛玻璃；标题 + header-actions + 关闭）
+      ├ .el-scrollbar                内容栏（唯一滚动区；短 = 内容高，长 = 剩余空间）
       │   └ .chat-dialog-body        内容列（居中，max-width 默认 760px）
-      └ .composer                    底部栏（仅当传入 #footer 时渲染）
+      └ .composer                    悬浮底栏（毛玻璃；仅当传入 #footer 时渲染）
 ```
 
 | 要点 | 规则 |
 | --- | --- |
-| 尺寸 | 面板宽高均为窗口的 100%，`max-width: 100vw`、`max-height: var(--app-h, 100dvh)`；中间 `.el-scrollbar` 同样是 100% / 100% |
-| 顶部 / 底部栏 | 绝对定位 + 毛玻璃渐变，沿用聊天页 `.chat-header` / `.composer` 的视觉；内容从它们下面滚过去 |
-| 内容宽度 | `content-width` 控制内容列（`760px` / `720px` / `640px` / …），只影响内容，不影响滚动区铺满窗口 |
+| 尺寸 | 面板 `width = content-width`（窄窗口由 `max-width: 100vw` 夹住）、`height: auto`、`max-height: var(--app-h, 100dvh)`。内容少时是一张带 14px 圆角 / 1px 描边 / 投影的居中卡片；内容多时才撑满窗口高度 |
+| 背景 | 与 `components/ThemeColorDialog.vue` 同一套主题色配方：左上 / 右下两处主题色径向光晕 + 10% 主题色底，描边和投影也带主题色；跟随自定义主题色实时变化 |
+| 主题面 | 面板底色 / 文字 / 描边取 Element Plus 的主题变量：聊天页挂 `.theme-light-surface` 时是浅色，主题色对话框从暗色页面的顶栏打开时自动变成暗色，不会出现深底深字 |
+| 顶部 / 底部栏 | **绝对定位悬浮 + 毛玻璃**（半透明渐变 + `backdrop-filter: blur(6px)`），内容从栏下面滚过去，沿用聊天页 `.chat-header` / `.composer` 的皮肤；内容列的上下留白正好等于两条栏的高度，因此两条栏不占面板高度 |
+| 全屏 | 面板**宽度或高度任一**触到窗口的 100%（内容撑满高度，或窄窗口下宽度铺满）就加 `.chat-dialog--fullscreen`，`border-radius: 0`，避免四角在屏幕边缘漏出遮罩底色；状态由观察面板 / 遮罩尺寸的 `ResizeObserver` 实时维护 |
+| 内容宽度 | `content-width` 同时是面板宽度与内容列上限（`760px` / `720px` / `640px` / …）；窗口比它窄时自动铺满 |
 | 三档密度 | 大屏 32px 控件 / 12px 间距；平板·手机 24px / 6px（`device-mobile`），与聊天页同一套变量 |
 | 安全区 | 顶部、底部、左右都叠加 `--safe-*`，刘海屏 / 手势条不会压住标题和按钮 |
 | 层级 | 基准 z-index `1900`（低于 Element Plus 的 2000 档，`ElMessageBox.confirm` 与下拉框才能浮在上面）；嵌套弹层按打开顺序每层 +10 |
-| 滚动 | 弹层里只有 `.chat-dialog-scrollbar` 一个滚动区；调用方的长列表**不要再套 `el-scrollbar`**，成员列表 / 拖拽文件列表的内层 `max-height + overflow` 也一并去掉 |
-| 交互 | 打开锁 body 滚动（嵌套用计数）；ESC 只关最上层；Tab 焦圈限制在面板内，关闭后焦点还原到打开前元素 |
+| 滚动 | 弹层里只有 `.chat-dialog-scrollbar` 一个滚动区；它内部用 flex（`flex: 1 1 auto` + `min-height: 0`，wrap 同为 flex 子项）实现「短内容不滚、长内容滚动」。调用方的长列表**不要再套 `el-scrollbar`**，成员列表 / 拖拽文件列表的内层 `max-height + overflow` 也一并去掉 |
+| 交互 | 打开锁 body 滚动（嵌套用计数）；ESC 只关最上层；Tab 焦圈限制在面板内，关闭后焦点还原到打开前元素；内容少时点遮罩空白处可关闭 |
 | 事件 | `update:modelValue` / `open` / `opened` / `close` / `closed`；`closed` 在过渡结束后触发，与原 `el-dialog` 的 `@closed` 语义一致 |
 | 忙碌态 | `closable` 是总开关（关闭按钮 / 遮罩 / ESC）；`show-close`、`close-on-click-modal`、`close-on-press-escape` 与原 `el-dialog` 同名同义 |
 

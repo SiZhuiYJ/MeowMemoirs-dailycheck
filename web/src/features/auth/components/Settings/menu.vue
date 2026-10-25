@@ -1,6 +1,7 @@
 <script setup>
 import SettingsMenu from "@/components/Menu/SettingsMenu.vue";
 import SettingsMenuItem from "@/components/Menu/SettingsMenuItem.vue";
+import ThemeColorDialog from "@/components/ThemeColorDialog.vue";
 import router from "@/routers/index";
 import { computed, ref } from "vue";
 
@@ -22,6 +23,11 @@ const menuName = computed(() => {
 const handleMenuClick = (path) => {
     router.push(path);
 };
+
+const themeColorDialogVisible = ref(false);
+const openThemeColorDialog = () => {
+    themeColorDialogVisible.value = true;
+};
 </script>
 
 <template>
@@ -32,7 +38,31 @@ const handleMenuClick = (path) => {
                 @click="handleMenuClick(value.path)">
                 {{ value.name }}
             </SettingsMenuItem>
+            <SettingsMenuItem :index="menuList.length" :isOpen="isOpen" @click="openThemeColorDialog">
+                <span class="theme-menu-item">
+                    <span>主题色</span>
+                    <span class="theme-menu-dot" aria-hidden="true"></span>
+                </span>
+            </SettingsMenuItem>
         </template>
     </SettingsMenu>
+
+    <ThemeColorDialog v-model="themeColorDialogVisible" />
 </template>
-<style scoped lang="scss"></style>
+<style scoped lang="scss">
+.theme-menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.theme-menu-dot {
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--theme-color-strong);
+    border-radius: 50%;
+    background: var(--theme-color);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-color) 22%, transparent);
+}
+</style>

@@ -42,6 +42,8 @@ const THEME_COLOR_STORAGE_KEY = "themeColor";
 
 /** 动画时长；CSS 侧通过 --theme-transition-duration 读取同一数值。 */
 export const THEME_TRANSITION_MS = 1100;
+/** 主题色取色：用户停止操作 1s 后才真正应用，避免拖动时频繁刷整套色阶。 */
+export const THEME_COLOR_DEBOUNCE_MS = 1000;
 /** 降级动画的缓动；theme-transition.scss 的 --theme-transition-ease 必须一致。 */
 const THEME_TRANSITION_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
 
@@ -49,18 +51,23 @@ const SWITCHING_CLASS = "theme-switching";
 const COLOR_TRANSITION_CLASS = "theme-colors-transitioning";
 /** 只做颜色过渡、不播放整页波纹：主题色取色时使用。 */
 const COLOR_ONLY_TRANSITION_CLASS = "theme-color-transitioning";
-const COLOR_ONLY_TRANSITION_MS = 500;
+const COLOR_ONLY_TRANSITION_MS = 1000;
 const RIPPLE_LAYER_ID = "theme-ripple-layer";
 const RIPPLE_LAYER_CLASS = "theme-ripple-ring";
 
 const currentTheme = ref<ThemeMode>(readStoredTheme() ?? "light");
+/** 取色器当前选中的颜色（可能还在 1s 防抖等待中）。 */
 const currentThemeColor = ref<string>(readStoredThemeColor());
+/** 真正写进 CSS / localStorage 的颜色。 */
+let appliedThemeColor = currentThemeColor.value;
 const isDark = computed(() => currentTheme.value === "dark");
 
 let initialized = false;
 let switching = false;
 /** 主题色连续取色时，延长颜色过渡类的移除时间。 */
 let colorTransitionTimer: number | null = null;
+/** 主题色防抖计时器：停止操作 1s 后才应用。 */
+let colorApplyTimer: number | null = null;
 /** 动画过程中用户又点了切换：等当前动画结束再应用最终状态。 */
 let queuedTheme: ThemeMode | null = null;
 
@@ -116,7 +123,7 @@ export function refreshThemePalette(): void {
     lightSurface || root.getAttribute("data-theme") !== "dark"
       ? "light"
       : "dark";
-  const palette = buildThemePalette(currentThemeColor.value, mode);
+  const palette = buildThemePalette(appliedThemeColor, mode);
   for (const [name, value] of Object.entries(palette)) {
     root.style.setProperty(name, value);
   }
@@ -273,6 +280,11 @@ export function initTheme(): void {
   const mode = readStoredTheme() ?? currentTheme.value;
   applyThemeAttributes(mode);
   currentThemeColor.value = readStoredThemeColor();
+  appliedThemeColor = currentThemeColor.value;
+  if (colorApplyTimer !== null) {
+    window.clearTimeout(colorApplyTimer);
+    colorApplyTimer = null;
+  }
   refreshThemePalette();
 
   // 首帧就建好透明波纹层：切换时它已经参与过渲染，
@@ -339,24 +351,23 @@ export function toggleTheme(): Promise<void> {
   });
 }
 
-/**
- * 修改主题色并持久化。非法 hex 返回 false。
- * 颜色变化不播整页 View Transition（取色器会连续触发 input），
- * 但所有色阶是实时更新的。
- */
-export function setThemeColor(color: string): boolean {
-  const normalized = normalizeHexColor(color);
-  if (!normalized) return false;
-  if (normalized === currentThemeColor.value) return true;
+export interface SetThemeColorOptions {
+  /** 跳过 1s 防抖，测试 / 初始化场景使用。 */
+  immediate?: boolean;
+}
 
-  const root = document.documentElement;
-  currentThemeColor.value = normalized;
+/** 真正应用主题色：持久化 + 整套色阶 + 1000ms 颜色过渡。 */
+function applyThemeColorNow(color: string): void {
+  if (color === appliedThemeColor) return;
+  appliedThemeColor = color;
   try {
-    window.localStorage.setItem(THEME_COLOR_STORAGE_KEY, normalized);
+    window.localStorage.setItem(THEME_COLOR_STORAGE_KEY, color);
   } catch {
     // 存不下也照常应用
   }
+  if (typeof document === "undefined") return;
 
+  const root = document.documentElement;
   // 取色时不做整页 View Transition，只让页面已有颜色平滑过渡。
   // 连续拖动取色器时复用同一个类，过渡会从当前颜色继续追到新颜色。
   root.classList.add(COLOR_ONLY_TRANSITION_CLASS);
@@ -371,12 +382,46 @@ export function setThemeColor(color: string): boolean {
     colorTransitionTimer = null;
     root.classList.remove(COLOR_ONLY_TRANSITION_CLASS);
   }, COLOR_ONLY_TRANSITION_MS + 80);
+}
+
+/**
+ * 修改主题色。非法 hex 返回 false。
+ *
+ * 默认等待用户停止操作 1s 后再应用：取色器连续触发 input 时只应用最后一次，
+ * 避免每帧重写几十个 CSS 变量。传 { immediate: true } 可立即应用（测试 / 初始化）。
+ */
+export function setThemeColor(
+  color: string,
+  options: SetThemeColorOptions = {},
+): boolean {
+  const normalized = normalizeHexColor(color);
+  if (!normalized) return false;
+  if (normalized === currentThemeColor.value && colorApplyTimer === null) {
+    return true;
+  }
+
+  currentThemeColor.value = normalized;
+
+  if (colorApplyTimer !== null) {
+    window.clearTimeout(colorApplyTimer);
+    colorApplyTimer = null;
+  }
+
+  if (options.immediate) {
+    applyThemeColorNow(normalized);
+    return true;
+  }
+
+  colorApplyTimer = window.setTimeout(() => {
+    colorApplyTimer = null;
+    applyThemeColorNow(currentThemeColor.value);
+  }, THEME_COLOR_DEBOUNCE_MS);
   return true;
 }
 
 /** 恢复默认主题色。 */
-export function resetThemeColor(): void {
-  setThemeColor(DEFAULT_THEME);
+export function resetThemeColor(options: SetThemeColorOptions = {}): void {
+  setThemeColor(DEFAULT_THEME, options);
 }
 
 /** 组件里读取主题状态。 */

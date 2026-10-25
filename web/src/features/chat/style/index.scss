@@ -65,7 +65,7 @@
   --chat-bg: linear-gradient(180deg, #f7f7f5 0%, #ebeae4 100%);
   --chat-surface: rgba(255, 255, 255, 0.94);
   --chat-border: rgba(17, 24, 39, 0.08);
-  --chat-shadow: 0 18px 40px rgba(17, 24, 39, 0.08);
+  --chat-shadow: var(--theme-outer-glow);
   // 聊天页是固定浅色面。.theme-light-surface 会把全局主题变量
   // 切成日间色阶，这里直接继承，才能跟随用户自定义的主题色。
   --chat-accent: var(--theme-color-strong, #9a4f8d);

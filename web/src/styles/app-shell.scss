@@ -29,7 +29,7 @@
   --shell-bg: linear-gradient(180deg, #f7f7f5 0%, #ebeae4 100%);
   --shell-surface: rgba(255, 255, 255, 0.94);
   --shell-border: rgba(17, 24, 39, 0.08);
-  --shell-shadow: 0 18px 40px rgba(17, 24, 39, 0.08);
+  --shell-shadow: var(--theme-outer-glow);
   --shell-muted: #6b7280;
   // 与聊天主题共用强调色软背景；直接取全局主题 token，保留浅色/主题切换能力。
   --shell-accent-soft: var(--chat-accent-soft, #f7e8f4);

@@ -171,7 +171,7 @@ export function useConversations() {
     }
   }
 
-  async function selectConversation(item: ConversationSummary) {
+  async function selectConversation(item: { id: number }) {
     clearError();
     // 已有详情且是同一会话时直接复用，避免重复请求造成的闪烁
     if (currentConversation.value?.id === item.id) return currentConversation.value;
@@ -203,19 +203,9 @@ export function useConversations() {
     try {
       const detail = (await createConversationApi(payload)).data;
       await loadConversations({ silent: true });
-      await selectConversation({
-        id: detail.id,
-        conversationType: detail.conversationType,
-        title: detail.title,
-        avatarKey: detail.avatarKey,
-        avatarUserId: detail.avatarUserId,
-        isActive: detail.isActive,
-        isPinned: detail.isPinned,
-        isMuted: detail.isMuted,
-        updatedAt: detail.updatedAt,
-        unreadCount: 0,
-        lastMessage: null,
-      });
+      // 这里只负责「创建 + 刷新列表」，不直接设置 currentConversation：
+      // 切换会话必须走 useChatCore.selectConversation（重置消息、拉历史、
+      // 标记已读、订阅推送），否则会出现「列表已高亮新会话，右侧仍是旧消息」。
       return detail;
     } catch (error: any) {
       setError(error, "创建会话失败");

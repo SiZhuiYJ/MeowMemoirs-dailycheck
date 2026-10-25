@@ -25,8 +25,9 @@ const isOpen = ref<boolean>(false);
 
 .main {
     font-weight: 800;
+    // 设置页顶栏菜单本身也是深色动作按钮：底色用 action，文字用自动判定的 action 前景色
     color: var(--theme-action-contrast);
-    background-color: var(--theme-primary-bg);
+    background-color: var(--theme-action-bg);
     transition: background-color 0.2s ease;
     padding: 3px 15px;
     border-radius: 10px;
@@ -40,7 +41,7 @@ const isOpen = ref<boolean>(false);
     justify-content: space-between;
 
     &:hover {
-        background-color: var(--theme-primary-hover);
+        background-color: var(--theme-action-hover);
     }
 }
 

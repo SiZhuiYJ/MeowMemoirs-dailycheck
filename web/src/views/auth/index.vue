@@ -281,7 +281,7 @@ onUnmounted(() => {
   background: var(--bg-elevated);
   padding: 32px;
   border-radius: 16px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--theme-outer-glow);
   border: 1px solid var(--border-color);
 }
 
