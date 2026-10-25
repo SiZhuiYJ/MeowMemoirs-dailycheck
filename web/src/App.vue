@@ -25,6 +25,7 @@ import { dayjs } from "element-plus";
 import { setNotificationInstance } from "@/utils/notification";
 import { useDeviceLayout } from "@/composables/use-device-layout";
 import NotificationSystem from "@/components/NotificationSystem/index.vue";
+import TelemetryFab from "@/components/TelemetryFab.vue";
 // import {
 //   notify,
 //   notifySuccess,
@@ -258,43 +259,11 @@ const globalConfig = computed<GlobalConfig>(() => {
     <router-view />
     <NotificationSystem ref="notificationSystemRef" />
 
-    <button v-if="showTelemetryFab" class="telemetry-fab" type="button" title="埋点诊断"
-      @click="router.push('/debug/telemetry')">
-      诊断
-      <span v-if="telemetryErrorCount > 0" class="telemetry-fab-badge">
-        {{ telemetryErrorCount > 99 ? "99+" : telemetryErrorCount }}
-      </span>
-    </button>
+    <!-- 埋点诊断悬浮按钮：可拖动，位置会记住（见 components/TelemetryFab.vue） -->
+    <TelemetryFab
+      v-if="showTelemetryFab"
+      :error-count="telemetryErrorCount"
+      @open="router.push('/debug/telemetry')"
+    />
   </el-config-provider>
 </template>
-<style>
-.telemetry-fab {
-  position: fixed;
-  left: 10px;
-  bottom: 36px;
-  z-index: 3000;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  border: 1px solid var(--theme-color-muted);
-  border-radius: 999px;
-  color: var(--theme-color-strong);
-  font-size: 11px;
-  line-height: 16px;
-  background: var(--theme-color-soft);
-  box-shadow: 0 6px 18px rgba(var(--theme-color-rgb), 0.2);
-  cursor: pointer;
-}
-
-.telemetry-fab-badge {
-  min-width: 16px;
-  padding: 0 4px;
-  border-radius: 999px;
-  color: #fff;
-  font-size: 10px;
-  line-height: 16px;
-  text-align: center;
-  background: #dc2626;
-}
-</style>
