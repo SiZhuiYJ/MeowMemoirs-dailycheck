@@ -316,18 +316,35 @@ public class CheckinsController(DailyCheckDbContext db) : ControllerBase
     public async Task<ActionResult<List<CalendarStatusItem>>> GetCalendar(long planId, [FromQuery] int year, [FromQuery] int month)
     {
         var userId = GetUserId();
-        var plan = await db.CheckinPlans.SingleOrDefaultAsync(x => x.Id == (ulong)planId && x.UserId == userId && !x.IsDeleted);
+        // 只取日历需要的列；ActiveSlotsCount 直接随计划一起查出来。
+        // 旧实现读的是 plan.CheckinPlanTimeSlots 导航属性，但这里没有 Include、
+        // 也没有启用延迟加载，导航永远是空集合 —— activeSlotsCount 恒为 0，
+        // 多时间段计划会被当成「单次打卡」，日历上每天都被算成完成。
+        var plan = await db.CheckinPlans
+            .AsNoTracking()
+            .Where(x => x.Id == (ulong)planId && x.UserId == userId && !x.IsDeleted)
+            .Select(x => new
+            {
+                x.Id,
+                x.CheckinMode,
+                x.StartDate,
+                ActiveSlotsCount = db.CheckinPlanTimeSlots.Count(ts => ts.PlanId == x.Id && ts.IsActive == true)
+            })
+            .FirstOrDefaultAsync();
         if (plan == null)
             return NotFound("未找到计划");
 
         var firstDay = new DateOnly(year, month, 1);
         var lastDay = firstDay.AddMonths(1).AddDays(-1);
 
+        // 只投影日历用到的四列：不再把 Images(JSON)/Note 等大字段读进内存并跟踪。
         var checkins = await db.Checkins
+            .AsNoTracking()
             .Where(x => x.PlanId == (ulong)planId && x.CheckDate >= firstDay && x.CheckDate <= lastDay && !x.IsDeleted)
+            .Select(x => new { x.Id, x.CheckDate, x.Status, x.TimeSlotId })
             .ToListAsync();
 
-        var activeSlotsCount = plan.CheckinPlanTimeSlots.Count(x => x.IsActive == true);
+        var activeSlotsCount = plan.ActiveSlotsCount;
         var result = new List<CalendarStatusItem>();
         var grouped = checkins.GroupBy(x => x.CheckDate);
         if (plan.CheckinMode == 0)
@@ -366,7 +383,9 @@ public class CheckinsController(DailyCheckDbContext db) : ControllerBase
         {
             // 获取该计划的所有时间段
             var allSlots = await db.CheckinPlanTimeSlots
+                .AsNoTracking()
                 .Where(ts => ts.PlanId == plan.Id && ts.IsActive == true)
+                .Select(ts => new { ts.Id })
                 .ToListAsync();
 
             // 按日期分组处理每段时间的打卡情况
@@ -474,11 +493,14 @@ public class CheckinsController(DailyCheckDbContext db) : ControllerBase
     {
         var userId = GetUserId();
 
-        var plan = await db.CheckinPlans.SingleOrDefaultAsync(x => x.Id == (ulong)planId && x.UserId == userId && !x.IsDeleted);
+        var plan = await db.CheckinPlans
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == (ulong)planId && x.UserId == userId && !x.IsDeleted);
         if (plan == null)
             return NotFound("未找到计划");
 
         var checkins = await db.Checkins
+            .AsNoTracking()
             .Where(x => x.PlanId == plan.Id && x.CheckDate == date && !x.IsDeleted)
             .ToListAsync();
 

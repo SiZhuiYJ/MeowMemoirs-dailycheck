@@ -34,8 +34,13 @@ public class UsersController(DailyCheckDbContext db) : ControllerBase
     public async Task<ActionResult<UserProfileDto>> GetUserProfile(ulong userId)
     {
         var currentUserId = GetUserId();
+        var isSelf = currentUserId == userId;
+        var now = DateTime.UtcNow;
 
-        var user = await _db.Users
+        // 旧实现是「查用户 + 6 个独立 Any/First」串行 await，打开一次主页要 7 个数据库往返。
+        // 这里改成一条带标量子查询的 SQL：一次往返拿全所有关系状态。
+        // 被对方拉黑后仍可查看主页，只把状态带回前端用于提示与禁用互动按钮。
+        var profile = await _db.Users
             .AsNoTracking()
             .Where(u => u.Id == userId && !u.IsDeleted)
             .Select(u => new
@@ -45,96 +50,67 @@ public class UsersController(DailyCheckDbContext db) : ControllerBase
                 u.NickName,
                 u.AvatarKey,
                 u.CreatedAt,
-                u.Status
-            })
-            .FirstOrDefaultAsync();
-
-        if (user == null)
-            return NotFound(new { message = "User not found" });
-
-        var isSelf = currentUserId == userId;
-        var isFriend = false;
-        var isBlocked = false;
-        var isBlockedByTarget = false;
-        string? friendRemark = null;
-        ulong? directConversationId = null;
-        var hasPendingSentRequest = false;
-        var hasPendingReceivedRequest = false;
-
-        if (!isSelf)
-        {
-            // 被对方拉黑后仍可查看主页；只把状态带回前端用于提示与禁用互动按钮。
-            isBlockedByTarget = await _db.UserBlocks
-                .AsNoTracking()
-                .AnyAsync(b =>
-                    b.UserId == userId &&
-                    b.BlockedUserId == currentUserId);
-
-            // 拉黑方查看被拉黑方主页时，带回自己的拉黑状态。
-            isBlocked = await _db.UserBlocks
-                .AsNoTracking()
-                .AnyAsync(b =>
-                    b.UserId == currentUserId &&
-                    b.BlockedUserId == userId);
-
-            var friendship = await _db.UserFriendships
-                .AsNoTracking()
-                .Where(f =>
+                u.Status,
+                IsFriend = _db.UserFriendships.Any(f =>
                     f.UserId == currentUserId &&
                     f.FriendUserId == userId &&
-                    f.Status == "active")
-                .Select(f => new { f.FriendRemark })
-                .FirstOrDefaultAsync();
-
-            isFriend = friendship != null;
-            friendRemark = friendship?.FriendRemark;
-
-            directConversationId = await _db.ChatConversations
-                .AsNoTracking()
-                .Where(c =>
-                    c.ConversationType == "direct" &&
-                    c.IsActive == true &&
-                    c.ChatConversationMembers.Any(m => m.UserId == currentUserId && m.LeftAt == null) &&
-                    c.ChatConversationMembers.Any(m => m.UserId == userId && m.LeftAt == null) &&
-                    c.ChatConversationMembers.Count(m => m.LeftAt == null) == 2)
-                .OrderByDescending(c => c.LastMessageAt ?? c.UpdatedAt)
-                .Select(c => (ulong?)c.Id)
-                .FirstOrDefaultAsync();
-
-            var now = DateTime.UtcNow;
-            hasPendingSentRequest = await _db.UserFriendRequests
-                .AsNoTracking()
-                .AnyAsync(r =>
+                    f.Status == "active"),
+                FriendRemark = _db.UserFriendships
+                    .Where(f =>
+                        f.UserId == currentUserId &&
+                        f.FriendUserId == userId &&
+                        f.Status == "active")
+                    .Select(f => f.FriendRemark)
+                    .FirstOrDefault(),
+                IsBlocked = _db.UserBlocks.Any(b =>
+                    b.UserId == currentUserId &&
+                    b.BlockedUserId == userId),
+                IsBlockedByTarget = _db.UserBlocks.Any(b =>
+                    b.UserId == userId &&
+                    b.BlockedUserId == currentUserId),
+                DirectConversationId = _db.ChatConversations
+                    .Where(c =>
+                        c.ConversationType == "direct" &&
+                        c.IsActive == true &&
+                        c.ChatConversationMembers.Any(m => m.UserId == currentUserId && m.LeftAt == null) &&
+                        c.ChatConversationMembers.Any(m => m.UserId == userId && m.LeftAt == null) &&
+                        c.ChatConversationMembers.Count(m => m.LeftAt == null) == 2)
+                    .OrderByDescending(c => c.LastMessageAt ?? c.UpdatedAt)
+                    .Select(c => (ulong?)c.Id)
+                    .FirstOrDefault(),
+                HasPendingSentRequest = _db.UserFriendRequests.Any(r =>
                     r.RequesterUserId == currentUserId &&
                     r.ReceiverUserId == userId &&
                     r.RequestStatus == "pending" &&
-                    (r.ExpireAt == null || r.ExpireAt > now));
-
-            hasPendingReceivedRequest = await _db.UserFriendRequests
-                .AsNoTracking()
-                .AnyAsync(r =>
+                    (r.ExpireAt == null || r.ExpireAt > now)),
+                HasPendingReceivedRequest = _db.UserFriendRequests.Any(r =>
                     r.RequesterUserId == userId &&
                     r.ReceiverUserId == currentUserId &&
                     r.RequestStatus == "pending" &&
-                    (r.ExpireAt == null || r.ExpireAt > now));
-        }
+                    (r.ExpireAt == null || r.ExpireAt > now))
+            })
+            .FirstOrDefaultAsync();
+
+        if (profile == null)
+            return NotFound(new { message = "User not found" });
 
         return Ok(new UserProfileDto
         {
-            UserId = user.Id,
-            UserAccount = user.UserAccount,
-            NickName = user.NickName,
-            AvatarKey = user.AvatarKey,
-            CreatedAt = user.CreatedAt,
+            UserId = profile.Id,
+            UserAccount = profile.UserAccount,
+            NickName = profile.NickName,
+            AvatarKey = profile.AvatarKey,
+            CreatedAt = profile.CreatedAt,
             IsSelf = isSelf,
-            IsFriend = isFriend,
-            IsBlocked = isBlocked,
-            IsBlockedByTarget = isBlockedByTarget,
-            FriendRemark = friendRemark,
-            DirectConversationId = directConversationId,
-            HasPendingSentRequest = hasPendingSentRequest,
-            HasPendingReceivedRequest = hasPendingReceivedRequest,
-            Status = user.Status == true ? "active" : "frozen"
+            // 自己看自己时，关系状态一律按「无」返回，和旧实现一致。
+            IsFriend = !isSelf && profile.IsFriend,
+            IsBlocked = !isSelf && profile.IsBlocked,
+            IsBlockedByTarget = !isSelf && profile.IsBlockedByTarget,
+            FriendRemark = isSelf ? null : profile.FriendRemark,
+            DirectConversationId = isSelf ? null : profile.DirectConversationId,
+            HasPendingSentRequest = !isSelf && profile.HasPendingSentRequest,
+            HasPendingReceivedRequest = !isSelf && profile.HasPendingReceivedRequest,
+            Status = profile.Status == true ? "active" : "frozen"
         });
     }
 

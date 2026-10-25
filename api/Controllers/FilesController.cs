@@ -150,6 +150,9 @@ public class FilesController(IFileService fileService, DailyCheckDbContext db) :
         if (result == null)
             return NotFound("头像文件不存在");
 
+        // 头像 key 里带内容版本，同一 URL 的内容不会变 —— 允许浏览器缓存一天，
+        // 否则消息列表里每个头像都要重新走一次 200 + 磁盘读。
+        Response.Headers.CacheControl = "public, max-age=86400, immutable";
         return File(result.Value.Stream, result.Value.ContentType);
     }
 
@@ -253,6 +256,8 @@ public class FilesController(IFileService fileService, DailyCheckDbContext db) :
         if (result == null)
             return NotFound("图片文件不存在或无访问权限");
 
+        // 只给当前用户看，但同一 key 的内容固定，允许私有缓存一天。
+        Response.Headers.CacheControl = "private, max-age=86400";
         return File(result.Value.Stream, result.Value.ContentType);
     }
 
@@ -359,6 +364,7 @@ public class FilesController(IFileService fileService, DailyCheckDbContext db) :
         if (result == null)
             return NotFound("头像文件不存在或无访问权限");
 
+        Response.Headers.CacheControl = "public, max-age=86400, immutable";
         return File(result.Value.Stream, result.Value.ContentType);
     }
 
@@ -442,8 +448,11 @@ public class FilesController(IFileService fileService, DailyCheckDbContext db) :
         // 设置响应头，支持文件下载和预览
         // Response.Headers.Append("Content-Disposition", $"inline; filename=\"{Uri.EscapeDataString(result.Value.FileName)}\"");
         Response.Headers.Append("X-Content-Type-Options", "nosniff");
-        
-        return File(result.Value.Stream, result.Value.ContentType);
+        // 聊天文件最大 100MB（视频/音频为主）：
+        //  · enableRangeProcessing 让播放器能 206 拖进度、断点续传，而不是整份重下；
+        //  · 同一 key 内容不变，允许浏览器私有缓存一小时。
+        Response.Headers.CacheControl = "private, max-age=3600";
+        return File(result.Value.Stream, result.Value.ContentType, enableRangeProcessing: true);
     }
 
     /// <summary>

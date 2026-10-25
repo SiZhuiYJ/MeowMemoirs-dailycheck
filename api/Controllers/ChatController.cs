@@ -636,7 +636,7 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
         [FromBody] KickConversationMemberRequest? request = null)
     {
         var userId = GetUserId();
-        var context = await GetActiveConversationContext(conversationId, userId);
+        var context = await GetActiveConversationContext(conversationId, userId, memberUserId);
         if (context == null)
             return NotFound(new { message = "Conversation not found or access denied" });
 
@@ -695,7 +695,7 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
         MuteConversationMemberRequest request)
     {
         var userId = GetUserId();
-        var context = await GetActiveConversationContext(conversationId, userId);
+        var context = await GetActiveConversationContext(conversationId, userId, memberUserId);
         if (context == null)
             return NotFound(new { message = "Conversation not found or access denied" });
 
@@ -765,7 +765,7 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
         ulong memberUserId)
     {
         var userId = GetUserId();
-        var context = await GetActiveConversationContext(conversationId, userId);
+        var context = await GetActiveConversationContext(conversationId, userId, memberUserId);
         if (context == null)
             return NotFound(new { message = "Conversation not found or access denied" });
 
@@ -1683,7 +1683,6 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
         var readStateChanged = membership.LastReadMessageId != targetMessageId;
         membership.LastReadMessageId = targetMessageId;
         membership.UpdatedAt = now;
-        await _db.SaveChangesAsync();
 
         var newReceiptMessageIds = new List<ulong>();
         if (targetMessageId.HasValue && targetMessageId.Value > previousLastRead)
@@ -1718,13 +1717,17 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
                     .ToList();
 
                 _db.ChatMessageReceipts.AddRange(newReceipts);
-                await _db.SaveChangesAsync();
                 newReceiptMessageIds = newReceipts
                     .Select(r => r.MessageId)
                     .OrderBy(id => id)
                     .ToList();
             }
         }
+
+        // 光标和回执放在同一次 SaveChanges 里提交：
+        // 旧实现先保存光标、再保存回执，是两次写往返（这个接口每次打开会话都会调用）。
+        if (readStateChanged || newReceiptMessageIds.Count > 0)
+            await _db.SaveChangesAsync();
 
         // 一次批量广播即可：前端会合并同一时间窗内的回执再查一次状态，
         // 旧的逐条 await 会把 N 条回执变成 N 次串行网络等待。
@@ -1758,8 +1761,12 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
     {
         var userId = GetUserId();
 
+        // 只为拿到会话 id / 发送者，不需要把 Content / Extra 等大字段读出来再跟踪。
         var message = await _db.ChatMessages
-            .FirstOrDefaultAsync(m => m.Id == messageId);
+            .AsNoTracking()
+            .Where(m => m.Id == messageId)
+            .Select(m => new { m.ConversationId, m.SenderUserId })
+            .FirstOrDefaultAsync();
         if (message == null)
             return NotFound(new { message = "Message not found" });
 
@@ -1773,6 +1780,7 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
 
         // 閺屻儴顕楀鑼额嚢閻劍鍩?
         var readUsers = await _db.ChatMessageReceipts
+            .AsNoTracking()
             .Where(r => r.MessageId == messageId)
             .Join(_db.Users, r => r.UserId, u => u.Id, (r, u) => new ReadUserDto
             {
@@ -2151,10 +2159,20 @@ public class ChatController(DailyCheckDbContext db, IHubContext<ChatHub> hubCont
         return detail;
     }
 
-    async Task<(ChatConversation Conversation, ChatConversationMember CurrentMember)?> GetActiveConversationContext(ulong conversationId, ulong userId)
+    /// <summary>
+    /// 载入会话 + 当前操作者（以及可选的被操作成员）。
+    ///
+    /// 旧实现无条件 Include 全部成员及成员的用户实体：500 人群里做一次踢人，
+    /// 也会把 500 个成员 + 500 个用户实体全部物化并跟踪。调用方真正用到的
+    /// 只有「当前成员」和「目标成员」两行，这里用过滤 Include 只取这两行。
+    /// </summary>
+    async Task<(ChatConversation Conversation, ChatConversationMember CurrentMember)?> GetActiveConversationContext(
+        ulong conversationId,
+        ulong userId,
+        ulong targetMemberUserId = 0)
     {
         var conversation = await _db.ChatConversations
-            .Include(c => c.ChatConversationMembers)
+            .Include(c => c.ChatConversationMembers.Where(m => m.UserId == userId || m.UserId == targetMemberUserId))
                 .ThenInclude(m => m.User)
             .FirstOrDefaultAsync(c => c.Id == conversationId && c.IsActive == true);
 

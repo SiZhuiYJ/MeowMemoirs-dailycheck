@@ -37,9 +37,12 @@ public class ChatHub(DailyCheckDbContext db) : Hub
             .Take(MaxAutoSubscribedConversations)
             .ToListAsync();
 
-        foreach (var conversationId in conversationIds)
+        // 并发加入分组：这些分组都记在进程内，互相之间没有依赖。
+        // 旧实现是逐个 await，200 个会话在重连风暴里会串行 200 次。
+        if (conversationIds.Count > 0)
         {
-            await Groups.AddToGroupAsync(Context.ConnectionId, GroupName(conversationId));
+            await Task.WhenAll(conversationIds.Select(conversationId =>
+                Groups.AddToGroupAsync(Context.ConnectionId, GroupName(conversationId))));
         }
 
         await base.OnConnectedAsync();
@@ -87,7 +90,10 @@ public class ChatHub(DailyCheckDbContext db) : Hub
             throw new HubException("无权限操作");
 
         var message = await _db.ChatMessages
-            .FirstOrDefaultAsync(m => m.Id == messageId && m.ConversationId == conversationId);
+            .AsNoTracking()
+            .Where(m => m.Id == messageId && m.ConversationId == conversationId)
+            .Select(m => new { m.SenderUserId })
+            .FirstOrDefaultAsync();
         if (message == null || message.SenderUserId == userId)
             return;
 
@@ -131,9 +137,13 @@ public class ChatHub(DailyCheckDbContext db) : Hub
     {
         var userId = GetUserId();
 
+        // 只取会话与发送者两列：Include(Conversation) 在后面从未被使用，
+        // 却让每次「查看已读详情」都多 join 一次会话表。
         var message = await _db.ChatMessages
-            .Include(m => m.Conversation)
-            .FirstOrDefaultAsync(m => m.Id == messageId);
+            .AsNoTracking()
+            .Where(m => m.Id == messageId)
+            .Select(m => new { m.ConversationId, m.SenderUserId })
+            .FirstOrDefaultAsync();
         if (message == null)
             throw new HubException("消息不存在");
 
@@ -145,6 +155,7 @@ public class ChatHub(DailyCheckDbContext db) : Hub
             throw new HubException("无权限查看");
 
         var readUsers = await _db.ChatMessageReceipts
+            .AsNoTracking()
             .Where(r => r.MessageId == messageId)
             .Join(_db.Users,
                 r => r.UserId,

@@ -361,6 +361,9 @@ public class FriendsController(DailyCheckDbContext db, IHubContext<ChatHub> hubC
                     r.RequestStatus == "pending" &&
                     (r.ExpireAt == null || r.ExpireAt > now))
             })
+            // 昵称走的是 %kw% 模糊匹配，用不上索引；不封顶时一个常见字
+            // 会把整张 users 表连同 3 个相关子查询一起翻出来。搜索框只需要前 50 条。
+            .Take(50)
             .ToListAsync();
 
         return Ok(users);

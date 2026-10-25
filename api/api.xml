@@ -817,6 +817,15 @@
             <param name="userId">当前用户ID。</param>
             <returns>会话详情对象，若不存在或无权限则返回null。</returns>
         </member>
+        <member name="M:api.Controllers.ChatController.GetActiveConversationContext(System.UInt64,System.UInt64,System.UInt64)">
+             <summary>
+             载入会话 + 当前操作者（以及可选的被操作成员）。
+            
+             旧实现无条件 Include 全部成员及成员的用户实体：500 人群里做一次踢人，
+             也会把 500 个成员 + 500 个用户实体全部物化并跟踪。调用方真正用到的
+             只有「当前成员」和「目标成员」两行，这里用过滤 Include 只取这两行。
+             </summary>
+        </member>
         <member name="M:api.Controllers.ChatController.IsBlockedBy(System.UInt64,System.UInt64)">
             <summary>
             blockerUserId 是否拉黑了 blockedUserId。
@@ -3196,15 +3205,20 @@
             确保访问令牌在Redis中仍然有效，避免JWT过期时间与Redis状态不一致的问题
             </summary>
         </member>
-        <member name="M:api.Infrastructure.RedisTokenValidationMiddleware.IsAccessToken(System.String)">
-            <summary>
-            从原始 JWT 的 payload 读取签发时间 iat（秒）。
-            直接读 payload 而不依赖 Claim 类型映射，避免 iat 被映射成其他类型后取不到。
-            </summary>
-            <summary>判断该令牌是否为可用于业务接口的 access 令牌。</summary>
+        <member name="M:api.Infrastructure.RedisTokenValidationMiddleware.ReadToken(System.String)">
+             <summary>
+             解析令牌 payload（<b>不校验签名</b>）。
+            
+             旧实现对 typ / sid / iat 各调用一次 <c>ReadJwtToken</c>，同一段 Base64
+             在一个请求里被解码 3 遍。这里统一解析一次，后续都复用这个对象；
+             签名校验仍然单独做（见 <see cref="M:api.Infrastructure.RedisTokenValidationMiddleware.InvokeAsync(Microsoft.AspNetCore.Http.HttpContext)"/>），安全性不变。
+             </summary>
         </member>
-        <member name="M:api.Infrastructure.RedisTokenValidationMiddleware.GetPayloadString(System.String,System.String)">
-            <summary>从原始 JWT 的 payload 读取字符串声明（不依赖 claim 类型映射）。</summary>
+        <member name="M:api.Infrastructure.RedisTokenValidationMiddleware.GetPayloadString(System.IdentityModel.Tokens.Jwt.JwtSecurityToken,System.String)">
+            <summary>从已解析的令牌 payload 读取字符串声明（不依赖 claim 类型映射）。</summary>
+        </member>
+        <member name="M:api.Infrastructure.RedisTokenValidationMiddleware.GetIssuedAtEpoch(System.IdentityModel.Tokens.Jwt.JwtSecurityToken)">
+            <summary>从已解析的令牌 payload 读取签发时间 iat（秒）。</summary>
         </member>
         <member name="T:api.Infrastructure.ULongRouteConstraint">
             <summary>

@@ -2,12 +2,14 @@ using api.Data;
 using api.Hubs;
 using api.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using SixLabors.ImageSharp;
 using StackExchange.Redis;
 using System;
+using System.IO.Compression;
 using System.Text;
 
 
@@ -56,6 +58,29 @@ builder.Services.AddRouting(options =>
 {
     options.ConstraintMap["ulong"] = typeof(ULongRouteConstraint);
 });
+
+#region 响应压缩
+// 聊天 / 收件箱 / 日历这些接口返回的是大段 JSON，压缩后通常只剩 15%~30%。
+// 用 Brotli 优先、Gzip 兜底，压缩级别取 Fastest：CPU 开销低，收益已经足够。
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(new[]
+    {
+        "application/json",
+        "application/problem+json",
+        "application/manifest+json",
+        "image/svg+xml",
+        "text/markdown"
+    });
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
+#endregion
 builder.Services.AddEndpointsApiExplorer();
 
 #region Swagger配置
@@ -143,11 +168,19 @@ builder.Services.AddScoped<IFileService, LocalFileService>();
 
 #region 数据库上下文注册
 var connectionString = builder.Configuration.GetConnectionString("Default");
+// 生产环境可以写死 "Database:ServerVersion"（例如 8.0.36-mysql / 10.4.0-mariadb），
+// 这样启动时不用先连一次数据库去探测版本；没配置时仍然自动探测，保持旧行为。
+var configuredServerVersion = builder.Configuration["Database:ServerVersion"];
 builder.Services.AddDbContextPool<DailyCheckDbContext>(options =>
 {
     if (string.IsNullOrWhiteSpace(connectionString))
         throw new InvalidOperationException("ConnectionStrings:Default is not configured");
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
+
+    var serverVersion = string.IsNullOrWhiteSpace(configuredServerVersion)
+        ? ServerVersion.AutoDetect(connectionString)
+        : ServerVersion.Parse(configuredServerVersion);
+
+    options.UseMySql(connectionString, serverVersion);
 }, poolSize: 32);
 #endregion
 
@@ -198,6 +231,9 @@ builder.Services.AddSignalR(options =>
 });
 
 var app = builder.Build();
+
+// 压缩中间件要在所有可能写响应体的中间件之前。
+app.UseResponseCompression();
 
 #region 配置CORS
 app.UseCors("MyCors");
