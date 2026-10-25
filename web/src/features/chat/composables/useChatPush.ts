@@ -58,6 +58,16 @@ export function useChatPush(options: PushOptions) {
   /** 连接建立时服务端已自动加入的会话分组。 */
   let serverJoinedConversationIds = new Set<number>();
 
+  /**
+   * inbox 事件的合并窗口。
+   * 一条群消息会给每个成员各推一次 chat:inbox-updated；客户端如果逐条刷新，
+   * 50 人群的一条消息就是 50 次全量会话列表请求。这里把窗口内的多次事件
+   * 合并成一次刷新（服务端已经用 chat:message-updated 做了乐观更新）。
+   */
+  const INBOX_REFRESH_DEBOUNCE_MS = 400;
+  let inboxRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let inboxRefreshInFlight = false;
+
   const statusText = computed(() => {
     if (syncError.value) return `推送异常：${syncError.value}`;
     if (realtimeConnected.value) return "实时连接中";
@@ -169,6 +179,32 @@ export function useChatPush(options: PushOptions) {
     subscribedConversationIds.clear();
   }
 
+  /** 合并短时间内的多次 inbox 事件，避免群消息把列表刷新放大成 N 次。 */
+  function scheduleInboxRefresh() {
+    if (inboxRefreshTimer) return;
+    inboxRefreshTimer = setTimeout(async () => {
+      inboxRefreshTimer = null;
+      // 上一轮还没结束就跳过：窗口结束时的数据已经足够新，下一轮事件会再排。
+      if (inboxRefreshInFlight) return;
+      inboxRefreshInFlight = true;
+      try {
+        await options.fetchConversations({ silent: true });
+        await subscribeAllKnownConversations();
+      } catch (error) {
+        syncError.value = (error as Error)?.message || "刷新会话列表失败";
+      } finally {
+        inboxRefreshInFlight = false;
+      }
+    }, INBOX_REFRESH_DEBOUNCE_MS);
+  }
+
+  function cancelInboxRefresh() {
+    if (inboxRefreshTimer) {
+      clearTimeout(inboxRefreshTimer);
+      inboxRefreshTimer = null;
+    }
+  }
+
   /** 记录服务端在连接建立时已自动加入的会话，避免重复订阅。 */
   function seedServerJoinedConversations() {
     serverJoinedConversationIds = new Set(options.getAllConversationIds());
@@ -233,9 +269,8 @@ export function useChatPush(options: PushOptions) {
       }
     });
 
-    connection.on("chat:inbox-updated", async () => {
-      await options.fetchConversations({ silent: true });
-      await subscribeAllKnownConversations();
+    connection.on("chat:inbox-updated", () => {
+      scheduleInboxRefresh();
     });
 
     connection.on("chat:message-deleted", async (payload: any) => {
@@ -382,6 +417,7 @@ export function useChatPush(options: PushOptions) {
   async function stopPush() {
     shouldKeepRealtime = false;
     unbindVisibility();
+    cancelInboxRefresh();
     stopPolling();
     await disconnectRealtime();
   }

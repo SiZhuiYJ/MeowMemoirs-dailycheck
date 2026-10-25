@@ -34,51 +34,103 @@ const visible = computed({
 const detailLoading = ref<boolean>(false);
 const detail = ref<CheckinDetail[] | null>(null);
 const imageObjectUrls = ref<Map<string, string>>(new Map());
+/**
+ * 每次重新拉详情自增，作为条目的 key。
+ * 打卡成功后同一时间段仍处于展开状态，元素不会重建 —— 而 `v-viewport` 的
+ * `once` 已经把它取消观察了，新图片就不会再触发加载。换 key 强制重建条目，
+ * 让「进入视口 → 加载图片」这条链路重新走一遍。
+ */
+const detailVersion = ref(0);
 
-async function loadImagesForList(details: CheckinDetail[]): Promise<void> {
-  // Clear old
-  for (const url of imageObjectUrls.value.values()) {
-    URL.revokeObjectURL(url);
+/**
+ * 打卡图片的加载队列。
+ *
+ * 旧实现是「打开抽屉 → 把所有条目的所有图片串行下载完 → 才显示内容」：
+ * 3 张图 × 5 个时间段就是 15 次串行请求，服务端只有 1MB/s 时要等十几秒，
+ * 而且折叠着、根本看不到的时间段也在下载。
+ *
+ * 现在：详情元数据先渲染；图片按「条目进入视口」入队（折叠面板没展开就不下载），
+ * 最多 2 张并发 —— 对 1MB/s 的下行来说，2 并发已经够快，再多只会互相抢占。
+ */
+const MAX_PARALLEL_IMAGE_LOADS = 2;
+const imageQueue: string[] = [];
+const requestedUrls = new Set<string>();
+let activeImageLoads = 0;
+/** 关闭 / 切换日期时自增，用来丢弃上一批还在路上的回包。 */
+let imageLoadGeneration = 0;
+
+function enqueueImages(urls: readonly string[] | undefined): void {
+  if (!urls?.length) return;
+
+  for (const url of urls) {
+    if (!url || requestedUrls.has(url)) continue;
+    requestedUrls.add(url);
+    imageQueue.push(url);
   }
-  imageObjectUrls.value.clear();
+  pumpImageQueue();
+}
 
-  for (const item of details) {
-    for (const url of item.imageUrls) {
-      if (!imageObjectUrls.value.has(url)) {
-        try {
-          const response = await FileApi.GetImage(url);
+function pumpImageQueue(): void {
+  while (activeImageLoads < MAX_PARALLEL_IMAGE_LOADS && imageQueue.length > 0) {
+    const url = imageQueue.shift();
+    if (!url) break;
 
-          // 将 ArrayBuffer 转换为 Blob
-          let blob: Blob;
-          if (response.data instanceof ArrayBuffer) {
-            blob = new Blob([response.data], { type: "image/webp" });
-          } else if (response.data instanceof Blob) {
-            blob = response.data;
-          } else {
-            // 如果是其他类型，尝试转换
-            try {
-              blob = new Blob(
-                [new Uint8Array(response.data as unknown as ArrayBuffer)],
-                { type: "image/webp" },
-              );
-            } catch (convertError) {
-              console.error("Failed to convert data to Blob:", convertError);
-              // 作为 fallback，创建一个空的 Blob
-              blob = new Blob([], { type: "image/webp" });
-            }
-          }
+    activeImageLoads += 1;
+    const generation = imageLoadGeneration;
 
-          const objectUrl = URL.createObjectURL(blob);
-          imageObjectUrls.value.set(url, objectUrl);
-        } catch (error) {
-          console.error("Failed to load image:", url, error);
-          // 在失败时设置一个占位符URL
+    void FileApi.GetImage(url)
+      .then((response) => {
+        // 抽屉已关闭 / 切换了日期：结果直接丢弃，避免把旧图写回新列表。
+        if (generation !== imageLoadGeneration) return;
+
+        let blob: Blob;
+        if (response.data instanceof ArrayBuffer) {
+          blob = new Blob([response.data], { type: "image/webp" });
+        } else if (response.data instanceof Blob) {
+          blob = response.data;
+        } else {
+          blob = new Blob(
+            [new Uint8Array(response.data as unknown as ArrayBuffer)],
+            { type: "image/webp" },
+          );
+        }
+
+        imageObjectUrls.value.set(url, URL.createObjectURL(blob));
+      })
+      .catch((error) => {
+        console.error("Failed to load image:", url, error);
+        if (generation === imageLoadGeneration) {
+          // 失败也落一个空字符串占位，避免同一张图被反复重试。
           imageObjectUrls.value.set(url, "");
         }
-      }
-    }
+      })
+      .finally(() => {
+        activeImageLoads = Math.max(0, activeImageLoads - 1);
+        pumpImageQueue();
+      });
   }
 }
+
+function resetImageCache(): void {
+  imageLoadGeneration += 1;
+  imageQueue.length = 0;
+  requestedUrls.clear();
+
+  for (const objectUrl of imageObjectUrls.value.values()) {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+  }
+  imageObjectUrls.value.clear();
+}
+
+/** 条目进入视口后才加载它的图片（`once`：同一张图只触发一次）。 */
+function viewportImages(imageUrls: readonly string[]) {
+  return {
+    handler: () => enqueueImages(imageUrls),
+    options: { rootMargin: "240px" },
+    once: true,
+  };
+}
+
 /**
  * 获取打卡详情
  */
@@ -87,15 +139,22 @@ async function fetchDetail(): Promise<void> {
 
   const iso = toLocalDateOnlyString(props.date);
   detailLoading.value = true;
+  resetImageCache();
   try {
     const result = await useCheckinsStore().getCheckinDetail(props.planId, iso);
     detail.value = result;
-    console.log("加载打卡详情", detail.value);
-    await loadImagesForList(result);
+    detailVersion.value += 1;
+
+    // 非时间段模式只有一个条目、且一定在视口里：直接入队，
+    // 不等 IntersectionObserver 的首帧回调。
+    if (props.mode !== "timeSlot") {
+      enqueueImages(result?.[0]?.imageUrls);
+    }
   } catch {
     notifyError("加载打卡详情失败");
     visible.value = false;
   } finally {
+    // 元数据到了就撤掉骨架屏；图片继续在后台补。
     detailLoading.value = false;
   }
 }
@@ -103,10 +162,7 @@ async function fetchDetail(): Promise<void> {
  * 关闭抽屉时清理数据
  */
 function handleClosed(): void {
-  for (const url of imageObjectUrls.value.values()) {
-    URL.revokeObjectURL(url);
-  }
-  imageObjectUrls.value.clear();
+  resetImageCache();
   detail.value = null;
 }
 
@@ -129,12 +185,6 @@ watch(
     if (visible.value) {
       fetchDetail();
     }
-  },
-);
-watch(
-  () => [props.planId, props.date, props.timeSlots, props.mode],
-  (res) => {
-    console.log(res);
   },
 );
 
@@ -197,7 +247,8 @@ const slotStatuses = (slot: TimeSlotDto): CheckinStatus => {
       <el-skeleton v-if="detailLoading" class="detail" :rows="getPlanTimeLength(props.planId)" animated />
       <div v-else-if="props.mode == 'default'" class="detail">
         <CheckinForm v-if="!detail || !detail[0]" :plan-id="props.planId" :date="props.date" @success="fetchDetail" />
-        <CheckinDetailItem v-else :checkin-detail="detail[0]" :image-object-urls="imageObjectUrls" />
+        <CheckinDetailItem v-else :key="`detail-${detailVersion}`" :checkin-detail="detail[0]"
+          :image-object-urls="imageObjectUrls" v-viewport="viewportImages(detail[0].imageUrls)" />
       </div>
       <el-collapse v-else-if="props.mode == 'timeSlot'" expand-icon-position="left">
         <el-collapse-item v-for="(item, index) in timeSlots" :key="index" :name="index"
@@ -211,8 +262,10 @@ const slotStatuses = (slot: TimeSlotDto): CheckinStatus => {
               <Status :slot-status="slotStatuses(item)" />
             </div>
           </template>
-          <CheckinDetailItem v-if="findDetailById(item.id)" :checkin-detail="findDetailById(item.id)!"
-            :image-object-urls="imageObjectUrls" noStatus />
+          <CheckinDetailItem v-if="findDetailById(item.id)" :key="`slot-${item.id}-${detailVersion}`"
+            :checkin-detail="findDetailById(item.id)!"
+            :image-object-urls="imageObjectUrls" noStatus
+            v-viewport="viewportImages(findDetailById(item.id)!.imageUrls)" />
           <CheckinForm v-else :plan-id="props.planId" :date="props.date" :time-slot-id="item.id"
             @success="fetchDetail" />
         </el-collapse-item>

@@ -63,8 +63,6 @@ router.beforeEach(
     from: RouteLocationNormalized,
     next: NavigationGuardNext,
   ) => {
-    console.log("前置守卫", router.getRoutes(), to, from);
-
     navigationStartedAt = Date.now();
 
     // 1、NProgress 开始

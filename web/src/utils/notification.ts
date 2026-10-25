@@ -29,6 +29,13 @@ interface NotificationInstance extends ComponentPublicInstance {
 let notificationInstance: NotificationInstance | null = null;
 
 /**
+ * 实例挂载前产生的提示先排队，注册后按顺序补发。
+ * 通知组件（含 gsap）现在延迟到首屏空闲才挂载，启动阶段的报错不能因此丢掉。
+ */
+const pendingNotifications: NotificationOptions[] = [];
+const MAX_PENDING_NOTIFICATIONS = 20;
+
+/**
  * Register the global notification component instance.
  * This should be called once in the root App component.
  */
@@ -36,6 +43,12 @@ export const setNotificationInstance = (
   instance: NotificationInstance | null,
 ) => {
   notificationInstance = instance;
+  if (!instance || pendingNotifications.length === 0) return;
+
+  const queued = pendingNotifications.splice(0, pendingNotifications.length);
+  for (const options of queued) {
+    instance.addMessage(options);
+  }
 };
 
 /**
@@ -52,10 +65,8 @@ export const notify = (options: NotificationOptions) => {
 
   if (notificationInstance) {
     notificationInstance.addMessage(options);
-  } else {
-    console.warn(
-      "NotificationSystem instance is not registered. Make sure to add <NotificationSystem /> in App.vue",
-    );
+  } else if (pendingNotifications.length < MAX_PENDING_NOTIFICATIONS) {
+    pendingNotifications.push(options);
   }
 };
 

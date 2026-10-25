@@ -21,10 +21,16 @@ const showTelemetryFab = computed(
   () => telemetryDebugEnabled && route.path !== "/debug/telemetry",
 );
 // 2495550774@qq.com
-import { dayjs } from "element-plus";
+// 直接从 dayjs 引入：`import { dayjs } from "element-plus"` 会把 Element Plus
+// 的入口 barrel 拉进首屏 chunk（连带 dayjs / weekStart 一起进 entry）。
+import dayjs from "dayjs";
 import { setNotificationInstance } from "@/utils/notification";
 import { useDeviceLayout } from "@/composables/use-device-layout";
-import NotificationSystem from "@/components/NotificationSystem/index.vue";
+// 通知系统带着 gsap（~130KB）和整块浮层，改成异步组件并在首屏空闲后再挂载：
+// 首屏不再下载/解析它，启动期间产生的提示由 utils/notification 排队补发。
+const NotificationSystem = defineAsyncComponent(
+  () => import("@/components/NotificationSystem/index.vue"),
+);
 import TelemetryFab from "@/components/TelemetryFab.vue";
 // import {
 //   notify,
@@ -89,28 +95,29 @@ const elementComponentSize = computed<"default" | "small">(() =>
 //     .play();
 // };
 
-onMounted(async () => {
-  //   toggleTransitionComplete(true);
+/** 首屏空闲后才挂载通知系统（它带着 gsap）。 */
+const notificationsReady = ref(false);
 
-  setNotificationInstance(notificationSystemRef.value);
+onMounted(() => {
+  const enable = () => {
+    notificationsReady.value = true;
+  };
 
-  // 测试通知系统（减少测试数量以避免性能问题）
-  // notify({
-  //   content: "欢迎使用每日打卡系统",
-  //   color: "#10b981",
-  //   duration: 30000,
-  // });
+  const requestIdle = (window as Window & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+  }).requestIdleCallback;
 
-  // 延迟测试不同类型的通知
-  // setTimeout(() => {
-  //   notifySuccess("登录成功！");
-  // }, 2000);
-  // setTimeout(() => {
-  //   notifyWarning("请注意打卡时间");
-  // }, 4000);
-  // setTimeout(() => {
-  //   notifyError("网络连接异常");
-  // }, 6000);
+  if (typeof requestIdle === "function") {
+    requestIdle(enable, { timeout: 1500 });
+  } else {
+    window.setTimeout(enable, 300);
+  }
+});
+
+// 异步组件挂载完成后注册实例：挂载前排队的提示会在这一步补发。
+watch(notificationSystemRef, (instance) => {
+  if (!instance) return;
+  setNotificationInstance(instance as Parameters<typeof setNotificationInstance>[0]);
 });
 
 import type { ButtonInstance, DialogTransition } from "element-plus";
@@ -257,7 +264,7 @@ const globalConfig = computed<GlobalConfig>(() => {
   <el-config-provider :locale="zhCn" :dialog="globalConfig" :size="elementComponentSize">
     <!-- 路由视图容器 -->
     <router-view />
-    <NotificationSystem ref="notificationSystemRef" />
+    <NotificationSystem v-if="notificationsReady" ref="notificationSystemRef" />
 
     <!-- 埋点诊断悬浮按钮：可拖动，位置会记住（见 components/TelemetryFab.vue） -->
     <TelemetryFab

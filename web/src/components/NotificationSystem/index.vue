@@ -87,65 +87,14 @@ const getItemBaseStyle = (msg: NotificationMessage, index: number) => ({
   "--bgc": toRgba(msg.color, 0.5),
 });
 
-const getProgressStyle = (msg: NotificationMessage) => {
-  let style: any = {
-    transform: "scale(1)",
-    transformOrigin: "left center",
-    opacity: 1,
-    filter: "none",
-  };
-
-  switch (msg.direction) {
-    case "ltr":
-      style.transform = `scaleX(${msg.progress})`;
-      style.transformOrigin = "left center";
-      break;
-    case "rtl":
-      style.transform = `scaleX(${msg.progress})`;
-      style.transformOrigin = "right center";
-      break;
-    case "ttb":
-      style.transform = `scaleY(${msg.progress})`;
-      style.transformOrigin = "center top";
-      break;
-    case "btt":
-      style.transform = `scaleY(${msg.progress})`;
-      style.transformOrigin = "center bottom";
-      break;
-    case "center":
-      style.transform = `scaleX(${msg.progress})`;
-      style.transformOrigin = "center center";
-      break;
-    case "vSplit":
-      style.transform = `scaleY(${msg.progress})`;
-      style.transformOrigin = "center center";
-      break;
-    case "ripple":
-      style.transform = `scaleX(${msg.progress})`;
-      style.transformOrigin = "left center";
-      break;
-    case "spotlight":
-      style.transform = `scaleX(${msg.progress})`;
-      style.transformOrigin = "left center";
-      break;
-    case "fade":
-      style.opacity = msg.progress;
-      style.transform = `scale(${0.98 + 0.02 * msg.progress})`;
-      style.filter = `blur(${(1 - msg.progress) * 2}px)`;
-      break;
-  }
-  return style;
-};
-
-const getSpotlightStyle = (msg: NotificationMessage) => {
-  return {
-    left: `${msg.progress * 100}%`,
-    transform: "translateX(-100%)",
-    opacity: msg.progress > 0.1 ? 1 : 0,
-    transition: "opacity 0.3s",
-  };
-};
-
+/**
+ * 进度条 / 光晕 / 淡出等效果由容器上的 CSS 变量 `--p`（1 → 0）驱动，
+ * 具体映射在下面的 <style> 里（按 direction 分 class）。
+ *
+ * 旧实现用 getProgressStyle(msg) 直接读响应式的 msg.progress：
+ * gsap 每帧改一次 progress，Vue 就要重渲染整个通知列表（最多 5 条 × 60fps），
+ * 手机上肉眼可见地抢主线程。现在 gsap 只改一个自定义属性，Vue 不参与动画。
+ */
 const animateLayout = (callback: () => void) => {
   const state = new Map<number, number>();
   activeMessages.value.forEach((msg) => {
@@ -261,11 +210,33 @@ const addMessage = (options: {
   });
 };
 
+/**
+ * 倒计时：只驱动容器上的 CSS 变量 `--p`（1 → 0）。
+ * 动画由合成层完成，Vue 一次都不会重渲染（旧实现每帧都改响应式 progress）。
+ */
 const startCountdown = (message: NotificationMessage, duration: number) => {
   message.progress = 1;
-  message.tween = gsap.to(message, {
-    progress: 0,
-    duration: duration / 1000,
+  const seconds = duration / 1000;
+  const el = itemRefs.value[message.id];
+
+  if (el) {
+    message.tween = gsap.fromTo(
+      el,
+      { "--p": 1 } as any,
+      {
+        "--p": 0,
+        duration: seconds,
+        ease: "none",
+        onComplete: () => removeMessage(message.id),
+      } as any,
+    );
+    return;
+  }
+
+  // 元素还没挂上（极少数情况）时退化为纯计时器
+  message.tween = gsap.to({ p: 1 }, {
+    p: 0,
+    duration: seconds,
     ease: "none",
     onComplete: () => removeMessage(message.id),
   });
@@ -321,10 +292,10 @@ defineExpose({
       class="notification-item" :style="getItemBaseStyle(msg, index)">
       <div class="bg-layer-persistent"></div>
 
-      <div class="fg-layer-progress" :style="getProgressStyle(msg)"></div>
+      <div class="fg-layer-progress" :class="`dir-${msg.direction ?? 'default'}`"></div>
 
       <!-- Spotlight 额外光晕 -->
-      <div v-if="msg.direction === 'spotlight'" class="spotlight-glow" :style="getSpotlightStyle(msg)"></div>
+      <div v-if="msg.direction === 'spotlight'" class="spotlight-glow"></div>
 
       <div class="content-wrapper" :style="{ color: getDynamicTextColor(msg) }">
         <div v-if="msg.closable" class="spacer"></div>
@@ -390,6 +361,9 @@ defineExpose({
   will-change: transform, opacity;
   border: 2px solid currentColor;
   transition: all 0.3s ease;
+  /* 倒计时进度（1 → 0），由 startCountdown 用 gsap 直接写在这个元素上。
+     子层（进度条 / 光晕 / 淡出）通过 var(--p) 读取，不再经过响应式数据。 */
+  --p: 1;
 
   /* Added border */
   &:hover {
@@ -424,6 +398,37 @@ defineExpose({
   background-color: currentColor;
   border-radius: 22px;
   will-change: transform, opacity, filter;
+  /* 进度由容器上的 --p 驱动（见 .notification-item 的注释） */
+  transform: scaleX(var(--p, 1));
+  transform-origin: left center;
+}
+
+.fg-layer-progress.dir-rtl {
+  transform-origin: right center;
+}
+
+.fg-layer-progress.dir-ttb,
+.fg-layer-progress.dir-btt,
+.fg-layer-progress.dir-vSplit {
+  transform: scaleY(var(--p, 1));
+}
+
+.fg-layer-progress.dir-ttb {
+  transform-origin: center top;
+}
+
+.fg-layer-progress.dir-btt {
+  transform-origin: center bottom;
+}
+
+.fg-layer-progress.dir-center {
+  transform-origin: center center;
+}
+
+.fg-layer-progress.dir-fade {
+  transform: scale(calc(0.98 + 0.02 * var(--p, 1)));
+  opacity: var(--p, 1);
+  filter: blur(calc((1 - var(--p, 1)) * 2px));
 }
 
 .spotlight-glow {
@@ -437,6 +442,10 @@ defineExpose({
       transparent);
   z-index: 3;
   pointer-events: none;
+  /* 光斑跟着倒计时从左扫到右 */
+  left: calc(var(--p, 1) * 100%);
+  transform: translateX(-100%);
+  opacity: min(1, calc(var(--p, 1) * 10));
 }
 
 .content-wrapper {

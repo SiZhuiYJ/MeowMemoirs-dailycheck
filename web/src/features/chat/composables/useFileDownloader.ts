@@ -47,8 +47,30 @@ const runningGroups = new Map<string, DownloadGroup>();
 let activeDownloads = 0;
 let queueSequence = 0;
 
-// 带宽受限（1MB/s）时，串行下载可降低抢占与抖动
-const maxConcurrentDownloads = 1;
+/**
+ * 下载并发度。
+ *
+ * 旧实现固定为 1：注释里的理由是「带宽受限时串行可降低抢占」，
+ * 但代价是聊天里 15 张图 = 15 次串行往返，首屏图片要等十几秒。
+ *
+ * 现在按 Network Information API 自适应，并**按服务端实际带宽收敛**：
+ * 项目当前的服务器下行只有 1MB/s（所有客户端共享），单客户端开太多并发
+ * 只会互相抢占、让消息接口排在图片后面。
+ *   · saveData / 2G / 3G —— 串行；
+ *   · 其它 —— 2 并发（不是 3）：足够掩盖逐张的请求往返，又不会占满 1MB/s。
+ */
+function resolveMaxConcurrentDownloads(): number {
+    const connection = (typeof navigator === "undefined" ? undefined : (navigator as Navigator & {
+        connection?: { saveData?: boolean; effectiveType?: string };
+    }).connection);
+    if (!connection) return 2;
+    if (connection.saveData) return 1;
+    const type = connection.effectiveType;
+    if (type === "slow-2g" || type === "2g" || type === "3g") return 1;
+    return 2;
+}
+
+const maxConcurrentDownloads = resolveMaxConcurrentDownloads();
 const maxRetries = 2;
 const retryDelayMs = 800;
 

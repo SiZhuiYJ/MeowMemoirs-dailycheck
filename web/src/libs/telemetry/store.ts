@@ -105,12 +105,38 @@ function currentRoute(): string {
   }
 }
 
+/**
+ * 本地持久化节流。
+ *
+ * 旧实现每产生一个事件就排一个 300ms 的写：事件密集时（图片加载失败、
+ * console.warn 被接管、页面滚动）会反复 JSON.stringify 最多 600 条事件
+ * 并写 localStorage，在主线程上就是一阵一阵的卡顿。
+ *
+ * 现在最多每 2s 写一次；切后台 / 关页面时由 persistOnHide() 立即落盘，
+ * 数据不会因为节流而丢。
+ */
+const PERSIST_MIN_INTERVAL_MS = 2000;
+let lastPersistAt = 0;
+
 function schedulePersist() {
   if (persistTimer) return;
+
+  const wait = Math.max(0, PERSIST_MIN_INTERVAL_MS - (Date.now() - lastPersistAt));
   persistTimer = setTimeout(() => {
     persistTimer = null;
+    lastPersistAt = Date.now();
     persistNow();
-  }, 300);
+  }, wait);
+}
+
+/** 页面隐藏 / 卸载时立即落盘（移动端切后台随时可能被系统回收）。 */
+export function persistOnHide() {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  lastPersistAt = Date.now();
+  persistNow();
 }
 
 export function persistNow() {

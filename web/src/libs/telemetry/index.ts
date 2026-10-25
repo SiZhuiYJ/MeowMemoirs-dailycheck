@@ -24,6 +24,7 @@ import {
   initIdentity,
   markPending,
   persistNow,
+  persistOnHide,
   sanitizeData,
   truncateText,
 } from "./store";
@@ -269,10 +270,17 @@ export function initTelemetry() {
 
   installInstrumentation(api);
 
+  // 本地缓冲的落盘和「是否上报」无关：切后台 / 关页面时都立即写一次，
+  // 平时则由 store 里的 2s 节流合并写入。
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") persistOnHide();
+  });
+  window.addEventListener("pagehide", () => persistOnHide());
+
   if (!ENABLED || !REPORT_ENABLED) return;
   flushTimer = setInterval(() => flush(), FLUSH_INTERVAL_MS);
   flushIntervalActive = true;
-  // 移动端切后台可能不触发 pagehide，visibilitychange 时也补一次
+  // 移动端切后台可能不触发 pagehide，visibilitychange 时也补一次同步上报
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flush(true);
   });

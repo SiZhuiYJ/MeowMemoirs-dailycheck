@@ -1,46 +1,18 @@
 <script setup lang="ts">
 import Topbar from "@/features/auth/components/Topbar.vue";
-import gsap from 'gsap';
 
-import { useTransitionComposable } from '@/composables/transition-composable';
-
-const { toggleTransitionComplete } = useTransitionComposable();
-
-// Transition Hooks
-const onEnter = (el: Element, done: () => void) => {
-  gsap.set(el, { autoAlpha: 0, scale: 0.8, xPercent: -100 });
-  gsap
-    .timeline({
-      paused: true,
-      onComplete() {
-        toggleTransitionComplete(true);
-        done();
-      },
-    })
-    .to(el, { autoAlpha: 1, xPercent: 0, duration: 0.25 })
-    .to(el, { scale: 1, duration: 0.25 })
-    .play();
-};
-
-const onLeave = (el: Element, done: () => void) => {
-  toggleTransitionComplete(false);
-  gsap
-    .timeline({ paused: true, onComplete: done })
-    .to(el, { scale: 0.8, duration: 0.2 })
-    .to(el, { xPercent: 100, autoAlpha: 0, duration: 0.2 })
-    .play();
-};
-
-onMounted(async () => {
-  toggleTransitionComplete(true);
-});
+// 路由切换动画改成 CSS 过渡（见下方 <style>）：
+// 旧实现用 gsap 两段 timeline（leave 0.2+0.2s、enter 0.25+0.25s ≈ 0.9s），
+// 而 gsap 只有这个动画和通知组件在用 —— 却被静态打进首屏。现在：
+//   · gsap 不再出现在首屏依赖里（通知系统也改成了空闲后挂载）；
+//   · 单次导航的动画等待从 ~0.9s 降到 ~0.32s。
 </script>
 
 <template>
   <div class="main">
     <Topbar />
     <router-view v-slot="{ Component, route }">
-      <Transition @enter="onEnter" @leave="onLeave" name="routes" mode="out-in">
+      <Transition name="routes" mode="out-in">
         <component :is="Component" :key="route.fullPath" />
       </Transition>
     </router-view>
@@ -57,5 +29,32 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   flex-direction: column;
+}
+</style>
+
+<style lang="scss">
+/* 路由切换过渡。不能用 scoped：过渡类名挂在子路由组件的根节点上。 */
+.routes-enter-active,
+.routes-leave-active {
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.routes-enter-from {
+  opacity: 0;
+  transform: translateX(-12%) scale(0.98);
+}
+
+.routes-leave-to {
+  opacity: 0;
+  transform: translateX(12%) scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .routes-enter-active,
+  .routes-leave-active {
+    transition: none;
+  }
 }
 </style>

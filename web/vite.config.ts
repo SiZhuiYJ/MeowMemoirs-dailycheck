@@ -2,7 +2,9 @@ import { defineConfig, loadEnv } from "vite";
 // 引入Vue插件
 import vue from "@vitejs/plugin-vue";
 
-import vueDevTools from 'vite-plugin-vue-devtools'
+// 说明：这里原本 import 了 vite-plugin-vue-devtools，但它并没有写进
+// package.json（只存在于上层目录的 node_modules），干净环境里构建会直接失败。
+// 它只是开发期调试工具，构建/运行性能不依赖它，因此移除。
 
 // 引入路径别名解析插件
 import path from "path";
@@ -92,8 +94,6 @@ export default defineConfig(({ mode }) => {
     plugins: [
       // 引入Vue插件
       vue(),
-      // 添加 Vue DevTools 插件
-      vueDevTools(),
       // PrismJS插件，用于代码高亮
       prismjs({
         languages: ["json", "bash", "typescript", "css", "sql", "javascript"],
@@ -169,12 +169,9 @@ export default defineConfig(({ mode }) => {
       assetsInlineLimit: 4096, // 4kb，常用配置
       // 打包时删除输出目录（避免旧产物残留，规范）
       emptyOutDir: true,
-      // 开启打包压缩（进一步减小体积，可选 gzip 或 brotli）
-      compression: {
-        enabled: true,
-        algorithm: 'gzip',
-        threshold: 10240, // 超过 10kb 的文件才压缩
-      },
+      // 说明：Vite 没有 build.compression 选项（旧配置写在这里也不会生效）。
+      // 预压缩交给部署层（Nginx gzip_static / CDN），HTTP 响应的压缩由后端
+      // ResponseCompression 中间件负责；这里只保留真正生效的构建参数。
       cssCodeSplit: true, // 保持CSS分包
       rollupOptions: {
         output: {
@@ -183,60 +180,30 @@ export default defineConfig(({ mode }) => {
           assetFileNames: "[ext]/[name]-[hash].[ext]", // 资源文件像 字体，图片等
 
           manualChunks(id) {
+            if (!id.includes("node_modules")) return;
+
+            // 重型可选依赖（office / ffmpeg / markdown / gsap …）按显式分组各自成 chunk，
+            // 由路由的动态 import 按需拉取。
+            const grouped = getManualChunkName(id);
+            if (grouped) return grouped;
+
+            // Vue 运行时单独成 chunk：它被几乎所有路由共享，独立出来既能长期缓存，
+            // 也避免 Rollup 把它并进「第一个用到它的业务 chunk」。
+            // （旧实现分组后立刻 return，Vue 被并进 vendor-office-docx，
+            //  index.html 每次首屏都预加载 374KB 的 docx。）
             const pkgName = getNodeModulePackageName(id);
-            return getManualChunkName(id);
-
-            // 1. UI 组件库核心（Element Plus 主包及内部依赖）
-            if (
-              pkgName === "element-plus" ||
-              pkgName === "@floating-ui/dom" ||
-              pkgName === "@popperjs/core" ||
-              pkgName === "async-validator"
-            ) {
-              return "vendor-element-plus-core";
-            }
-
-            // 2. Element Plus 图标（独立，按需加载时体积更小）
-            if (pkgName === "@element-plus/icons-vue") {
-              return "vendor-element-plus-icons";
-            }
-
-            // 3. Vue 生态 + 常用工具库（合并避免循环依赖）
             if (
               pkgName === "vue" ||
               pkgName === "vue-router" ||
               pkgName === "pinia" ||
-              pkgName === "@vue/shared" ||
-              pkgName === "@vue/runtime-core" ||
-              pkgName === "@vue/runtime-dom" ||
-              pkgName === "@vue/reactivity" ||
-              pkgName === "axios" ||
-              pkgName === "dayjs" ||
-              pkgName === "lodash-es" ||
-              pkgName === "@vueuse/core"
+              pkgName.startsWith("@vue/") ||
+              pkgName === "axios"
             ) {
-              return "vendor-vue-utils";
+              return "vendor-vue";
             }
 
-            // 4. GSAP 动画库独立
-            if (pkgName === "gsap") {
-              return "vendor-gsap";
-            }
-
-            // 5. 其他大型依赖可单独拆分（如 pdf/office 相关）
-            if (pkgName === "@vue-office/pdf" ||
-              pkgName === "@vue-office/docx" ||
-              pkgName === "@vue-office/excel" ||
-              pkgName === "@vue-office/pptx") {
-              return "vendor-office";
-            }
-
-            if (pkgName === "@ffmpeg/ffmpeg" || pkgName === "@ffmpeg/util") {
-              return "vendor-ffmpeg";
-            }
-
-            // 6. 其余 node_modules 内容归入 vendor
-            return "vendor";
+            // 其余交给 Rollup 默认分包：Element Plus 走按需引入，
+            // 强行合并成一个巨大 vendor chunk 反而会拖慢首屏。
           }
         },
       },

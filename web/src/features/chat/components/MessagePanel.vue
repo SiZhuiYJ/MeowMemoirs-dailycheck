@@ -51,8 +51,7 @@ import {
   formatDateSeparator,
   formatSystemMessageText,
   getConversationDisplayTitle,
-  getMemberAvatarBySender,
-  getMemberAvatarSourcesBySender,
+  getMemberAvatarSources,
   getMessagePreview,
   getMessageSenderName,
   toTimestamp,
@@ -189,8 +188,11 @@ const galleryFileList = ref<GalleryFile[]>([]);
 const galleryIndex = ref(0);
 const visibleMessageIds = ref<Set<number>>(new Set());
 
-// 预加载消息数量
-const INLINE_MEDIA_PRELOAD_MESSAGE_LIMIT = 15;
+// 预加载消息数量。
+// 服务端下行只有 1MB/s：原来最近 15 条媒体消息会在进入会话时一起排队下载
+// （15 × 几百 KB 直接把带宽占满，消息接口反而排在后面）。现在只给最近 6 条
+// 抢跑，其余图片等滚动到视口附近再按需加载。
+const INLINE_MEDIA_PRELOAD_MESSAGE_LIMIT = 6;
 
 const pendingResourceMap = new Map<string, Set<string>>();
 const emptyReadDisplay = { readText: '', readColor: '#909399' };
@@ -718,8 +720,26 @@ const messageMap = computed(() => {
   return map;
 });
 
-const renderedItems = computed<RenderedChatItem[]>(() =>
-  [
+/**
+ * 发送者 → 头像地址。消息列表里每条消息都要用，旧实现每行对成员数组做两次
+ * `find`（头像 src 一次、缩略图一次），长会话里就是 O(条数 × 成员数)。
+ */
+const memberAvatarMap = computed(() => {
+  const map = new Map<number, { src: string; thumbnailSrc: string }>();
+  for (const member of currentConversation.value?.members ?? []) {
+    map.set(member.userId, getMemberAvatarSources(member));
+  }
+  return map;
+});
+
+const emptyAvatarSources = { src: "", thumbnailSrc: "" };
+
+function getItemAvatarSources(item: RenderedChatItem) {
+  return memberAvatarMap.value.get(getItemSenderId(item)) ?? emptyAvatarSources;
+}
+
+const renderedItems = computed<RenderedChatItem[]>(() => {
+  const items: RenderedChatItem[] = [
     ...props.messages
       .map<RenderedChatItem>((message) => ({
         kind: 'message',
@@ -739,13 +759,24 @@ const renderedItems = computed<RenderedChatItem[]>(() =>
       createdAt: pendingUpload.createdAt,
       pendingUpload,
     })),
-  ].sort((left, right) => {
-    const leftTime = toTimestamp(left.createdAt);
-    const rightTime = toTimestamp(right.createdAt);
+  ];
+
+  // 时间戳只解析一次：sort 的比较器对同一项会调用 O(log n) 次，
+  // 旧实现每次比较都跑 toTimestamp（两次正则 + Date 构造）。
+  const timestampByKey = new Map<string, number>();
+  for (const item of items) {
+    timestampByKey.set(item.key, toTimestamp(item.createdAt));
+  }
+
+  items.sort((left, right) => {
+    const leftTime = timestampByKey.get(left.key) ?? 0;
+    const rightTime = timestampByKey.get(right.key) ?? 0;
     if (leftTime !== rightTime) return leftTime - rightTime;
     return left.key.localeCompare(right.key);
-  }),
-);
+  });
+
+  return items;
+});
 
 const recentInlineMediaMessageIds = computed(() =>
   new Set(
@@ -1491,24 +1522,38 @@ function requestLoadMore() {
   emit('loadMore');
 }
 
-/** 滚动到顶部附近时自动加载更早的历史消息。 */
+/**
+ * 滚动事件按帧合并。
+ * el-scrollbar 的 scroll 每秒可触发上百次；旧实现每次都会读
+ * scrollHeight / scrollTop / clientHeight（触发布局）并改响应式状态，
+ * 滚动过程中持续重排 + 重渲染。现在一帧最多处理一次。
+ */
+let scrollRafId = 0;
+/** 同一帧内的多次 scroll 只保留最新位置。 */
+let pendingScrollTop = 0;
+
 function handleScroll(payload?: { scrollTop?: number }) {
-  syncScrollState();
-
   const wrap = getScrollWrap();
-  const scrollTop = payload?.scrollTop ?? wrap?.scrollTop ?? 0;
+  pendingScrollTop = payload?.scrollTop ?? wrap?.scrollTop ?? 0;
 
-  if (scrollTop > 96) {
-    // 已经离开顶部，取消待生效的锚定，避免影响后续新消息
-    if (anchorState && scrollTop > anchorState.top + 200) anchorState = null;
-    return;
-  }
-  if (props.loadingMore || props.loading) return;
+  if (scrollRafId) return;
+  scrollRafId = window.requestAnimationFrame(() => {
+    scrollRafId = 0;
+    const scrollTop = pendingScrollTop;
+    syncScrollState();
 
-  const now = Date.now();
-  if (now - lastLoadMoreAt < 400) return;
-  lastLoadMoreAt = now;
-  requestLoadMore();
+    if (scrollTop > 96) {
+      // 已经离开顶部，取消待生效的锚定，避免影响后续新消息
+      if (anchorState && scrollTop > anchorState.top + 200) anchorState = null;
+      return;
+    }
+    if (props.loadingMore || props.loading) return;
+
+    const now = Date.now();
+    if (now - lastLoadMoreAt < 400) return;
+    lastLoadMoreAt = now;
+    requestLoadMore();
+  });
 }
 
 function handleScrollToLatest() {
@@ -1570,11 +1615,17 @@ watch(
 );
 
 watch(
-  () => props.messages,
-  (messages) => {
-    reconcilePendingUploads(messages);
+  // 只关心「消息集合是否变了」：长度 + 末条 id + 待确认上传数。
+  // 旧的 deep:true 会在每次消息更新 / 已读状态刷新时，把整份消息数组
+  // （每条消息的所有字段）深度遍历一遍，长会话里是纯浪费。
+  () => [
+    props.messages.length,
+    props.messages[props.messages.length - 1]?.id ?? 0,
+    pendingUploads.value.length,
+  ],
+  () => {
+    reconcilePendingUploads(props.messages);
   },
-  { deep: true },
 );
 
 watch(
@@ -1592,6 +1643,10 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  if (scrollRafId) {
+    window.cancelAnimationFrame(scrollRafId);
+    scrollRafId = 0;
+  }
   clearHighlightedMessage();
   clearPendingUploads();
 });
@@ -1614,8 +1669,8 @@ onBeforeUnmount(() => {
               :message="item.kind === 'message' ? item.message : undefined"
               :pending-text="item.kind === 'pendingText' ? item.pendingText : undefined"
               :pending-upload="item.kind === 'pending' ? item.pendingUpload : undefined"
-              :src="getMemberAvatarBySender(currentConversation, getItemSenderId(item))" :meUserId="props.meUserId"
-              :thumbnail-src="getMemberAvatarSourcesBySender(currentConversation, getItemSenderId(item)).thumbnailSrc"
+              :src="getItemAvatarSources(item).src" :meUserId="props.meUserId"
+              :thumbnail-src="getItemAvatarSources(item).thumbnailSrc"
               :is-mine="getItemSenderId(item) === props.meUserId" :reply-target="getItemReplyTarget(item)"
               :reply-target-id="getItemReplyTargetId(item)" :allow-inline-media-load="shouldPreloadInlineMedia(item)"
               :highlighted="item.kind === 'message' && highlightedMessageId === item.message.id"

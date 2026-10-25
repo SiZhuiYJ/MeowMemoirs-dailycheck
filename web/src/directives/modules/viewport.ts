@@ -7,98 +7,142 @@ type ViewportCallback = (entry: IntersectionObserverEntry) => void
 interface ViewportBindingValue {
     handler: ViewportCallback
     options?: IntersectionObserverInit
+    /** 首次进入视口后停止观察（图片懒加载这类只需要触发一次的场景）。 */
+    once?: boolean
 }
 
-// 用于存储每个元素对应的 observer 实例和回调函数
-const observerMap = new WeakMap<
-    Element,
-    {
-        observer: IntersectionObserver
-        handler: ViewportCallback
-    }
->()
+interface ElementState {
+    observer: IntersectionObserver
+    handler: ViewportCallback
+    once: boolean
+    optionsKey: string
+}
 
-// 创建或获取共享的 observer（若配置相同可复用，这里为简单起见每个元素独立 observer）
-function createObserver(
-    el: Element,
-    options: IntersectionObserverInit = { threshold: 0 }
-): IntersectionObserver {
+/**
+ * 共享 IntersectionObserver。
+ *
+ * 旧实现给每个元素 new 一个 observer，长消息列表里就是几百个 observer；
+ * `updated` 钩子还会在每次父组件重渲染时用 JSON.stringify 比较 thresholds。
+ * 现在按「root + rootMargin + threshold」复用同一个 observer，
+ * 回调按元素分发；配置没变时只替换回调，不重建 observer。
+ */
+const elementStates = new WeakMap<Element, ElementState>()
+/** root 为视口（null）时的共享 observer。 */
+const viewportObservers = new Map<string, IntersectionObserver>()
+/** 指定了 root 元素时的共享 observer。 */
+const rootObservers = new WeakMap<Element | Document, Map<string, IntersectionObserver>>()
+
+function optionsKey(options: IntersectionObserverInit): string {
+    const rootMargin = options.rootMargin ?? '0px'
+    const threshold = options.threshold ?? 0
+    return `${rootMargin}|${JSON.stringify(threshold)}`
+}
+
+function createObserver(options: IntersectionObserverInit): IntersectionObserver {
     const observer = new IntersectionObserver((entries) => {
-        entries.forEach((entry) => {
-            // 当元素进入视口时触发回调
-            if (entry.isIntersecting) {
-                const stored = observerMap.get(el)
-                if (stored?.handler) {
-                    stored.handler(entry)
-                }
-            }
-        })
+        for (const entry of entries) {
+            if (!entry.isIntersecting) continue
+
+            const state = elementStates.get(entry.target)
+            if (!state) continue
+
+            state.handler(entry)
+            if (state.once) observer.unobserve(entry.target)
+        }
     }, options)
 
-    observer.observe(el)
     return observer
 }
 
-// 指令定义
+function acquireObserver(options: IntersectionObserverInit): IntersectionObserver {
+    const key = optionsKey(options)
+    const root = options.root
+
+    if (root) {
+        let map = rootObservers.get(root)
+        if (!map) {
+            map = new Map()
+            rootObservers.set(root, map)
+        }
+        let observer = map.get(key)
+        if (!observer) {
+            observer = createObserver(options)
+            map.set(key, observer)
+        }
+        return observer
+    }
+
+    let observer = viewportObservers.get(key)
+    if (!observer) {
+        observer = createObserver(options)
+        viewportObservers.set(key, observer)
+    }
+    return observer
+}
+
+function parseBinding(binding: DirectiveBinding<ViewportBindingValue | ViewportCallback>) {
+    const value = binding.value
+
+    if (typeof value === 'function') {
+        return { handler: value, options: {} as IntersectionObserverInit, once: false }
+    }
+    if (value && typeof value === 'object' && typeof value.handler === 'function') {
+        return {
+            handler: value.handler,
+            options: value.options ?? {},
+            once: value.once === true,
+        }
+    }
+    return null
+}
+
 const viewportDirective: ObjectDirective<HTMLElement, ViewportBindingValue | ViewportCallback> = {
     mounted(el: HTMLElement, binding: DirectiveBinding<ViewportBindingValue | ViewportCallback>) {
-        // 解析 binding.value
-        let handler: ViewportCallback
-        let options: IntersectionObserverInit = { threshold: 0 }
-
-        if (typeof binding.value === 'function') {
-            handler = binding.value
-        } else if (binding.value && typeof binding.value === 'object') {
-            handler = binding.value.handler
-            options = binding.value.options || options
-        } else {
+        const parsed = parseBinding(binding)
+        if (!parsed) {
             console.warn('[v-viewport] 指令值必须是函数或包含 handler 的对象')
             return
         }
 
-        const observer = createObserver(el, options)
-        observerMap.set(el, { observer, handler })
+        const observer = acquireObserver(parsed.options)
+        elementStates.set(el, {
+            observer,
+            handler: parsed.handler,
+            once: parsed.once,
+            optionsKey: optionsKey(parsed.options),
+        })
+        observer.observe(el)
     },
 
     updated(el: HTMLElement, binding: DirectiveBinding<ViewportBindingValue | ViewportCallback>) {
-        // 如果回调或配置发生变化，重新创建 observer
-        const oldData = observerMap.get(el)
-        if (!oldData) return
+        const state = elementStates.get(el)
+        if (!state) return
 
-        let newHandler: ViewportCallback
-        let newOptions: IntersectionObserverInit = { threshold: 0 }
+        const parsed = parseBinding(binding)
+        if (!parsed) return
 
-        if (typeof binding.value === 'function') {
-            newHandler = binding.value
-        } else if (binding.value && typeof binding.value === 'object') {
-            newHandler = binding.value.handler
-            newOptions = binding.value.options || newOptions
-        } else {
-            return
-        }
+        // 回调与 once 直接替换，不重建 observer。
+        state.handler = parsed.handler
+        state.once = parsed.once
 
-        // 若回调或关键配置变更，则更新 observer
-        const optionsChanged =
-            JSON.stringify(oldData.observer.thresholds) !== JSON.stringify(newOptions.threshold) ||
-            oldData.observer.root !== newOptions.root ||
-            oldData.observer.rootMargin !== newOptions.rootMargin
+        const nextKey = optionsKey(parsed.options)
+        if (nextKey === state.optionsKey) return
 
-        if (oldData.handler !== newHandler || optionsChanged) {
-            // 停止旧的观察
-            oldData.observer.disconnect()
-            // 创建新的 observer
-            const newObserver = createObserver(el, newOptions)
-            observerMap.set(el, { observer: newObserver, handler: newHandler })
-        }
+        // 只有观察配置变了才需要换 observer。
+        state.observer.unobserve(el)
+        const observer = acquireObserver(parsed.options)
+        state.observer = observer
+        state.optionsKey = nextKey
+        observer.observe(el)
     },
 
     unmounted(el: HTMLElement) {
-        const data = observerMap.get(el)
-        if (data) {
-            data.observer.disconnect()
-            observerMap.delete(el)
-        }
-    }
+        const state = elementStates.get(el)
+        if (!state) return
+
+        state.observer.unobserve(el)
+        elementStates.delete(el)
+    },
 }
 
 export type { ViewportCallback, ViewportBindingValue }
