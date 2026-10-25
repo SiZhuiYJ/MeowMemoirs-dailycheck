@@ -1,0 +1,67 @@
+////
+/// 图片上传入口的「加号方块」按钮。
+///
+/// 交互：整个 label 就是按钮，真正的 input[type=file] 被透明覆盖在上面，
+/// 点击 / 键盘聚焦都落在 input 上，视觉反馈由 label 的 :hover / :focus-within
+/// 承担。头像上传（features/file/components/ImageUploader.vue）与
+/// 打卡上传（features/checkin/components/CheckinForm.vue）共用。
+///
+/// 由 styles/index.scss 引入一次；组件内不要再复制一份。
+////
+
+.upload-button {
+  position: relative;
+  display: block;
+  width: 80px;
+  height: 80px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background-color: var(--theme-color-softer);
+  // 用两条渐变画「+」：横条 32x2、竖条 2x32，居中不重复
+  background-image:
+    linear-gradient(var(--text-muted), var(--text-muted)),
+    linear-gradient(var(--text-muted), var(--text-muted));
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size:
+    32px 2px,
+    2px 32px;
+  box-shadow: 0 8px 16px -6px rgba(var(--theme-color-rgb), 0.4);
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.1s ease;
+  cursor: pointer;
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  // 键盘聚焦：给外圈发光反馈
+  &:focus-within {
+    outline: none;
+    background-color: var(--theme-color-soft);
+    box-shadow:
+      0 0 0 2px var(--theme-color-soft),
+      0 4px 16px -6px var(--theme-color-strong);
+  }
+
+  &:hover {
+    background-color: var(--theme-color-soft);
+  }
+
+  // 透明覆盖层：点击区域精准，同时隐藏原生控件样式
+  input[type="file"] {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: none;
+    opacity: 0;
+    font-size: 0;
+    cursor: pointer;
+  }
+}

@@ -47,12 +47,6 @@ function getBlobUrl(url: string): string {
   border-bottom: none;
 }
 
-.no-data {
-  text-align: center;
-  color: var(--text-muted);
-  padding: 20px 0;
-}
-
 .drawer-status {
   font-size: 13px;
 }

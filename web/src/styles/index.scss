@@ -1,4 +1,4 @@
-@use "./element.scss";
+@use "./dialog-transition.scss";
 @use "./progressive.scss";
 @use "./nprogress.scss";
 // 视口变量（--app-h 等）、结构切换工具类（.desktop-only/.mobile-only）、安全区
@@ -7,6 +7,10 @@
 @use "./theme-colors.scss";
 // 日间 / 夜间切换的中心扩散波纹动画
 @use "./theme-transition.scss";
+// 设置页共享骨架 + 表单控件：设置子页与顶栏的「修改密码 / 注销」弹窗共用
+@use "@/features/setting/style/index.scss" as setting;
+// 图片上传入口（头像 / 打卡共用）
+@use "@/features/file/style/index.scss" as upload;
 
 :root {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -64,6 +68,9 @@ html[data-theme="light"] {
 
 * {
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  word-break: break-word;
 }
 
 body {
@@ -109,12 +116,7 @@ body {
   flex-direction: column;
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  word-break: break-word;
-}
-
+// 通用点按反馈（目前由计划侧栏 .ink 使用，色值来自 --bgc-color）
 .ink {
   position: relative;
 
@@ -124,10 +126,8 @@ body {
     inset: 0;
     border-radius: inherit;
     box-shadow: 0 0 0 6px var(--bgc-color);
-    width: inherit;
-    height: inherit;
     opacity: 0;
-    transition: 0.3s;
+    transition: box-shadow 0.3s, opacity 0.3s;
   }
 
   &:focus-visible {

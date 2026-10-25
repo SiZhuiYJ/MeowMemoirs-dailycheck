@@ -28,7 +28,3 @@ const iconName = (name: string) => {
     </component>
   </el-icon>
 </template>
-
-
-
-<style lang="scss" scoped></style>

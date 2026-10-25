@@ -37,5 +37,3 @@ import router from "@/routers/index";
             </span>
         </span>
     </span></template>
-
-<style scoped lang="scss"></style>

@@ -37,16 +37,8 @@
 // —— 断点常量（CSS 像素）——
 // 必须与 src/utils/device-layout.ts 的 DEVICE_LAYOUT_BREAKPOINTS 保持一致。
 $bp-phone-portrait-width: 480px !default; // 竖屏手机宽度上限（仅用于 phone-portrait）
-$bp-phone-short-side: 480px !default; // 手机短边上限（仅用于几何识别，不切换布局）
-$bp-phone-long-side: 960px !default; // 手机长边上限（仅用于几何识别，不切换布局）
 $bp-narrow: 768px !default; // 竖屏下走手机布局的宽度上限
-$bp-tablet-long-side: 1366px !default; // 平板长边上限（供后续分级使用）
 $bp-compact-height: 560px !default; // 视口过矮：压缩纵向留白
-// 「小窗口」：桌面布局还能用，但已经很挤（本项目的桌面结构要 ~1024px 才舒展：
-// 计划页 260px 侧栏 + 日历、聊天 300px 列表 + 消息面板）。
-// 低于它即使是桌面布局，也应该套用紧凑密度（按移动端那套间距/字号），
-// 只是**布局结构仍保持桌面**。
-$bp-small-window: 1024px !default;
 
 // —— 设备档位（三档）的边界 ——
 // 必须与 src/utils/device-layout.ts 的 DEVICE_LAYOUT_BREAKPOINTS.phoneMaxWidth / pcWidth 一致。

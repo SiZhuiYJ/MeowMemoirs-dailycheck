@@ -254,6 +254,11 @@ onUnmounted(() => {
   </div>
 </template>
 
+<!-- 登录 / 注册表单共享样式：各输入组件只保留自己的结构化模板 -->
+<style lang="scss">
+@use "@/features/auth/style/index.scss";
+</style>
+
 <style scoped lang="scss">
 @use "@/styles/responsive-mixins" as rp;
 

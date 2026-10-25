@@ -47,9 +47,9 @@ onMounted(() => {
   <div class="card">
     <div class="form-group">
       <div class="field">
-        <label class="label">昵称</label>
-        <input class="input" v-model="nickName" placeholder="设置昵称" focus />
-        <label class="desc">好的昵称能让大家更容易记住你。</label>
+        <label class="setting-label">昵称</label>
+        <input class="setting-input" v-model="nickName" placeholder="设置昵称" />
+        <label class="setting-desc">好的昵称能让大家更容易记住你。</label>
       </div>
     </div>
   </div>
@@ -60,37 +60,13 @@ onMounted(() => {
 </template>
 
 <style scoped lang="scss">
+// 输入框 / 标签 / 说明文字见 features/setting/style/index.scss 的
+// .setting-input / .setting-label / .setting-desc。
 .card {
   background-color: var(--bg-elevated);
   border-radius: 12px;
   padding: 20px;
   margin-bottom: 20px;
-}
-
-.label {
-  display: block;
-  font-size: 13px;
-  color: var(--label-muted);
-  margin-bottom: 8px;
-}
-
-.input {
-  width: 100%;
-  height: 44px;
-  background-color: var(--bg-color);
-  border-radius: 8px;
-  padding: 0 12px;
-  font-size: 13px;
-  color: var(--label-color);
-  box-sizing: border-box;
-  border: 1px solid var(--border-color);
-}
-
-.desc {
-  display: block;
-  font-size: 11px;
-  color: var(--label-muted);
-  margin-top: 8px;
 }
 
 .btn-save {

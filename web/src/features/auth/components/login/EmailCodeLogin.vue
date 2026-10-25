@@ -8,7 +8,6 @@ const code = defineModel<string>('code')
 const sendingCode = defineModel<boolean>('sendingCode')
 const countdown = defineModel<number>('countdown')
 
-
 interface Emits {
     (e: 'sendCode'): void
     (e: 'submit'): void
@@ -36,50 +35,15 @@ defineExpose({
 
 <template>
     <!-- 邮箱验证码登录 -->
-    <form class="form" @submit.prevent="handleSubmit">
+    <form class="auth-form" @submit.prevent="handleSubmit">
 
         <EmailInput v-model="email" />
 
         <VerificationCodeInput v-model="code" :sending="sendingCode!" :countdown="countdown!" placeholder="请输入验证码"
             @send-code="emit('sendCode')" />
 
-        <button class="submit" type="submit" :disabled="loading || !email || !code">
+        <button class="auth-submit" type="submit" :disabled="loading || !email || !code">
             登录
         </button>
     </form>
 </template>
-
-<style scoped lang="scss">
-@use "@/styles/responsive-mixins" as rp;
-
-.form {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.submit {
-    margin-top: 8px;
-    padding: 12px;
-    border-radius: 8px;
-    border: none;
-    background: var(--theme-gradient);
-    color: var(--theme-action-contrast);
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.2s;
-}
-
-.submit:disabled {
-    opacity: 0.7;
-    cursor: not-allowed;
-}
-
-// 480px 阈值保留，同时覆盖横屏手机。
-@include rp.compact(480px) {
-    .submit {
-        padding: 12px 0;
-        font-size: 15px;
-    }
-}
-</style>

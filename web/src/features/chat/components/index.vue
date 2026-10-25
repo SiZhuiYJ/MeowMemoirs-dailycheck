@@ -195,5 +195,3 @@ const readInfoMap = computed<Map<number, { readText: string; readColor: string }
     </div>
   </div>
 </template>
-
-<style scoped lang="scss"></style>

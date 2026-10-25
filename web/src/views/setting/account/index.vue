@@ -71,15 +71,15 @@ async function handleSave() {
       </div>
       <div class="form-group">
         <div class="field">
-          <text class="label">账号名 (全局唯一)</text>
-          <input class="input" v-model="userAccount" placeholder="设置账号名"
+          <text class="setting-label">账号名 (全局唯一)</text>
+          <input class="setting-input" v-model="userAccount" placeholder="设置账号名"
             :disabled="!!authStore.user?.userAccount && !accountStatus.canUpdate" />
           <text v-if="!accountStatus.canUpdate && accountStatus.nextUpdateAt" class="hint-text">
             下次可修改时间：{{
               new Date(accountStatus.nextUpdateAt).toLocaleDateString()
             }}
           </text>
-          <text class="desc">账号名是您的唯一标识，请谨慎修改。</text>
+          <text class="setting-desc">账号名是您的唯一标识，请谨慎修改。</text>
         </div>
       </div>
     </div>
@@ -94,36 +94,7 @@ async function handleSave() {
 </template>
 
 <style scoped lang="scss">
-.setting-subpage {
-  width: min(760px, 92vw);
-  margin: 24px auto;
-}
-
-.setting-card {
-  background-color: var(--bg-elevated);
-  border-radius: 16px;
-  padding: 24px;
-  margin-bottom: 20px;
-  border: 1px solid var(--border-color);
-  box-shadow: var(--theme-outer-glow);
-}
-
-.setting-header {
-  margin-bottom: 16px;
-}
-
-.setting-title {
-  margin: 0;
-  font-size: 18px;
-  color: var(--text-color);
-}
-
-.setting-subtitle {
-  margin: 8px 0 0;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
+// 页面骨架见 features/setting/style/index.scss。
 .form-group {
   margin-bottom: 20px;
 }
@@ -133,41 +104,10 @@ async function handleSave() {
   flex-direction: column;
 }
 
-.label {
-  display: block;
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
-.input {
-  width: 100%;
-  height: 44px;
-  background-color: var(--bg-color);
-  border-radius: 8px;
-  padding: 0 12px;
-  font-size: 13px;
-  color: var(--text-color);
-  box-sizing: border-box;
-  border: 1px solid var(--border-color);
-  outline: none;
-}
-
-.input:focus {
-  border-color: var(--theme-color-strong);
-}
-
 .hint-text {
   display: block;
   font-size: 11px;
   color: #fa5151;
-  margin-top: 8px;
-}
-
-.desc {
-  display: block;
-  font-size: 11px;
-  color: var(--text-muted);
   margin-top: 8px;
 }
 

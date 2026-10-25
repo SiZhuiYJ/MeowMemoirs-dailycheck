@@ -66,38 +66,8 @@ watch(
 </template>
 
 <style scoped lang="scss">
-.setting-subpage {
-    width: min(760px, 92vw);
-    margin: 24px auto;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-}
-
-.setting-card {
-    background-color: var(--bg-elevated);
-    border-radius: 16px;
-    padding: 24px;
-    border: 1px solid var(--border-color);
-    box-shadow: var(--theme-outer-glow);
-}
-
-.setting-header {
-    margin-bottom: 16px;
-}
-
-.setting-title {
-    margin: 0;
-    font-size: 18px;
-    color: var(--text-color);
-}
-
-.setting-subtitle {
-    margin: 8px 0 0;
-    color: var(--text-muted);
-    font-size: 12px;
-}
-
+// 页面骨架（.setting-subpage / .setting-card / 标题 / 副标题）
+// 见 features/setting/style/index.scss，这里只写本页独有的布局。
 .profile-main {
     display: flex;
     flex-direction: column;

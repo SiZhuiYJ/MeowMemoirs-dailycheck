@@ -274,7 +274,7 @@ async function handleDeactivateConfirm(): Promise<void> {
 
     <!-- Change Password Dialog -->
     <el-dialog v-model="changePasswordVisible" title="修改密码" width="400px">
-      <div class="profile-form">
+      <div class="setting-form">
         <div class="method-selector">
           <label class="radio-label">
             <input type="radio" value="password" v-model="verificationMethod" />
@@ -286,16 +286,16 @@ async function handleDeactivateConfirm(): Promise<void> {
           </label>
         </div>
 
-        <label class="field" v-if="verificationMethod === 'password'">
+        <label class="setting-field" v-if="verificationMethod === 'password'">
           <span>旧密码</span>
           <input v-model="changePasswordForm.oldPassword" type="password" placeholder="请输入旧密码" />
         </label>
 
-        <div class="field code-field" v-if="verificationMethod === 'code'">
+        <div class="setting-field" v-if="verificationMethod === 'code'">
           <span>邮箱验证码</span>
-          <div class="code-row">
+          <div class="setting-code-row">
             <input v-model="changePasswordForm.code" type="text" maxlength="6" placeholder="验证码" />
-            <button type="button" class="code-button" :disabled="sendingCode || codeCountdown > 0"
+            <button type="button" class="setting-code-button" :disabled="sendingCode || codeCountdown > 0"
               @click="handleSendVerificationCode('change-password')">
               <span v-if="codeCountdown > 0">{{ codeCountdown }}s</span>
               <span v-else-if="sendingCode">发送中...</span>
@@ -304,11 +304,11 @@ async function handleDeactivateConfirm(): Promise<void> {
           </div>
         </div>
 
-        <label class="field">
+        <label class="setting-field">
           <span>新密码</span>
           <input v-model="changePasswordForm.newPassword" type="password" placeholder="请输入新密码" />
         </label>
-        <label class="field">
+        <label class="setting-field">
           <span>确认新密码</span>
           <input v-model="changePasswordForm.confirmPassword" type="password" placeholder="请再次输入新密码" />
         </label>
@@ -327,15 +327,15 @@ async function handleDeactivateConfirm(): Promise<void> {
 
     <!-- Deactivate Account Dialog -->
     <el-dialog v-model="deactivateVisible" title="注销账号" width="400px">
-      <div class="profile-form">
-        <p class="warning-text">
+      <div class="setting-form">
+        <p class="setting-warning-text">
           注销后账号将无法登录，所有数据保留30天后彻底删除。请输入验证码确认注销。
         </p>
-        <div class="field code-field">
+        <div class="setting-field">
           <span>邮箱验证码</span>
-          <div class="code-row">
+          <div class="setting-code-row">
             <input v-model="deactivateCode" type="text" maxlength="6" placeholder="验证码" />
-            <button type="button" class="code-button" :disabled="sendingCode || codeCountdown > 0"
+            <button type="button" class="setting-code-button" :disabled="sendingCode || codeCountdown > 0"
               @click="handleSendVerificationCode('deactivate')">
               <span v-if="codeCountdown > 0">{{ codeCountdown }}s</span>
               <span v-else-if="sendingCode">发送中...</span>
@@ -403,12 +403,6 @@ async function handleDeactivateConfirm(): Promise<void> {
   }
 }
 
-.email {
-  font-size: 13px;
-  color: var(--text-muted);
-  width: calc(300px - 76px);
-}
-
 .dropdown-arrow {
   font-size: 10px;
   width: 30px;
@@ -439,35 +433,6 @@ async function handleDeactivateConfirm(): Promise<void> {
 
 }
 
-
-.profile-form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-
-    input {
-      width: 100%;
-      padding: 8px 10px;
-      border-radius: 6px;
-      border: 1px solid var(--border-color);
-      background: var(--bg-color);
-      color: var(--text-color);
-      font-size: 13px;
-      box-sizing: border-box;
-    }
-
-    span {
-      font-size: 13px;
-      color: var(--text-muted);
-    }
-  }
-}
-
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
@@ -495,44 +460,6 @@ async function handleDeactivateConfirm(): Promise<void> {
   &:hover {
     background: #dc2626;
   }
-}
-
-.code-row {
-  display: flex;
-  gap: 8px;
-}
-
-.code-button {
-  width: 100px;
-  border-radius: 6px;
-  border: 1px solid var(--theme-color-muted);
-  background: var(--theme-color-soft);
-  color: var(--theme-color-strong);
-  cursor: pointer;
-  font-size: 11px;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s ease, color 0.2s ease;
-
-  &:hover:not(:disabled) {
-    background: var(--theme-primary-bg);
-    color: var(--theme-color-contrast);
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-}
-
-
-.warning-text {
-  font-size: 13px;
-  color: #ef4444;
-  margin: 0;
-  line-height: 1.5;
 }
 
 .btn-confirm {

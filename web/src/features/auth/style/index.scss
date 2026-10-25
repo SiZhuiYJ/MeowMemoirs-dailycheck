@@ -1,70 +1,133 @@
-@mixin auth-input-styles {
-    background-color: transparent;
-    color: #fff;
-    border: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.4);
-    padding: 10px 0;
-    text-indent: 10px;
-    margin: 8px 0;
-    font-size: 13px;
-    letter-spacing: 2px;
-    width: 70%;
+////
+/// 登录 / 注册表单共享样式。
+///
+/// 原本 AccountInput / EmailInput / PasswordInput / VerificationCodeInput /
+/// RegisterForm 各自复制了一份 `.field` + `input` + `input:focus`，三个表单
+/// 又各复制了一份 `.form` + `.submit`（含同一段 480px 紧凑媒体查询）。
+/// 这里统一成一套 `.auth-*` 类，由 views/auth/index.vue 以**非 scoped** 样式
+/// 引入一次，所有登录子组件共享。
+///
+/// 加 `auth-` 前缀是为了避免与设置页 / 其它组件里同名的 `.field` `.input`
+/// 互相污染（这些样式是全局的，没有 scoped 的 data-v 隔离）。
+////
 
-    &::placeholder {
-        color: #fff;
-    }
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  > span {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  input {
+    width: 100%;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-color);
+    font-size: 13px;
+    box-sizing: border-box;
+    transition: border-color 0.2s;
 
     &:focus {
-        color: var(--theme-color-strong);
-        outline: none;
-        border-bottom: 1px solid color-mix(in srgb, var(--theme-color-strong) 50%, transparent);
-        transition: 0.5s;
-
-        &::placeholder {
-            opacity: 0;
-        }
+      border-color: var(--accent-color);
+      outline: none;
     }
+  }
 }
 
-@mixin auth-button-styles {
-    width: 70%;
-    margin-top: 35px;
-    background-color: #f6f6f6;
-    outline: none;
-    border-radius: 8px;
-    padding: 13px;
-    color: var(--theme-color-strong);
-    letter-spacing: 2px;
-    border: none;
-    cursor: pointer;
-    transition: background-color 0.5s ease;
-
-    &:hover {
-        background-color: var(--theme-primary-hover);
-        color: var(--theme-color-contrast);
-    }
+// 账号输入框右侧的「随机」按钮
+.auth-input-group {
+  display: flex;
+  gap: 8px;
 }
 
-@mixin auth-title-styles {
-    text-align: center;
-    margin-bottom: 25px;
-    text-transform: uppercase;
-    color: #fff;
-    letter-spacing: 5px;
+.auth-input-error {
+  border-color: #ef4444;
 }
 
-@mixin element-plus-overrides {
-    :deep(.el-radio-button__inner):hover {
-        color: var(--theme-color-strong);
-    }
+.auth-error-msg {
+  font-size: 11px;
+  color: #ef4444;
+}
 
-    :deep(.el-input__wrapper) {
-        background-color: rgba(255, 255, 255, 0);
-        box-shadow: none;
+// 验证码行：输入框 + 获取验证码按钮
+.auth-code-row {
+  display: flex;
+  gap: 8px;
+}
 
-        &.is-focus,
-        &:hover {
-            box-shadow: none;
-        }
-    }
+.auth-code-button {
+  width: 100px;
+  border-radius: 8px;
+  border: 1px solid var(--theme-color-muted);
+  background: var(--theme-color-soft);
+  color: var(--theme-color-strong);
+  cursor: pointer;
+  font-size: 11px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--theme-primary-bg);
+    color: var(--theme-color-contrast);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+// 小号次要按钮（注册页「随机」）
+.auth-btn-sm {
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--theme-color-muted);
+  background: var(--theme-color-soft);
+  color: var(--theme-color-strong);
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+  transition: background-color 0.2s ease, color 0.2s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--theme-primary-bg);
+    color: var(--theme-color-contrast);
+  }
+}
+
+// 主提交按钮（登录 / 注册 / 邮箱验证码登录共用）
+.auth-submit {
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--theme-gradient);
+  color: var(--theme-action-contrast);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+
+  &:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+}
+
+// 与 responsive-mixins 的 compact(480px) 同一阈值：
+// 窄屏或视口过矮（横屏手机）时压缩提交按钮。
+@media (max-width: 480px), (max-height: 560px) {
+  .auth-submit {
+    padding: 12px 0;
+    font-size: 15px;
+  }
 }

@@ -45,39 +45,6 @@ const isOpen = ref<boolean>(false);
     }
 }
 
-.arrow {
-    height: 34%;
-    aspect-ratio: 1;
-    margin-block: auto;
-    position: relative;
-    display: flex;
-    justify-content: center;
-    transition: all 0.3s;
-}
-
-.arrow::after,
-.arrow::before {
-    content: "";
-    position: absolute;
-    background-color: currentColor;
-    height: 100%;
-    width: 2.5px;
-    border-radius: 500px;
-    transform-origin: bottom;
-}
-
-.arrow::after {
-    transform: rotate(35deg) translateX(-0.5px);
-}
-
-.arrow::before {
-    transform: rotate(-35deg) translateX(0.5px);
-}
-
-.main>.inp:checked+.arrow {
-    transform: rotateX(180deg);
-}
-
 .menu-container {
     background-color: var(--bg-elevated);
     color: var(--theme-color-strong);
@@ -96,12 +63,6 @@ const isOpen = ref<boolean>(false);
 .inp:checked~.menu-container {
     /* 选中时展开 */
     clip-path: inset(0% 0% 0% 0% round 10px);
-}
-
-.bar-inp {
-    -webkit-appearance: none;
-    display: none;
-    visibility: hidden;
 }
 
 .bar {

@@ -5,7 +5,6 @@ import AccountInput from './AccountInput.vue'
 import PasswordInput from './PasswordInput.vue'
 import VerificationCodeInput from './VerificationCodeInput.vue'
 
-
 const email = defineModel<string>('email')
 const userAccount = defineModel<string>('userAccount')
 const password = defineModel<string>('password')
@@ -15,7 +14,6 @@ const code = defineModel<string>('code')
 const sendingCode = defineModel<boolean>('sendingCode')
 const countdown = defineModel<number>('countdown')
 const userAccountError = defineModel<string>('userAccountError')
-
 
 interface Emits {
     (e: 'sendCode'): void
@@ -54,7 +52,7 @@ defineExpose({
 </script>
 
 <template>
-    <form class="form" @submit.prevent="handleSubmit">
+    <form class="auth-form" @submit.prevent="handleSubmit">
         <EmailInput v-model="email" />
 
         <VerificationCodeInput v-model="code" :sending="sendingCode!" :countdown="countdown!"
@@ -63,7 +61,7 @@ defineExpose({
         <AccountInput v-model="userAccount" :required="true" :error="userAccountError" @blur="handleValidateAccount"
             @input="handleAccountInput">
             <template #suffix>
-                <button type="button" class="btn-sm" @click="handleGenerateRandomAccount">
+                <button type="button" class="auth-btn-sm" @click="handleGenerateRandomAccount">
                     随机
                 </button>
             </template>
@@ -73,93 +71,13 @@ defineExpose({
 
         <PasswordInput v-model="confirmPassword" :required="true" label="确认密码" placeholder="请确认密码" />
 
-        <label class="field">
+        <label class="auth-field">
             <span>昵称（可选）</span>
             <input v-model="nickName" type="text" placeholder="请输入昵称" />
         </label>
 
-        <button class="submit" type="submit" :disabled="loading">
+        <button class="auth-submit" type="submit" :disabled="loading">
             注册并登录
         </button>
     </form>
 </template>
-
-<style scoped lang="scss">
-@use "@/styles/responsive-mixins" as rp;
-
-.form {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-
-    span {
-        font-size: 13px;
-        color: var(--text-muted);
-    }
-
-    input {
-        width: 100%;
-        padding: 10px;
-        border-radius: 8px;
-        border: 1px solid var(--border-color);
-        background: var(--bg-color);
-        color: var(--text-color);
-        font-size: 13px;
-        transition: border-color 0.2s;
-        box-sizing: border-box;
-    }
-}
-
-.btn-sm {
-    padding: 0 12px;
-    border-radius: 8px;
-    border: 1px solid var(--theme-color-muted);
-    background: var(--theme-color-soft);
-    color: var(--theme-color-strong);
-    cursor: pointer;
-    font-size: 11px;
-    white-space: nowrap;
-    transition: background-color 0.2s ease, color 0.2s ease;
-
-    &:hover:not(:disabled) {
-        background: var(--theme-primary-bg);
-        color: var(--theme-color-contrast);
-    }
-}
-
-input:focus {
-    border-color: var(--accent-color);
-    outline: none;
-}
-
-.submit {
-    margin-top: 8px;
-    padding: 12px;
-    border-radius: 8px;
-    border: none;
-    background: var(--theme-gradient);
-    color: var(--theme-action-contrast);
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.2s;
-}
-
-.submit:disabled {
-    opacity: 0.7;
-    cursor: not-allowed;
-}
-
-// 480px 阈值保留，同时覆盖横屏手机。
-@include rp.compact(480px) {
-    .submit {
-        padding: 12px 0;
-        font-size: 15px;
-    }
-}
-</style>

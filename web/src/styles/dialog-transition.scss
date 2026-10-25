@@ -1,0 +1,24 @@
+////
+/// 全局对话框 / 页面转场。
+///
+/// `dialog-bounce` 由 App.vue 的 `<transition name="dialog-bounce">` 使用，
+/// 其余页面级转场在各组件内用 `<transition>` 的默认类名实现。
+////
+
+.dialog-bounce-enter-active,
+.dialog-bounce-leave-active,
+.dialog-bounce-enter-active .el-dialog,
+.dialog-bounce-leave-active .el-dialog {
+  transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.dialog-bounce-enter-from,
+.dialog-bounce-leave-to {
+  opacity: 0;
+}
+
+.dialog-bounce-enter-from .el-dialog,
+.dialog-bounce-leave-to .el-dialog {
+  transform: scale(0.3) translateY(-50px);
+  opacity: 0;
+}

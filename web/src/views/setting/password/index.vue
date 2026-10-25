@@ -74,7 +74,7 @@ async function handleChangePassword() {
                 <h3 class="setting-title">密码修改</h3>
                 <p class="setting-subtitle">支持旧密码和验证码两种校验方式。</p>
             </div>
-            <div class="profile-form">
+            <div class="setting-form">
                 <div class="method-selector">
                     <label class="radio-label">
                         <input type="radio" value="password" v-model="verificationMethod" />
@@ -86,16 +86,16 @@ async function handleChangePassword() {
                     </label>
                 </div>
 
-                <label class="field" v-if="verificationMethod === 'password'">
+                <label class="setting-field" v-if="verificationMethod === 'password'">
                     <span>旧密码</span>
                     <input v-model="changePasswordForm.oldPassword" type="password" placeholder="请输入旧密码" />
                 </label>
 
-                <div class="field code-field" v-if="verificationMethod === 'code'">
+                <div class="setting-field" v-if="verificationMethod === 'code'">
                     <span>邮箱验证码</span>
-                    <div class="code-row">
+                    <div class="setting-code-row">
                         <input v-model="changePasswordForm.code" type="text" maxlength="6" placeholder="验证码" />
-                        <button type="button" class="code-button" :disabled="sendingCode || codeCountdown > 0"
+                        <button type="button" class="setting-code-button" :disabled="sendingCode || codeCountdown > 0"
                             @click="handleSendVerificationCode('change-password')">
                             <span v-if="codeCountdown > 0">{{ codeCountdown }}s</span>
                             <span v-else-if="sendingCode">发送中...</span>
@@ -104,18 +104,18 @@ async function handleChangePassword() {
                     </div>
                 </div>
 
-                <label class="field">
+                <label class="setting-field">
                     <span>新密码</span>
                     <input v-model="changePasswordForm.newPassword" type="password" placeholder="请输入新密码" />
                 </label>
-                <label class="field">
+                <label class="setting-field">
                     <span>确认新密码</span>
                     <input v-model="changePasswordForm.confirmPassword" type="password" placeholder="请再次输入新密码" />
                 </label>
             </div>
 
-            <span class="footer">
-                <button class="btn-confirm" :disabled="changePasswordLoading" @click="handleChangePassword">
+            <span class="setting-footer">
+                <button class="setting-submit" :disabled="changePasswordLoading" @click="handleChangePassword">
                     {{ changePasswordLoading ? "提交中..." : "确认修改" }}
                 </button>
             </span>
@@ -124,63 +124,8 @@ async function handleChangePassword() {
 </template>
 
 <style scoped lang="scss">
-.setting-subpage {
-    width: min(760px, 92vw);
-    margin: 24px auto;
-}
-
-.setting-card {
-    background-color: var(--bg-elevated);
-    border-radius: 16px;
-    padding: 24px;
-    border: 1px solid var(--border-color);
-    box-shadow: var(--theme-outer-glow);
-}
-
-.setting-header {
-    margin-bottom: 16px;
-}
-
-.setting-title {
-    margin: 0;
-    font-size: 18px;
-    color: var(--text-color);
-}
-
-.setting-subtitle {
-    margin: 8px 0 0;
-    color: var(--text-muted);
-    font-size: 12px;
-}
-
-.profile-form {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-
-    .field {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-
-        input {
-            width: 100%;
-            padding: 8px 10px;
-            border-radius: 6px;
-            border: 1px solid var(--border-color);
-            background: var(--bg-color);
-            color: var(--text-color);
-            font-size: 13px;
-            box-sizing: border-box;
-        }
-
-        span {
-            font-size: 13px;
-            color: var(--text-muted);
-        }
-    }
-}
-
+// 页面骨架与表单控件见 features/setting/style/index.scss，
+// 这里只保留本页独有的「校验方式」选择器。
 .method-selector {
     display: flex;
     margin-bottom: 16px;
@@ -198,59 +143,5 @@ async function handleChangePassword() {
     font-size: 12px;
     color: var(--text-muted);
     padding: 6px 10px;
-}
-
-.code-row {
-    display: flex;
-    gap: 8px;
-}
-
-.code-button {
-    width: 100px;
-    border-radius: 6px;
-    border: 1px solid var(--theme-color-muted);
-    background: var(--theme-color-soft);
-    color: var(--theme-color-strong);
-    cursor: pointer;
-    font-size: 11px;
-    white-space: nowrap;
-    transition: background-color 0.2s ease, color 0.2s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding-left: 10px;
-    padding-right: 10px;
-
-    &:hover:not(:disabled) {
-        background: var(--theme-primary-bg);
-        color: var(--theme-color-contrast);
-    }
-
-    &:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-    }
-}
-
-.footer {
-    display: flex;
-    justify-content: center;
-    gap: 8px;
-    margin-top: 18px;
-}
-
-.btn-confirm {
-    width: min(320px, 100%);
-    padding: 10px 16px;
-    border-radius: 10px;
-    border: none;
-    background: var(--theme-action-bg);
-    color: var(--theme-action-contrast);
-    cursor: pointer;
-
-    &:disabled {
-        opacity: 0.7;
-        cursor: not-allowed;
-    }
 }
 </style>

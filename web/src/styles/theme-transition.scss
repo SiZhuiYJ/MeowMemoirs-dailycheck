@@ -52,9 +52,9 @@ html.theme-switching .theme-ripple-ring,
   will-change: transform, opacity;
 }
 
-// 降级路径：真实的环形光波
-.theme-ripple-ring.is-rippling {
-  opacity: 0;
+/// 波纹圆环的「皮肤」：降级路径的 DOM 动画与 View Transition 快照共用，
+/// 避免同一组渐变 / 发光阴影写两遍。
+@mixin theme-ripple-skin {
   border: 2px solid var(--theme-color);
   background: radial-gradient(
     circle closest-side,
@@ -67,6 +67,12 @@ html.theme-switching .theme-ripple-ring,
     0 0 0 1px rgba(255, 255, 255, 0.5),
     0 0 24px 6px rgba(var(--theme-color-rgb), 0.5),
     inset 0 0 26px rgba(var(--theme-color-rgb), 0.42);
+}
+
+// 降级路径：真实的环形光波
+.theme-ripple-ring.is-rippling {
+  @include theme-ripple-skin;
+  opacity: 0;
 }
 
 // ==============================================
@@ -119,19 +125,8 @@ html.theme-switching::view-transition-old(theme-ripple) {
 }
 
 html.theme-switching::view-transition-new(theme-ripple) {
-  border: 2px solid var(--theme-color);
+  @include theme-ripple-skin;
   border-radius: 50%;
-  background: radial-gradient(
-    circle closest-side,
-    transparent 0 93%,
-    rgba(var(--theme-color-rgb), 0.14) 96%,
-    rgba(var(--theme-color-rgb), 0.38) 99.7%,
-    transparent 100%
-  );
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.5),
-    0 0 24px 6px rgba(var(--theme-color-rgb), 0.5),
-    inset 0 0 26px rgba(var(--theme-color-rgb), 0.42);
   mix-blend-mode: normal;
   transform-origin: 50% 50%;
   animation: theme-ripple-ring var(--theme-transition-duration)

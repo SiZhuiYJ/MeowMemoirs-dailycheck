@@ -31,5 +31,3 @@ onMounted(() => {
         <div id="login_container"></div>
     </div>
 </template>
-
-<style lang="less" scoped></style>

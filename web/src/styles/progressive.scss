@@ -1,4 +1,10 @@
-/* src/assets/styles/progressive.css */
+////
+/// 渐进式图片加载（`v-progressive` 指令，见 directives/modules/progressive.ts）。
+///
+/// 指令先给元素加 `.progressive-preview`（模糊占位），原图加载完成后换成
+/// `.progressive-fade`（清晰淡入）。
+////
+
 .progressive-preview {
   filter: blur(2px);
   transition: filter 0.3s ease, opacity 0.3s ease;
@@ -7,10 +13,4 @@
 .progressive-fade {
   filter: blur(0);
   opacity: 1;
-}
-
-/* 初始状态 */
-img.preview {
-  // opacity: 0.8;
-  width: 100%;
 }

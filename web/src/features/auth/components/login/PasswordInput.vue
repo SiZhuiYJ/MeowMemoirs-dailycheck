@@ -17,38 +17,8 @@ const props = withDefaults(defineProps<Props>(), {
 </script>
 
 <template>
-    <label class="field">
+    <label class="auth-field">
         <span>{{ label }}</span>
         <input v-model="model" :type="type" :required="required" :placeholder="placeholder" />
     </label>
 </template>
-
-<style scoped lang="scss">
-.field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-
-    span {
-        font-size: 13px;
-        color: var(--text-muted);
-    }
-
-    input {
-        width: 100%;
-        padding: 10px;
-        border-radius: 8px;
-        border: 1px solid var(--border-color);
-        background: var(--bg-color);
-        color: var(--text-color);
-        font-size: 13px;
-        transition: border-color 0.2s;
-        box-sizing: border-box;
-    }
-}
-
-input:focus {
-    border-color: var(--accent-color);
-    outline: none;
-}
-</style>

@@ -344,7 +344,6 @@ const refreshVideoFit = () => {
   videoFitScale.value = measureVideoFitScale()
 }
 
-
 const getLegacyFileMessage = (type: string) => {
   if (type === 'doc') return '此文件为旧版 .doc 格式，暂不支持在线预览，请下载后查看。'
   if (type === 'xls') return '此文件为旧版 .xls 格式，暂不支持在线预览。'
@@ -1216,8 +1215,6 @@ onUnmounted(() => {
   }
 }
 
-
-
 .toolbar-right {
   display: flex;
   gap: 8px;
@@ -1378,11 +1375,6 @@ onUnmounted(() => {
 
 :deep(.preview-carousel .el-carousel__item) {
   display: flex;
-}
-
-.carousel-slide-placeholder {
-  width: 100%;
-  height: 100%;
 }
 
 // 图片预览

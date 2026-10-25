@@ -156,22 +156,11 @@ html {
 }
 
 // 用 html 前缀提高特异性，避免依赖「我的样式排在 EP 之后」这个顺序假设。
-// 三个档位必须按 base -> small -> large 的顺序写：小/大按钮同时带 .el-button 类，
-// 特异性相同时靠顺序决定，写在后面才能覆盖 base。
+// 三档按钮（默认 / small / large）统一用 --el-component-size 一个高度：
+// 小/大按钮的 .el-button--small / --large 只声明了 24px / 40px，
+// 而 `html .el-button` 的特异性更高，会把它们一起覆盖掉，无需重复声明。
 html .el-button {
   height: var(--el-component-size);
-}
-
-html .el-button--small {
-  // height: var(--el-component-size-small);
-  height: var(--el-component-size);
-
-}
-
-html .el-button--large {
-  // height: var(--el-component-size-large);
-  height: var(--el-component-size);
-
 }
 
 // 输入框：EP 的 --el-input-height 默认值写死在 fallback 里（32px），

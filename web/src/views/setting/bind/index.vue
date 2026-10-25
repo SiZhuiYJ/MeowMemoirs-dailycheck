@@ -386,38 +386,8 @@ async function toggleBind(bindName: string) {
     </div>
 </template>
 
-
-
 <style scoped lang="scss">
-.setting-subpage {
-    width: min(760px, 92vw);
-    margin: 24px auto;
-}
-
-.setting-card {
-    background-color: var(--bg-elevated);
-    border-radius: 16px;
-    padding: 24px;
-    border: 1px solid var(--border-color);
-    box-shadow: var(--theme-outer-glow);
-}
-
-.setting-header {
-    margin-bottom: 16px;
-}
-
-.setting-title {
-    margin: 0;
-    font-size: 18px;
-    color: var(--text-color);
-}
-
-.setting-subtitle {
-    margin: 8px 0 0;
-    color: var(--text-muted);
-    font-size: 12px;
-}
-
+// 页面骨架见 features/setting/style/index.scss。
 .bind-list {
     margin-top: 8px;
 }
@@ -466,26 +436,5 @@ async function toggleBind(bindName: string) {
     display: block;
     font-size: 13px;
     color: var(--text-muted);
-}
-
-.bind-btn {
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 13px;
-    border: none;
-    margin-left: 16px;
-
-}
-
-.bind-btn-primary {
-    background-color: var(--theme-action-bg);
-    color: var(--theme-action-contrast);
-    border: 1px solid var(--theme-action-bg);
-}
-
-.unbind-btn {
-    background-color: #f0f0f0;
-    color: #ff4757;
-    border: 1px solid #ff4757;
 }
 </style>

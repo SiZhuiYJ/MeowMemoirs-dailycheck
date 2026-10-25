@@ -51,15 +51,15 @@ async function handleDeactivateConfirm(): Promise<void> {
                 <h3 class="setting-title">注销账号</h3>
                 <p class="setting-subtitle">该操作不可逆，请谨慎处理。</p>
             </div>
-            <div class="profile-form">
-                <p class="warning-text">
+            <div class="setting-form">
+                <p class="setting-warning-text">
                     注销后账号将无法登录，所有数据保留30天后彻底删除。请输入验证码确认注销。
                 </p>
-                <div class="field code-field">
+                <div class="setting-field">
                     <span>邮箱验证码</span>
-                    <div class="code-row">
+                    <div class="setting-code-row">
                         <input v-model="deactivateCode" type="text" maxlength="6" placeholder="验证码" />
-                        <button type="button" class="code-button" :disabled="sendingCode || codeCountdown > 0"
+                        <button type="button" class="setting-code-button" :disabled="sendingCode || codeCountdown > 0"
                             @click="handleSendVerificationCode('deactivate')">
                             <span v-if="codeCountdown > 0">{{ codeCountdown }}s</span>
                             <span v-else-if="sendingCode">发送中...</span>
@@ -68,8 +68,9 @@ async function handleDeactivateConfirm(): Promise<void> {
                     </div>
                 </div>
             </div>
-            <span class="footer">
-                <button class="btn-confirm btn-danger" :disabled="deactivateLoading" @click="handleDeactivateConfirm">
+            <span class="setting-footer">
+                <button class="setting-submit setting-submit--danger" :disabled="deactivateLoading"
+                    @click="handleDeactivateConfirm">
                     {{ deactivateLoading ? "处理中..." : "确认注销" }}
                 </button>
             </span>
@@ -78,128 +79,9 @@ async function handleDeactivateConfirm(): Promise<void> {
 </template>
 
 <style scoped lang="scss">
-.setting-subpage {
-    width: min(760px, 92vw);
-    margin: 24px auto;
-}
-
-.setting-card {
-    background-color: var(--bg-elevated);
-    border-radius: 16px;
-    padding: 24px;
-    border: 1px solid var(--border-color);
-    box-shadow: var(--theme-outer-glow);
-}
-
-.setting-header {
-    margin-bottom: 16px;
-}
-
-.setting-title {
-    margin: 0;
-    font-size: 18px;
-    color: var(--text-color);
-}
-
-.setting-subtitle {
-    margin: 8px 0 0;
-    color: var(--text-muted);
-    font-size: 12px;
-}
-
-.profile-form {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-
-    .field {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-
-        input {
-            width: 100%;
-            padding: 8px 10px;
-            border-radius: 6px;
-            border: 1px solid var(--border-color);
-            background: var(--bg-color);
-            color: var(--text-color);
-            font-size: 13px;
-            box-sizing: border-box;
-        }
-
-        span {
-            font-size: 13px;
-            color: var(--text-muted);
-        }
-    }
-}
-
-.warning-text {
-    font-size: 13px;
-    color: #ef4444;
-    margin: 0;
-    line-height: 1.5;
-}
-
-.footer {
-    display: flex;
-    justify-content: center;
-    gap: 8px;
-    margin-top: 18px;
-}
-
-.btn-danger {
-    background: #ef4444;
-
-    &:hover {
-        background: #dc2626;
-    }
-}
-
-.btn-confirm {
-    width: min(320px, 100%);
-    padding: 10px 16px;
-    border-radius: 10px;
-    border: none;
-    background: var(--theme-action-bg);
-    color: var(--theme-action-contrast);
-    cursor: pointer;
-
-    &:hover:not(:disabled) {
-        background: var(--theme-primary-bg);
-        color: var(--theme-color-contrast);
-    }
-
-    &:disabled {
-        opacity: 0.7;
-        cursor: not-allowed;
-    }
-}
-
-.code-row {
-    display: flex;
-    gap: 8px;
+// 页面骨架、表单、验证码按钮与危险按钮见
+// features/setting/style/index.scss，这里只补一处本页的间距微调。
+.setting-code-row {
     padding: 4px 0;
-}
-
-.code-button {
-    width: 100px;
-    border-radius: 6px;
-    border: 1px solid var(--theme-color-muted);
-    background: var(--theme-color-soft);
-    color: var(--theme-color-strong);
-    cursor: pointer;
-    font-size: 11px;
-    white-space: nowrap;
-    transition: background-color 0.2s ease, color 0.2s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    &:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-    }
 }
 </style>

@@ -1,0 +1,178 @@
+////
+/// 设置页共享骨架（/setting/*）。
+///
+/// 六个子页（个人信息 / 账号 / 头像 / 注销 / 密码 / 平台绑定）原本各自复制了
+/// 一整套 `.setting-subpage` `.setting-card` `.setting-title` … 规则；这里统一
+/// 维护一份，页面里只保留自己独有的控件样式。
+///
+/// 表单控件同时供顶栏的「修改密码 / 注销账号」弹窗复用（两处 UI 与交互一致）。
+/// 由 styles/index.scss 全局引入一次，因此不依赖路由是否进入过设置页。
+////
+
+// —— 页面骨架 ——
+.setting-subpage {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: min(760px, 92vw);
+  margin: 24px auto;
+}
+
+.setting-card {
+  background-color: var(--bg-elevated);
+  border-radius: 16px;
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--theme-outer-glow);
+}
+
+.setting-header {
+  margin-bottom: 16px;
+}
+
+.setting-title {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-color);
+}
+
+.setting-subtitle {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+// —— 单行输入（账号 / 昵称等共用）——
+.setting-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.setting-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-size: 13px;
+  box-sizing: border-box;
+  outline: none;
+
+  &:focus {
+    border-color: var(--theme-color-strong);
+  }
+}
+
+.setting-desc {
+  display: block;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+// —— 表单（密码修改 / 注销账号共用）——
+.setting-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.setting-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  > span {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  input {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-color);
+    font-size: 13px;
+    box-sizing: border-box;
+  }
+}
+
+.setting-code-row {
+  display: flex;
+  gap: 8px;
+}
+
+.setting-code-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--theme-color-muted);
+  background: var(--theme-color-soft);
+  color: var(--theme-color-strong);
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+  transition: background-color 0.2s ease, color 0.2s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--theme-primary-bg);
+    color: var(--theme-color-contrast);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.setting-warning-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #ef4444;
+}
+
+.setting-footer {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.setting-submit {
+  width: min(320px, 100%);
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: none;
+  background: var(--theme-action-bg);
+  color: var(--theme-action-contrast);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--theme-primary-bg);
+    color: var(--theme-color-contrast);
+  }
+
+  &:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+}
+
+// 危险操作（注销）
+.setting-submit--danger {
+  background: #ef4444;
+
+  &:hover:not(:disabled) {
+    background: #dc2626;
+  }
+}

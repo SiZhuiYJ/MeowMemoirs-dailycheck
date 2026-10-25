@@ -39,25 +39,25 @@ defineExpose({
 <template>
     <LoginMethods v-model="loginMethod" />
     <!-- 邮箱密码登录 -->
-    <form v-if="loginMethod === 'email'" class="form" @submit.prevent="handleSubmit">
+    <form v-if="loginMethod === 'email'" class="auth-form" @submit.prevent="handleSubmit">
 
         <EmailInput v-model="email" />
 
         <PasswordInput v-model="password" :required="true" />
 
-        <button class="submit" type="submit" :disabled="loading">
+        <button class="auth-submit" type="submit" :disabled="loading">
             登录
         </button>
     </form>
 
     <!-- 账号密码登录 -->
-    <form v-else-if="loginMethod === 'account'" class="form" @submit.prevent="handleSubmit">
+    <form v-else-if="loginMethod === 'account'" class="auth-form" @submit.prevent="handleSubmit">
 
         <AccountInput v-model="userAccount" :required="true" />
 
         <PasswordInput v-model="password" :required="true" />
 
-        <button class="submit" type="submit" :disabled="loading">
+        <button class="auth-submit" type="submit" :disabled="loading">
             登录
         </button>
     </form>
@@ -69,38 +69,3 @@ defineExpose({
 
     <!-- <CodeLogin /> -->
 </template>
-
-<style scoped lang="scss">
-@use "@/styles/responsive-mixins" as rp;
-
-.form {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.submit {
-    margin-top: 8px;
-    padding: 12px;
-    border-radius: 8px;
-    border: none;
-    background: var(--theme-gradient);
-    color: var(--theme-action-contrast);
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.2s;
-}
-
-.submit:disabled {
-    opacity: 0.7;
-    cursor: not-allowed;
-}
-
-// 480px 阈值保留，同时覆盖横屏手机。
-@include rp.compact(480px) {
-    .submit {
-        padding: 12px 0;
-        font-size: 15px;
-    }
-}
-</style>
