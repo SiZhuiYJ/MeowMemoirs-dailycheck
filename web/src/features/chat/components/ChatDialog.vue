@@ -63,9 +63,10 @@ function unlockBodyScroll() {
  * backdrop blur）：内容从它们下面滚过去，视觉和聊天主界面一致。面板高度则
  * 由内容撑开（内容列的上下留白正好等于两条栏的高度），所以内容少时是一张
  * 居中卡片；内容多时面板被 `max-height` 夹到窗口高度，中间 `.el-scrollbar`
- * 收缩并接管滚动，才变成整屏。面板的**宽度或高度任一**触到窗口的 100%
- * 就算全屏（`chat-dialog--fullscreen`），此时去掉圆角，避免圆角在屏幕边缘
- * 露出底色。
+ * 收缩并接管滚动，才变成整屏。全屏判定（`chat-dialog--fullscreen`）要求：
+ * **宽度或高度有一项达到窗口的 100%，且另一项也至少占到 80%**；此时去掉
+ * 圆角，避免圆角在屏幕边缘露出底色。只是「宽度铺满但很矮」的窄窗弹层仍算
+ * 卡片，保留圆角。
  *
  * 顶部 / 底部栏沿用聊天页的 `.chat-header` / `.composer` 类名和皮肤；
  * 弹层被 Teleport 到 body，脱离了 `.chat-page` 的 CSS 变量作用域，所以本组件
@@ -85,7 +86,7 @@ function unlockBodyScroll() {
  * - 内容栏 `.el-scrollbar`：`flex: 1 1 auto` + `min-height: 0`，
  *   短内容按内容高、长内容收缩滚动；它是弹层里**唯一**的滚动容器
  *   （调用方的长列表不要再套 el-scrollbar）。
- * - 面板宽度或高度任一触顶（内容装不下，或窗口窄到内容宽度铺满），
+ * - 面板宽度或高度有一项触顶（100%），且另一项 >= 80% 时，
  *   `.chat-dialog--fullscreen` 生效，圆角归零；这个状态由 ResizeObserver
  *   观察面板 / 遮罩的尺寸实时维护。
  * - 内容列 `.chat-dialog-body`：默认居中、`max-width: 760px`，避免在 2K 屏上
@@ -155,9 +156,11 @@ const overlayRef = ref<HTMLElement | null>(null);
 const scrollbarRef = ref<{ setScrollTop: (top: number) => void } | null>(null);
 
 /**
- * 面板是否已经「全屏」：宽度或高度**任一**触到窗口的 100% 就算全屏。
- * 典型情况是内容多到撑满窗口高度；窄窗口下内容宽度铺满整个视口也算。
- * 用于在全屏时去掉圆角，避免屏幕边缘露出遮罩底色。
+ * 面板是否已经「全屏」：
+ *   宽度或高度有一项达到窗口的 100%，且另一项至少占窗口的 80%。
+ *
+ * 这样「宽度铺满但很矮」的窄窗弹层仍然算卡片（保留圆角）；
+ * 只有真正接近铺满窗口时（例如内容撑满高度且宽度也够大）才去圆角。
  */
 const isFullscreen = ref(false);
 let fullscreenObserver: ResizeObserver | null = null;
@@ -169,10 +172,16 @@ function updateFullscreenState() {
   const availableWidth = overlay.clientWidth;
   const availableHeight = overlay.clientHeight;
   if (availableWidth <= 0 || availableHeight <= 0) return;
+
   // offsetWidth / offsetHeight 不受打开动画的 scale 影响，避免过渡期间误判。
+  const widthFull = panel.offsetWidth >= availableWidth - 1;
+  const heightFull = panel.offsetHeight >= availableHeight - 1;
+  // 「另一项至少 80%」：1px 容差只用于 100% 判定，80% 按实际比例算。
+  const widthAtLeast80 = panel.offsetWidth >= availableWidth * 0.8;
+  const heightAtLeast80 = panel.offsetHeight >= availableHeight * 0.8;
+
   isFullscreen.value =
-    panel.offsetWidth >= availableWidth - 1 ||
-    panel.offsetHeight >= availableHeight - 1;
+    (widthFull && heightAtLeast80) || (heightFull && widthAtLeast80);
 }
 
 function stopFullscreenObserver() {
@@ -512,7 +521,8 @@ watch(
   border-radius: 14px;
   box-shadow: var(--chat-shadow);
 
-  // 宽或高任一触到窗口的 100%（全屏）时不要圆角，否则四角会漏出遮罩底色。
+  // 一项到窗口 100%、另一项 >= 80%（接近铺满）时不要圆角，
+  // 否则四角会漏出遮罩底色；只是宽度铺满的矮卡片仍保留圆角。
   &.chat-dialog--fullscreen {
     border-radius: 0;
   }
