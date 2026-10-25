@@ -1,34 +1,31 @@
 /**
- * Miku 动画光标。
+ * Miku 动画光标（虚拟光标）。
  *
- * 素材在 `src/assets/Miku/*.ani`，但**运行时不解码 ANI**：构建期
- * `scripts/build-miku-cursors.mjs` 已经把每个 .ani 拆成 32×32 的 PNG 帧，并把
- * 每帧时长写进 `cursors.generated.ts`。这里只负责两件事：
+ * ⚠️ 为什么不用 CSS `cursor` 关键帧：浏览器只有在鼠标移动 / 命中测试时才重新应用光标，
+ * 鼠标静止时 CSS 动画改出来的 cursor 帧不会被刷新 —— 表现就是「鼠标不动光标不动，
+ * 动一下跳一帧」。所以这里改成**跟随指针的 DOM 覆盖层**：隐藏原生光标，用 canvas
+ * 画当前帧，帧序列 / 时长 / 准星全部来自构建期生成的数据。
  *
- *   1. 启动：给每类元素装「首帧」光标（单帧动画）并预热首帧图片，首屏即可用；
- *   2. 空闲：逐只光标加载剩余帧，加载完替换成完整 @keyframes，开始播放。
+ * 加载仍然分两阶段：
+ *   1. 启动：只加载每只光标的**首帧**，覆盖层立即可用；
+ *   2. 空闲：逐只光标补齐剩余帧，加载完开始逐帧播放。
  *
- * 选择器是白名单：元素自己写了 `cursor: pointer` 就会覆盖「继承来的」动画光标，
- * 所以「整块可点但不是 button/a」的元素必须登记到 appInteractiveSelectors。
+ * 光标类型由 CSS 自定义属性 `--miku-cursor` 决定：给每类元素挂一条同名规则，
+ * 覆盖层读取「指针所在元素」的 computed value，等价于原生的 cursor 级联
+ * （disabled / help 这些状态、规则顺序都照旧）。
  */
-import {
-  MIKU_CURSOR_VERSION,
-  MIKU_CURSORS,
-  type MikuCursorAnimation,
-  type MikuCursorKey,
-} from "./cursors.generated";
+import { MIKU_CURSOR_VERSION, MIKU_CURSORS, type MikuCursorKey } from "./cursors.generated";
 
 /**
  * 一条「选择器 → 光标」规则。
  *
  * 光标本身在构建期就被拆成了 32×32 的帧图（scripts/build-miku-cursors.mjs），
- * 这里只负责说明「哪些元素用哪只光标、热点在哪」。
+ * 这里只负责说明「哪些元素用哪只光标」；准星和时长都在生成的数据里。
  */
 type CursorRule = {
-  /** `cursors.generated.ts` 里的光标 key（准星/时长都跟着它走） */
+  /** `cursors.generated.ts` 里的光标 key */
   cursor: MikuCursorKey;
   selectors: readonly string[];
-  fallback: string;
 };
 
 type WindowWithOptionalIdleCallback = {
@@ -64,11 +61,10 @@ const nativeInteractiveSelectors = [
 /**
  * 应用内「整块可点」、但不是 `<button>`/`<a>` 的自定义元素。
  *
- * 为什么必须显式登记：ani-cursor 的做法是给**命中的选择器**挂一条 `cursor` 关键帧
- * 动画，没命中的元素只能继承 html/body/#app 上的动画光标。而这些元素自己写了
- * `cursor: pointer` —— 普通声明覆盖的是「继承来的值」，动画只挂在祖先身上、
- * 不会作用到它们，于是光标回退成系统默认手型。在满是 Miku 光标的页面里，
- * 鼠标一移上去就像变成了「普通的系统按钮」。
+ * 为什么要显式登记：光标类型靠 `--miku-cursor` 自定义属性级联，没登记的元素会
+ * 一直继承 html 上的 `normal-select` —— 明明是整块可点，指针却还是普通箭头。
+ * （以前的 CSS cursor 方案里，这些元素还会因为自己写了 `cursor: pointer` 掉回
+ * 系统手型；现在覆盖层只认这个属性。）
  *
  * 以后新增「整块可点」的自定义元素，把选择器补到这里；`<button>` / `a[href]`
  * 已经由上面的原生列表覆盖，不用重复登记。
@@ -77,7 +73,7 @@ const appInteractiveSelectors = [
   // 会话列表项：li 整行可点（见 features/chat/style/index.scss 的 .conversation-list li）
   ".conversation-item",
   // 文件消息卡片：图片 / 视频 / 音频 / 文档共用这个根节点，整块可点打开详情。
-  // 上传中刻意保持 cursor: default（FileMessage.vue），所以排除掉这个状态。
+  // 上传中不登记（FileMessage.vue 里是禁用态），会回退到继承的 normal 箭头。
   ".file-message:not(.uploading)",
   // 头像跳转：ProgressiveAvatar 的根节点是 div，只靠 CSS 给的手型
   ".member-avatar-link",
@@ -283,14 +279,13 @@ const verticalResizeSelectors = [
 ] as const;
 
 /**
- * 选择器 → 光标。顺序就是注入顺序：同一个元素命中多条规则时，后面的覆盖前面的
- * （disabled / help 这类状态光标必须压过 link，和旧实现保持一致）。
+ * 选择器 → 光标。顺序就是优先级：同一个元素命中多条规则时，后面的覆盖前面的
+ * （disabled / help 这类状态光标必须压过 link，和原生 cursor 的级联一致）。
  */
 const CURSOR_RULES: readonly CursorRule[] = [
   {
     cursor: "normal-select",
     selectors: ["html", "body", "#app"],
-    fallback: "auto",
   },
   {
     cursor: "link",
@@ -299,17 +294,14 @@ const CURSOR_RULES: readonly CursorRule[] = [
       ...elementPlusInteractiveSelectors,
       ...appInteractiveSelectors,
     ],
-    fallback: "pointer",
   },
   {
     cursor: "text-select",
     selectors: textSelectors,
-    fallback: "text",
   },
   {
     cursor: "unavailable",
     selectors: disabledSelectors,
-    fallback: "not-allowed",
   },
   {
     cursor: "help-select",
@@ -320,17 +312,14 @@ const CURSOR_RULES: readonly CursorRule[] = [
       ".cursor-help",
       ".el-tooltip__trigger",
     ],
-    fallback: "help",
   },
   {
     cursor: "work",
     selectors: loadingSelectors,
-    fallback: "progress",
   },
   {
     cursor: "busy",
     selectors: waitSelectors,
-    fallback: "wait",
   },
   {
     cursor: "precision-select",
@@ -340,22 +329,18 @@ const CURSOR_RULES: readonly CursorRule[] = [
       "[style*=\"cursor: crosshair\"]",
       "[style*=\"cursor:crosshair\"]",
     ],
-    fallback: "crosshair",
   },
   {
     cursor: "move",
     selectors: moveSelectors,
-    fallback: "move",
   },
   {
     cursor: "horizontal-resize",
     selectors: horizontalResizeSelectors,
-    fallback: "ew-resize",
   },
   {
     cursor: "vertical-resize",
     selectors: verticalResizeSelectors,
-    fallback: "ns-resize",
   },
   {
     cursor: "diagonal-resize-1",
@@ -366,7 +351,6 @@ const CURSOR_RULES: readonly CursorRule[] = [
       "[style*=\"nwse-resize\"]",
       "[style*=\"se-resize\"]",
     ],
-    fallback: "nwse-resize",
   },
   {
     cursor: "diagonal-resize-2",
@@ -377,7 +361,6 @@ const CURSOR_RULES: readonly CursorRule[] = [
       "[style*=\"nesw-resize\"]",
       "[style*=\"sw-resize\"]",
     ],
-    fallback: "nesw-resize",
   },
   {
     cursor: "handwriting",
@@ -387,7 +370,6 @@ const CURSOR_RULES: readonly CursorRule[] = [
       "[style*=\"cursor: cell\"]",
       "[style*=\"cursor:cell\"]",
     ],
-    fallback: "cell",
   },
   {
     cursor: "alternate-select",
@@ -397,7 +379,6 @@ const CURSOR_RULES: readonly CursorRule[] = [
       "[style*=\"cursor: alias\"]",
       "[style*=\"cursor:alias\"]",
     ],
-    fallback: "alias",
   },
   {
     cursor: "location-select",
@@ -407,99 +388,42 @@ const CURSOR_RULES: readonly CursorRule[] = [
       ".cursor-location",
       ".cursor-pin",
     ],
-    fallback: "pointer",
   },
   {
     cursor: "person-select",
     selectors: ["[data-cursor=\"person\"]", ".cursor-person"],
-    fallback: "pointer",
   },
 ];
 
-/** `cursor` 的值：`url(...) 0 0, pointer`；准星取自素材的 CUR hotspot。 */
-function cursorValue(rule: CursorRule, url: string) {
-  const [hotspotX, hotspotY] = MIKU_CURSORS[rule.cursor].hotspot;
-  return `url("${url}") ${hotspotX} ${hotspotY}, ${rule.fallback}`;
-}
+/** 帧图边长（CSS px），与生成器输出一致。 */
+const CURSOR_SIZE = 32;
+/** 覆盖层：盖在所有内容之上，但不接收指针事件。 */
+const CURSOR_Z_INDEX = "2147483647";
+/** 每类元素挂的光标类型（CSS 自定义属性，覆盖层读它）。 */
+const CURSOR_PROPERTY = "--miku-cursor";
 
-function keyframesName(index: number) {
-  return `miku-cursor-${index}`;
-}
+/** URL -> 已加载的图片。 */
+const loadedImages = new Map<string, HTMLImageElement>();
+/** 已经把「全部帧」加载完的光标。 */
+const readyCursors = new Set<MikuCursorKey>();
 
-function formatPercent(value: number) {
-  return `${Number(value.toFixed(5))}%`;
-}
-
-/**
- * 首帧样式。
- *
- * 用「只有 0% 的动画」而不是普通 `cursor` 声明，是为了让两个阶段的层叠行为完全一致：
- * 动画天然压过元素自己的 `cursor: pointer`（.conversation-item / .file-message 就靠
- * `.file-message:not(.uploading)` 这类规则拿回 Miku 光标），换成普通声明会输给
- * `.conversation-list li` 这种更高特异性的写法，首帧阶段就会闪回系统光标。
- */
-function buildFirstFrameCss(rule: CursorRule, index: number, url: string) {
-  return [
-    `@keyframes ${keyframesName(index)} {`,
-    `  0% { cursor: ${cursorValue(rule, url)}; }`,
-    `}`,
-    // 同时写一条普通 cursor 兜底：支持 cursor 动画的浏览器由动画覆盖，
-    // 不支持的浏览器至少还能拿到首帧，而不是系统光标。
-    `${rule.selectors.join(",\n")} { cursor: ${cursorValue(rule, url)}; animation: ${keyframesName(index)} 1000ms step-end infinite; }`,
-  ].join("\n");
-}
-
-/**
- * 完整动画：按生成的字幕表把每一步换算成百分比位置。
- *
- * `step-end` + 每步一个关键帧 = 到点硬切；最后一步的百分比不一定是 100%，
- * 剩余区间会保持最后一帧直到循环回到 0%，与 ani-cursor.js 的行为一致。
- */
-function buildAnimationCss(rule: CursorRule, index: number, animation: MikuCursorAnimation) {
-  let position = 0;
-  let firstUrl: string | undefined;
-  const frames: string[] = [];
-
-  for (const step of animation.steps) {
-    const url = frameUrl(step.file);
-    firstUrl ??= url;
-    frames.push(`  ${formatPercent(position)} { cursor: ${cursorValue(rule, url)}; }`);
-    position += (step.duration / animation.totalDuration) * 100;
-  }
-
-  // 普通 cursor 兜底：支持 cursor 动画的浏览器由动画覆盖，
-  // 不支持的浏览器至少停在首帧，而不是系统光标。
-  const staticCursor = firstUrl ? ` cursor: ${cursorValue(rule, firstUrl)};` : "";
-
-  return [
-    `@keyframes ${keyframesName(index)} {`,
-    ...frames,
-    `}`,
-    `${rule.selectors.join(",\n")} {${staticCursor} animation: ${keyframesName(index)} ${Number(
-      animation.totalDuration.toFixed(3),
-    )}ms step-end infinite; }`,
-  ].join("\n");
-}
-
-/** 预加载图片（失败也 resolve：宁可少这一帧，也不能让升级流程卡住）。 */
-function preload(urls: readonly string[]) {
-  return Promise.all(
-    urls.map(
-      (url) =>
-        new Promise<void>((resolve) => {
-          const image = new Image();
-          image.onload = () => resolve();
-          image.onerror = () => resolve();
-          image.src = url;
-        }),
-    ),
-  ).then(() => undefined);
-}
-
-const mountedStyles: Array<HTMLStyleElement | undefined> = [];
+let mounted = false;
+let enabled = false;
+let overlay: HTMLCanvasElement | null = null;
+let overlayCtx: CanvasRenderingContext2D | null = null;
+let rulesStyle: HTMLStyleElement | null = null;
+let hideStyle: HTMLStyleElement | null = null;
 let idleHandle: number | undefined;
 let idleHandleType: "idle" | "timeout" | undefined;
-let mounted = false;
+let frameTimer: number | undefined;
+let visible = false;
+let pointerX = 0;
+let pointerY = 0;
+let pointerSeen = false;
+let currentKey: MikuCursorKey = "normal-select";
+let currentTarget: Element | null = null;
+let animationStartedAt = 0;
+let lastDrawnSignature = "";
 
 function isFinePointerDevice() {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -513,61 +437,280 @@ function isFinePointerDevice() {
   return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 }
 
-/**
- * 启动阶段：只加载每只光标的**首帧**。
- *
- * 每只光标一条 <style>，内容是「首帧 + 1000ms 的单帧动画」。等剩余帧加载完，
- * 直接替换同一个 <style> 的内容（keyframes 名字不变），光标就从静态首帧切到动画。
- */
-function mountFirstFrames() {
-  const firstFrames: string[] = [];
+function isCursorKey(value: string): value is MikuCursorKey {
+  return Object.prototype.hasOwnProperty.call(MIKU_CURSORS, value);
+}
 
-  CURSOR_RULES.forEach((rule, index) => {
-    const animation = MIKU_CURSORS[rule.cursor];
-    const first = animation.steps[0];
-    if (!first) {
-      mountedStyles[index] = undefined;
-      return;
-    }
+/** 加载一张帧图（失败也 resolve null，交给首帧兜底）。 */
+function loadImage(url: string): Promise<HTMLImageElement | null> {
+  const cached = loadedImages.get(url);
+  if (cached) return Promise.resolve(cached);
 
-    const url = frameUrl(first.file);
-    firstFrames.push(url);
-
-    const style = document.createElement("style");
-    style.dataset.mikuCursor = rule.cursor;
-    style.dataset.mikuCursorPhase = "first-frame";
-    style.textContent = buildFirstFrameCss(rule, index, url);
-    document.head.appendChild(style);
-    mountedStyles[index] = style;
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => {
+      loadedImages.set(url, image);
+      resolve(image);
+    };
+    image.onerror = () => resolve(null);
+    image.src = url;
   });
+}
 
-  // 首帧预热：真正悬停时不用再等这一次网络请求。
-  void preload(firstFrames);
+function firstFrameUrl(key: MikuCursorKey) {
+  const step = MIKU_CURSORS[key].steps[0];
+  return step ? frameUrl(step.file) : "";
+}
+
+function frameImage(key: MikuCursorKey, index: number) {
+  const step = MIKU_CURSORS[key].steps[index];
+  return step ? loadedImages.get(frameUrl(step.file)) ?? null : null;
+}
+
+/** 指针所在元素用哪只光标 —— 交给 CSS 自定义属性的级联来算。 */
+function resolveCursorKey(target: Element | null): MikuCursorKey {
+  if (!target) return "normal-select";
+  const value = getComputedStyle(target).getPropertyValue(CURSOR_PROPERTY).trim();
+  return isCursorKey(value) ? value : "normal-select";
+}
+
+function updateTransform() {
+  if (!overlay) return;
+  const [hotspotX, hotspotY] = MIKU_CURSORS[currentKey].hotspot;
+  overlay.style.transform = `translate3d(${pointerX - hotspotX}px, ${pointerY - hotspotY}px, 0)`;
 }
 
 /**
- * 空闲阶段：逐只光标加载剩余帧，加载完就把该光标升级成完整动画。
+ * 画当前帧。
  *
- * 按光标逐个处理（而不是把所有帧一次性丢出去），既限制并发，也让先加载完的
- * 光标先动起来，不必等最慢的那只。
+ * 只有「该光标全部帧已就绪」时才按时间推进；否则停在首帧（启动阶段）。
+ * `now` 用 performance.now()，和 `animationStartedAt` 同一时钟。
+ */
+function drawFrame(now: number) {
+  const ctx = overlayCtx;
+  if (!ctx) return;
+
+  const animation = MIKU_CURSORS[currentKey];
+  let index = 0;
+
+  if (readyCursors.has(currentKey) && animation.totalDuration > 0) {
+    const elapsed = (now - animationStartedAt) % animation.totalDuration;
+    let accumulated = 0;
+    for (let i = 0; i < animation.steps.length; i += 1) {
+      accumulated += animation.steps[i]?.duration ?? 0;
+      index = i;
+      if (elapsed < accumulated) break;
+    }
+  }
+
+  const image = frameImage(currentKey, index)
+    ?? frameImage(currentKey, 0)
+    ?? frameImage("normal-select", 0);
+  if (!image) return;
+
+  const signature = `${currentKey}:${index}:${image.src}`;
+  if (signature === lastDrawnSignature) return;
+  lastDrawnSignature = signature;
+
+  ctx.clearRect(0, 0, CURSOR_SIZE, CURSOR_SIZE);
+  ctx.drawImage(image, 0, 0, CURSOR_SIZE, CURSOR_SIZE);
+}
+
+/** 距离当前帧结束还有多久（毫秒）；未就绪时返回 undefined（不排定时器）。 */
+function delayUntilNextFrame(now: number) {
+  const animation = MIKU_CURSORS[currentKey];
+  if (!readyCursors.has(currentKey) || animation.totalDuration <= 0) {
+    return undefined;
+  }
+
+  const elapsed = (now - animationStartedAt) % animation.totalDuration;
+  let accumulated = 0;
+  for (const step of animation.steps) {
+    accumulated += step.duration;
+    if (elapsed < accumulated) {
+      return Math.max(16, accumulated - elapsed);
+    }
+  }
+  return undefined;
+}
+
+function tick() {
+  frameTimer = undefined;
+  if (!visible) return;
+
+  const now = performance.now();
+  drawFrame(now);
+
+  const delay = delayUntilNextFrame(now);
+  if (delay !== undefined) {
+    frameTimer = window.setTimeout(tick, delay);
+  }
+}
+
+function stopFrames() {
+  if (frameTimer === undefined) return;
+  window.clearTimeout(frameTimer);
+  frameTimer = undefined;
+}
+
+/** 重新起一轮计时：换光标类型 / 重新显示 / 帧刚加载完都要调。 */
+function startFrames() {
+  stopFrames();
+  if (!visible) return;
+
+  const now = performance.now();
+  drawFrame(now);
+
+  const delay = delayUntilNextFrame(now);
+  if (delay !== undefined) {
+    frameTimer = window.setTimeout(tick, delay);
+  }
+}
+
+function hideNativeCursor() {
+  document.documentElement.classList.add("miku-cursor-on");
+}
+
+function show() {
+  if (!enabled || visible || !overlay) return;
+  visible = true;
+  overlay.style.display = "block";
+  hideNativeCursor();
+  lastDrawnSignature = "";
+  updateTransform();
+  startFrames();
+}
+
+function hide() {
+  visible = false;
+  stopFrames();
+  if (overlay) overlay.style.display = "none";
+}
+
+function handlePointerMove(event: PointerEvent) {
+  // 触屏（含触控笔以外的触摸）不归虚拟光标管；混合设备上摸一下就把覆盖层收起来
+  if (event.pointerType === "touch") {
+    hide();
+    return;
+  }
+  if (event.pointerType && event.pointerType !== "mouse" && event.pointerType !== "pen") {
+    return;
+  }
+
+  pointerX = event.clientX;
+  pointerY = event.clientY;
+  pointerSeen = true;
+
+  if (!enabled) return;
+
+  const target = event.target instanceof Element ? event.target : null;
+  if (target !== currentTarget) {
+    currentTarget = target;
+    const nextKey = resolveCursorKey(target);
+    if (nextKey !== currentKey) {
+      currentKey = nextKey;
+      animationStartedAt = performance.now();
+      lastDrawnSignature = "";
+      updateTransform();
+      startFrames();
+    }
+  }
+
+  if (!visible) {
+    animationStartedAt = performance.now();
+    show();
+  } else {
+    updateTransform();
+  }
+}
+
+/** 指针离开窗口（relatedTarget 为空）时藏起覆盖层，避免停在边缘。 */
+function handlePointerOut(event: PointerEvent) {
+  if (!event.relatedTarget) hide();
+}
+
+function handleVisibilityChange() {
+  if (document.hidden) hide();
+}
+
+/**
+ * 全屏时覆盖层（挂在 body 下）不会跟着进全屏元素，继续藏着系统光标就等于没光标。
+ * 这里让出全屏这一段时间：恢复系统光标，退出全屏后下一次 pointermove 再接管。
+ */
+function handleFullscreenChange() {
+  if (!document.fullscreenElement) return;
+  hide();
+  document.documentElement.classList.remove("miku-cursor-on");
+}
+
+function mountOverlay() {
+  const canvas = document.createElement("canvas");
+  canvas.className = "miku-cursor";
+  canvas.setAttribute("aria-hidden", "true");
+
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width = CURSOR_SIZE * dpr;
+  canvas.height = CURSOR_SIZE * dpr;
+  canvas.style.cssText = [
+    "position:fixed",
+    "left:0",
+    "top:0",
+    `width:${CURSOR_SIZE}px`,
+    `height:${CURSOR_SIZE}px`,
+    "pointer-events:none",
+    "display:none",
+    `z-index:${CURSOR_Z_INDEX}`,
+    "will-change:transform",
+    "image-rendering:pixelated",
+  ].join(";");
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  ctx.scale(dpr, dpr);
+  ctx.imageSmoothingEnabled = false;
+
+  (document.body ?? document.documentElement).appendChild(canvas);
+  overlay = canvas;
+  overlayCtx = ctx;
+}
+
+function enable() {
+  if (!mounted || !overlayCtx || enabled) return;
+  if (!loadedImages.has(firstFrameUrl("normal-select"))) return;
+
+  enabled = true;
+
+  // 已经移动过指针的话立刻接管（否则等下一次 pointermove）
+  if (pointerSeen) {
+    currentTarget = document.elementFromPoint(pointerX, pointerY);
+    currentKey = resolveCursorKey(currentTarget);
+    animationStartedAt = performance.now();
+    lastDrawnSignature = "";
+    show();
+  }
+}
+
+/**
+ * 空闲阶段：逐只光标加载剩余帧。
+ *
+ * 按规则顺序处理（normal / link / text 最先），先就绪的先动起来。
  */
 async function loadRemainingFrames() {
-  for (let index = 0; index < CURSOR_RULES.length; index += 1) {
+  const keys = [...new Set(CURSOR_RULES.map((rule) => rule.cursor))];
+
+  for (const key of keys) {
     if (!mounted) return;
 
-    const rule = CURSOR_RULES[index];
-    const style = mountedStyles[index];
-    if (!rule || !style) continue;
-
-    const animation = MIKU_CURSORS[rule.cursor];
-
-    // 首帧在启动阶段已经预热过，这里只等剩下的帧（单帧光标没有后续帧要等）。
-    const laterFrames = animation.steps.slice(1).map((step) => frameUrl(step.file));
-    if (laterFrames.length) await preload(laterFrames);
+    const urls = MIKU_CURSORS[key].steps.slice(1).map((step) => frameUrl(step.file));
+    if (urls.length) {
+      await Promise.all(urls.map((url) => loadImage(url)));
+    }
     if (!mounted) return;
 
-    style.dataset.mikuCursorPhase = "animated";
-    style.textContent = buildAnimationCss(rule, index, animation);
+    readyCursors.add(key);
+    if (key === currentKey && visible) startFrames();
   }
 }
 
@@ -582,7 +725,7 @@ function scheduleIdle(task: () => void) {
         idleHandleType = undefined;
         task();
       },
-      { timeout: 3000 },
+      { timeout: 1500 },
     );
     return;
   }
@@ -615,15 +758,84 @@ export function setupMikuCursor() {
   }
 
   mounted = true;
-  mountFirstFrames();
-  scheduleIdle(() => void loadRemainingFrames());
+
+  // 1) 每类元素挂光标类型（只写自定义属性，不碰原生 cursor）
+  rulesStyle = document.createElement("style");
+  rulesStyle.dataset.mikuCursor = "rules";
+  rulesStyle.textContent = CURSOR_RULES.map(
+    (rule) => `${rule.selectors.join(",\n")} { ${CURSOR_PROPERTY}: ${rule.cursor}; }`,
+  ).join("\n");
+  document.head.appendChild(rulesStyle);
+
+  // 2) 原生光标只在覆盖层接管后隐藏（`miku-cursor-on` 由 show() 添加）
+  hideStyle = document.createElement("style");
+  hideStyle.dataset.mikuCursor = "native";
+  hideStyle.textContent =
+    "html.miku-cursor-on, html.miku-cursor-on * { cursor: none !important; }";
+  document.head.appendChild(hideStyle);
+
+  mountOverlay();
+
+  window.addEventListener("pointermove", handlePointerMove, { passive: true });
+  // pointerover 也走同一套：DOM 在指针下方变化（弹层打开、列表刷新）时浏览器会重新命中，
+  // 不移动鼠标也能把光标类型切过去。
+  window.addEventListener("pointerover", handlePointerMove, { passive: true });
+  window.addEventListener("pointerout", handlePointerOut, { passive: true });
+  window.addEventListener("blur", hide);
+  // 拖拽（含从系统拖文件进来）期间交给系统拖拽光标，别让覆盖层停在原地
+  window.addEventListener("dragenter", hide, { passive: true });
+  window.addEventListener("drop", hide, { passive: true });
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  document.addEventListener("fullscreenchange", handleFullscreenChange);
+
+  // 3) 首屏只拉首帧：normal 的首帧一到就接管光标（其余首帧并行补齐），
+  //    首帧全部落地后再空闲加载剩余帧。
+  const firstFrames = [...new Set(CURSOR_RULES.map((rule) => rule.cursor))].map(
+    (key) => firstFrameUrl(key),
+  );
+
+  void loadImage(firstFrameUrl("normal-select")).then(() => {
+    if (mounted) enable();
+  });
+
+  void Promise.all(firstFrames.map((url) => loadImage(url))).then(() => {
+    if (mounted) scheduleIdle(() => void loadRemainingFrames());
+  });
 }
 
 export function destroyMikuCursor() {
   mounted = false;
+  enabled = false;
+  hide();
+
   cancelIdle();
-  mountedStyles.forEach((style) => style?.remove());
-  mountedStyles.length = 0;
+  stopFrames();
+
+  window.removeEventListener("pointermove", handlePointerMove);
+  window.removeEventListener("pointerover", handlePointerMove);
+  window.removeEventListener("pointerout", handlePointerOut);
+  window.removeEventListener("blur", hide);
+  window.removeEventListener("dragenter", hide);
+  window.removeEventListener("drop", hide);
+  document.removeEventListener("visibilitychange", handleVisibilityChange);
+  document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  document.documentElement.classList.remove("miku-cursor-on");
+
+  overlay?.remove();
+  overlay = null;
+  overlayCtx = null;
+
+  rulesStyle?.remove();
+  hideStyle?.remove();
+  rulesStyle = null;
+  hideStyle = null;
+
+  loadedImages.clear();
+  readyCursors.clear();
+  currentTarget = null;
+  currentKey = "normal-select";
+  pointerSeen = false;
+  lastDrawnSignature = "";
 }
 
 if (import.meta.hot) {

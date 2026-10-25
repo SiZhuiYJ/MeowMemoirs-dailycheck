@@ -28,12 +28,21 @@ npm run cursors   # 重新生成帧图 + cursors.generated.ts
 | `public/miku-cursors/<cursor>/<frame>.png` | 32×32 帧图；首帧由元数据 `steps[0]` 指定（本批素材都是 `0.png`） |
 | `src/libs/mikuCursor/cursors.generated.ts` | 每帧时长、总时长、准星（热点）、内容版本号（别手改） |
 
-运行时分两步：
+运行时是**虚拟光标**（跟随指针的 DOM 覆盖层），不是原生 `cursor`：
 
-1. **启动**：只给每只光标装首帧（单帧动画）并预热首帧图片 —— 首屏就有 Miku 光标，
-   不用等 146 帧全部下载；
-2. **空闲**：`requestIdleCallback` 里逐只光标加载剩余帧，加载完把同一条 `<style>` 换成完整
-   `@keyframes`，光标开始动。
+- 为什么：浏览器只在鼠标移动 / 命中测试时重新应用光标，鼠标静止时 CSS `cursor` 关键帧
+  改出来的帧不会刷新，表现就是「不动不播、动一下跳一帧」；
+- 做法：`cursor: none` 隐藏原生光标，用一个 32×32 的 `canvas` 覆盖层跟着指针走，按生成
+  的时长逐帧绘制；
+- 光标类型：给每类元素注入 `--miku-cursor` 自定义属性（`html` / 按钮 / 输入框 / disabled…），
+  覆盖层读取**指针所在元素**的 computed value —— 和原生 cursor 的级联完全一致。
+
+加载仍然分两步：
+
+1. **启动**：只拉每只光标的**首帧**（17 张，约 6 KB），覆盖层立即可用；
+2. **空闲**：`requestIdleCallback`（1.5s 兜底）里逐只补齐剩余 129 帧，就绪后自动播放。
+
+覆盖层用 `translate3d(x - hotspotX, y - hotspotY, 0)` 定位；准星来自素材 CUR 的 hotspot。
 
 光标**准星**也来自素材：ANI 每帧 CUR 头里的 hotspot，生成时按 `32 / 原始尺寸` 换算，
 不要在手写热点里调 —— 写错会让整只光标（比如按钮上的 Link）整体偏移。
