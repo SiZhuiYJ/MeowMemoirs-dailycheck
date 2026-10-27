@@ -2,9 +2,9 @@
   埋点诊断悬浮按钮（可拖动）。
 
   为什么需要拖动：
-  这个按钮是全局 fixed 悬浮层，默认压在聊天页左下角。手机上它可能挡住输入框 /
-  发送按钮，横屏时又可能贴到安全区里。允许用户把它拖到任意角落，比反复调
-  bottom / left 常量更直接。
+  这个按钮是全局 fixed 悬浮层，默认停在聊天页输入区上方（避开上传 / 发送按钮的
+  触屏命中区）。横屏或小窗口时仍可能贴到安全区 / 其他控件，允许用户把它拖到
+  任意角落，比反复调 bottom / left 常量更直接。
 
   实现要点：
   1. 用 Pointer Events 统一鼠标 / 触屏 / 手写笔，不写两套 mousemove + touchmove。
@@ -35,16 +35,26 @@ const emit = defineEmits<{
   open: [];
 }>();
 
-/** localStorage 键：只存比例，不存像素。 */
-const STORAGE_KEY = "telemetry-fab-position-v1";
+/**
+ * localStorage 键：只存比例，不存像素。
+ * v2：默认位置上移后，旧版保存的位置可能仍压着上传键，一次性重置到新默认。
+ */
+const STORAGE_KEY = "telemetry-fab-position-v2";
 /** 与视口（含安全区）边缘保持的最小间距。 */
 const EDGE_GAP = 8;
 /** 判定「拖动」的最小位移；小于它的移动仍算点按。 */
 const DRAG_THRESHOLD = 6;
 /** 拖动结束后忽略 click 的时间窗口。 */
 const CLICK_GUARD_MS = 350;
-/** 默认位置：左下角，再往上抬一点，避免压住底部手势条。 */
-const DEFAULT_BOTTOM_OFFSET = 28;
+/**
+ * 默认位置：左下角，但必须停在输入区（composer）上方。
+ *
+ * 实测 393×852 的移动端 Chrome 上：composer 高 36px，文件上传键的透明命中区
+ * 还向上外扩 10px（44px 触屏命中区）。原来 DEFAULT_BOTTOM_OFFSET=28 时，
+ * 诊断按钮和上传命中区重叠 11px（约 22% 面积）——点在按钮上沿会打开诊断页
+ * 而不是文件选择器。这里再上抬 28px，留出 17px 间隙。
+ */
+const DEFAULT_BOTTOM_OFFSET = 56;
 
 const fabRef = ref<HTMLButtonElement | null>(null);
 const position = ref({ x: EDGE_GAP, y: EDGE_GAP });
@@ -412,9 +422,8 @@ onBeforeUnmount(() => {
     background-color 0.18s ease;
 }
 
-/* 日间 / 固定浅色聊天面：白色磨砂更明显，避免夜间那层灰雾压低对比度。 */
-:global(html[data-theme="light"] .telemetry-fab),
-:global(html.theme-light-surface .telemetry-fab) {
+/* 日间：白色磨砂更明显，避免夜间那层灰雾压低对比度。 */
+:global(html[data-theme="light"] .telemetry-fab) {
   --fab-glass-highlight: rgba(255, 255, 255, 0.92);
   --fab-glass-highlight-strong: rgba(255, 255, 255, 1);
 }
@@ -445,8 +454,7 @@ onBeforeUnmount(() => {
     backdrop-filter: blur(14px) saturate(170%);
   }
 
-  :global(html[data-theme="light"] .telemetry-fab),
-  :global(html.theme-light-surface .telemetry-fab) {
+  :global(html[data-theme="light"] .telemetry-fab) {
     background:
       linear-gradient(
         135deg,

@@ -21,12 +21,12 @@ namespace api.Controllers;
 /// 核心功能特性：
 /// • 用户隔离存储：每个用户文件独立存储空间
 /// • 安全访问控制：严格的权限验证机制
-/// • 格式优化：自动转换为WebP格式节省存储
+/// • 格式优化：自动转换为WebP格式节省存储（含 iPhone 的 HEIC/HEIF）
 /// • 大小限制：防止恶意大文件上传
 /// • 双模式支持：头像公开访问 + 普通图片私有访问
 /// 
 /// 安全措施：
-/// • 文件类型验证：只允许常见图片格式
+/// • 文件类型验证：只允许常见图片格式（JPG/PNG/GIF/WebP/BMP/HEIC/HEIF 等）
 /// • 文件大小限制：默认10MB上限
 /// • 用户权限检查：防止越权访问
 /// • 路径安全处理：防止目录遍历攻击
@@ -54,7 +54,7 @@ public class FilesController(IFileService fileService, DailyCheckDbContext db) :
     /// </summary>
     /// <remarks>
     /// 头像处理流程：
-    /// 1. 文件格式验证（JPG/PNG/GIF等）
+    /// 1. 文件格式验证（JPG/PNG/GIF/WebP/BMP/HEIC/HEIF 等）
     /// 2. 文件大小检查（≤10MB）
     /// 3. 图片内容安全扫描
     /// 4. 自动转换为WebP格式

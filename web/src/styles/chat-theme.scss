@@ -1,0 +1,137 @@
+////
+/// 聊天页 / 用户主页 / 聊天弹层的皮肤色板。
+///
+/// 这些页面都跟随全局日 / 夜主题，颜色集中到一组**可切换**的变量里：
+///
+///   · `:root` 里是日间值；
+///   · `html[data-theme="dark"]` 里是夜间值。
+///
+/// 组件只引用这里的变量，不再各写 `#fff` / `#6b7280` / `rgba(...)`。
+/// 强调色 `--chat-accent` / `--chat-accent-soft` 来自全局主题色阶
+/// （`theme-palette.ts` 会按当前明暗写入行内变量），因此自定义主题色也能
+/// 在夜间模式下自动换成「深底上可读」的那一档。
+////
+
+:root {
+  // —— 外壳 / 面板 ——
+  --chat-bg: linear-gradient(180deg, #f7f7f5 0%, #ebeae4 100%);
+  --chat-surface: rgba(255, 255, 255, 0.94);
+  --chat-surface-solid: #ffffff;
+  --chat-surface-soft: #f9fafb;
+  --chat-border: rgba(17, 24, 39, 0.08);
+  --chat-border-strong: #e5e7eb;
+  --chat-divider: #f3f4f6;
+  --chat-shadow: var(--theme-outer-glow);
+
+  // —— 文字 ——
+  --chat-text: #111827;
+  --chat-text-secondary: #4b5563;
+  --chat-muted: #6b7280;
+  --chat-muted-light: #9ca3af;
+
+  // —— 气泡 / 卡片 ——
+  --chat-bubble: #f3f4f6;
+  --chat-bubble-mine: var(--chat-accent-soft);
+  --chat-card: #f5f5f5;
+  --chat-card-hover: #e8e8e8;
+  --chat-field: #f9fafb;
+  --chat-inset: #f3f4f6;
+
+  // —— 引用卡片 / 跳转高亮 ——
+  --chat-reply-bg: #e9ecef;
+  --chat-reply-hover: #e1e5e9;
+  --chat-reply-border: #9ca3af;
+  --chat-reply-self-bg: color-mix(in srgb, var(--chat-accent) 18%, #fff);
+  --chat-reply-self-hover: color-mix(in srgb, var(--chat-accent) 24%, #fff);
+  --chat-accent-soft-hover: color-mix(
+    in srgb,
+    var(--chat-accent-soft) 72%,
+    #fff
+  );
+  --chat-highlight-bg: color-mix(in srgb, var(--chat-accent) 22%, #fff);
+
+  // —— 语义色：只用于浅底提示块，按钮仍走 Element Plus 语义色 ——
+  --chat-danger: #dc2626;
+  --chat-danger-soft: #fef2f2;
+  --chat-danger-border: #fecaca;
+  --chat-danger-text: #b91c1c;
+  --chat-success-soft: #f0fdf4;
+  --chat-success-border: #bbf7d0;
+  --chat-success-text: #15803d;
+  --chat-warning-soft: #fff3e0;
+
+  // —— 遮罩 / 拖拽上传浮层 ——
+  --chat-mask: rgba(17, 24, 39, 0.18);
+  --chat-overlay-surface: rgba(255, 255, 255, 0.94);
+  --chat-overlay-border: rgba(255, 255, 255, 0.65);
+
+  // —— 主题强调色（由 theme-palette 按当前明暗覆盖）——
+  --chat-accent: var(--theme-color-strong);
+  --chat-accent-soft: var(--theme-color-soft);
+
+  // —— 通用悬停投影（头像 / 可点卡片）——
+  --chat-hover-shadow: 0 4px 12px rgba(17, 24, 39, 0.16);
+
+  // 头像占位底：聊天 / 用户主页共用 ProgressiveAvatar
+  --avatar-fallback-bg: #f3f4f6;
+}
+
+// 夜间：与全局 `--bg-color: #020617` / `--surface-soft: #0b1220` 同一套冷灰蓝，
+// 再把主题色作为气泡、选中态、引用条的淡色调。
+html[data-theme="dark"] {
+  // 页面底比面板更深一档，白色面板在夜间才有明确的层次
+  --chat-bg: linear-gradient(180deg, #050a14 0%, #020617 100%);
+  --chat-surface: rgba(15, 23, 42, 0.92);
+  --chat-surface-solid: #0f172a;
+  --chat-surface-soft: #111c2e;
+  --chat-border: rgba(148, 163, 184, 0.16);
+  --chat-border-strong: #263449;
+  --chat-divider: rgba(148, 163, 184, 0.12);
+  --chat-shadow: 0 24px 70px rgba(0, 0, 0, 0.55),
+    0 12px 30px rgba(2, 6, 23, 0.5);
+
+  --chat-text: #e5e7eb;
+  --chat-text-secondary: #cbd5e1;
+  --chat-muted: #9ca3af;
+  --chat-muted-light: #94a3b8;
+
+  --chat-bubble: #1e293b;
+  --chat-bubble-mine: color-mix(in srgb, var(--chat-accent) 22%, #111c2e);
+  --chat-card: #172033;
+  --chat-card-hover: #1e2a40;
+  --chat-field: #111a2b;
+  --chat-inset: #1a2537;
+
+  --chat-reply-bg: #1f2937;
+  --chat-reply-hover: #273449;
+  --chat-reply-border: #64748b;
+  --chat-reply-self-bg: color-mix(in srgb, var(--chat-accent) 18%, #0f172a);
+  --chat-reply-self-hover: color-mix(
+    in srgb,
+    var(--chat-accent) 26%,
+    #0f172a
+  );
+  --chat-accent-soft-hover: color-mix(
+    in srgb,
+    var(--chat-accent) 22%,
+    #0f172a
+  );
+  --chat-highlight-bg: color-mix(in srgb, var(--chat-accent) 26%, #0f172a);
+
+  --chat-danger: #f87171;
+  --chat-danger-soft: #3a1518;
+  --chat-danger-border: #7f1d1d;
+  --chat-danger-text: #fca5a5;
+  --chat-success-soft: #0f2a1a;
+  --chat-success-border: #14532d;
+  --chat-success-text: #86efac;
+  --chat-warning-soft: #3a2a12;
+
+  --chat-mask: rgba(2, 6, 23, 0.62);
+  --chat-overlay-surface: rgba(15, 23, 42, 0.95);
+  --chat-overlay-border: rgba(148, 163, 184, 0.25);
+
+  --chat-hover-shadow: 0 4px 12px rgba(2, 6, 23, 0.5);
+
+  --avatar-fallback-bg: #1e293b;
+}

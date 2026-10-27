@@ -1,32 +1,22 @@
 <script setup lang="ts">
-import { CloseBold, EditPen } from "@element-plus/icons-vue";
 import ProgressiveAvatar from '@/components/ProgressiveAvatar/index.vue';
 import nickname from '@/features/auth/components/Settings/nickname.vue';
+import EmailSettings from '@/features/auth/components/Settings/email.vue';
 import router from "@/routers";
 import { useAuthStore } from '@/stores';
 import { storeToRefs } from 'pinia';
-import { extractEmail, extractDomain } from '@/utils/auth';
+import { isWechatPlaceholderEmail } from '@/utils/auth';
 import { getUserAvatarSources } from '@/utils/avatar';
 
 const { user } = storeToRefs(useAuthStore());
-const inputEmail = ref<string>('');
-const emailDisabled = ref<boolean>(true);
 const avatar = computed(() => getUserAvatarSources(user.value?.userId, user.value?.avatarKey));
-// 邮箱后缀名
-const emailFix = ref<string[]>(['@qq.com', '@163.com', '@126.com', '@sina.com', '@aliyun.com']);
-const select = ref<string>();
-watch(
-    () => user.value?.email,
-    (newVal?: string) => {
-        if (newVal) {
-            inputEmail.value = extractEmail(newVal);
-            select.value = '@' + extractDomain(newVal);
-            emailDisabled.value = true;
-        } else {
-            inputEmail.value = '';
-            emailDisabled.value = false;
-        }
-    }, { immediate: true });
+
+/** 微信注册账号的邮箱是内部占位地址，页面上显示为「未绑定」。 */
+const isWechatAccount = computed(() => isWechatPlaceholderEmail(user.value?.email));
+const displayEmail = computed(() => {
+    if (isWechatAccount.value) return '未绑定邮箱（微信注册）';
+    return user.value?.email || '未绑定邮箱';
+});
 </script>
 
 <template>
@@ -38,25 +28,28 @@ watch(
             </div>
 
             <div class="profile-main">
-                <ProgressiveAvatar :src="avatar.src" :thumbnail-src="avatar.thumbnailSrc" :size="100" :is-preview="true"
-                    shape="square">
+                <ProgressiveAvatar class="profile-avatar" :src="avatar.src" :thumbnail-src="avatar.thumbnailSrc"
+                    :size="96" :is-preview="true" shape="square">
                     {{ (user ? (user?.nickName || user?.userAccount || user?.email).slice(0, 1).toUpperCase() : 'U') }}
                 </ProgressiveAvatar>
                 <el-button type="primary" plain @click="router.push('/setting/avatar')">
                     更换头像
                 </el-button>
-                <el-input v-model="inputEmail" :disabled="emailDisabled" clearable :clear-icon="CloseBold"
-                    placeholder="邮箱地址" style="width: min(420px, 100%)">
-                    <template #prepend>
-                        <el-button :icon="EditPen" @click="emailDisabled = !emailDisabled" />
-                    </template>
-                    <template #append>
-                        <el-select v-model="select" placeholder="Select" :disabled="emailDisabled" style="width: 150px">
-                            <el-option v-for="(value, index) in emailFix" :label="value" :value="index" />
-                        </el-select>
-                    </template>
-                </el-input>
+
+                <div class="profile-field">
+                    <span class="setting-label">邮箱</span>
+                    <el-input :model-value="displayEmail" readonly :aria-label="`当前邮箱：${displayEmail}`" />
+                    <span class="setting-desc">
+                        {{ isWechatAccount
+                            ? '当前账号由微信注册，绑定真实邮箱后可使用邮箱验证码登录。'
+                            : '邮箱用于登录和接收验证码，换绑后原邮箱将失效。' }}
+                    </span>
+                </div>
             </div>
+        </div>
+
+        <div class="setting-card">
+            <EmailSettings />
         </div>
 
         <div class="setting-card">
@@ -72,6 +65,26 @@ watch(
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
+}
+
+.profile-avatar {
+    color: var(--chat-text);
+    font-size: 32px;
+}
+
+.profile-field {
+    display: flex;
+    flex-direction: column;
+    width: min(420px, 100%);
+}
+
+// 窄屏上头像缩到聊天页详情弹层里那一档（72px），给下方表单留高度。
+@media (max-width: 480px) {
+    .profile-avatar {
+        width: 72px !important;
+        height: 72px !important;
+        font-size: 24px;
+    }
 }
 </style>

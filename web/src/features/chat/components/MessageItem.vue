@@ -325,18 +325,18 @@ function handleAvatarContextMenu(event: MouseEvent) {
   margin-bottom: 3px;
   padding: 8px 10px;
   border: 0;
-  border-left: 3px solid var(--chat-reply-border, #9ca3af);
+  border-left: 3px solid var(--chat-reply-border);
   border-radius: 6px;
   border-bottom-left-radius: 0;
   border-top-left-radius: 0;
   color: var(--chat-muted, #6b7280);
   text-align: left;
   cursor: pointer;
-  background: var(--chat-reply-bg, #e9ecef);
+  background: var(--chat-reply-bg);
   transition: background-color 0.15s ease;
 
   &:hover {
-    background: var(--chat-reply-hover, #e1e5e9);
+    background: var(--chat-reply-hover);
   }
 }
 
@@ -344,7 +344,7 @@ function handleAvatarContextMenu(event: MouseEvent) {
   font-size: 11px;
   font-weight: 600;
   line-height: 18px;
-  color: #4b5563;
+  color: var(--chat-text-secondary);
 }
 
 .reply-card-preview {
@@ -361,11 +361,11 @@ function handleAvatarContextMenu(event: MouseEvent) {
   font-weight: 500;
 
   &.uploading {
-    color: #9a4f8d;
+    color: var(--chat-accent);
   }
 
   &.failed {
-    color: #dc2626;
+    color: var(--chat-danger);
   }
 }
 
@@ -385,17 +385,17 @@ function handleAvatarContextMenu(event: MouseEvent) {
 
 .msg-item.local-failed :deep(.bubble),
 .msg-item.local-failed .bubble {
-  border: 1px solid #fecaca;
-  background: #fff5f5;
+  border: 1px solid var(--chat-danger-border);
+  background: var(--chat-danger-soft);
 }
 
 .recalled-message {
   padding: 12px 14px;
   border-radius: 10px;
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 13px;
   line-height: 20px;
-  background: #f3f4f6;
+  background: var(--chat-inset);
 }
 
 .system-notice-item {
@@ -414,39 +414,39 @@ function handleAvatarContextMenu(event: MouseEvent) {
 .system-notice-text {
   padding: 4px 12px;
   border-radius: 999px;
-  color: #4b5563;
+  color: var(--chat-text-secondary);
   font-size: 11px;
   line-height: 18px;
   text-align: center;
-  background: rgba(107, 114, 128, 0.12);
+  background: color-mix(in srgb, var(--chat-muted) 16%, transparent);
 }
 
 .system-notice-time {
-  color: #9ca3af;
+  color: var(--chat-muted-light);
   font-size: 10px;
   line-height: 16px;
 }
 
 .msg-item.mine .reply-card {
   border-left: 0;
-  border-right: 3px solid var(--chat-accent, #9a4f8d);
-  background: var(--chat-reply-self-bg, #eddfea);
+  border-right: 3px solid var(--chat-accent);
+  background: var(--chat-reply-self-bg);
   border-top-left-radius: 6px;
   border-bottom-left-radius: 6px;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 
   &:hover {
-    background: var(--chat-reply-self-hover, #ebd5e7);
+    background: var(--chat-reply-self-hover);
   }
 }
 
 .msg-item.mine .reply-card .reply-card-sender {
-  color: var(--chat-accent, #9a4f8d);
+  color: var(--chat-accent);
 }
 
 .msg-item.mine .recalled-message {
-  background: var(--chat-accent-soft, #f7e8f4);
+  background: var(--chat-accent-soft);
 }
 
 // 点击引用跳转到原消息时，用主题色呼吸描边 + 主题浅底提示
@@ -458,7 +458,7 @@ function handleAvatarContextMenu(event: MouseEvent) {
 .msg-item.highlighted .reply-card,
 .msg-item.highlighted .recalled-message,
 .msg-item.highlighted .system-notice-text {
-  box-shadow: 0 0 0 1px rgb(154 79 141 / 28%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--chat-accent) 28%, transparent);
   animation: highlighted-blink 1.1s ease-in-out infinite alternate;
 }
 
@@ -466,21 +466,21 @@ function handleAvatarContextMenu(event: MouseEvent) {
 .msg-item.highlighted .reply-card,
 .msg-item.highlighted .recalled-message,
 .msg-item.highlighted .system-notice-text {
-  background-color: var(--chat-highlight-bg, #e9d8e6) !important;
+  background-color: var(--chat-highlight-bg) !important;
 }
 
 @keyframes highlighted-blink {
   from {
     box-shadow:
-      0 0 1px 1px rgb(154 79 141 / 28%),
-      0 0 6px rgb(154 79 141 / 18%);
+      0 0 1px 1px color-mix(in srgb, var(--chat-accent) 28%, transparent),
+      0 0 6px color-mix(in srgb, var(--chat-accent) 18%, transparent);
     filter: brightness(1);
   }
 
   to {
     box-shadow:
-      0 0 2px 2px rgb(154 79 141 / 55%),
-      0 0 14px rgb(154 79 141 / 32%);
+      0 0 2px 2px color-mix(in srgb, var(--chat-accent) 55%, transparent),
+      0 0 14px color-mix(in srgb, var(--chat-accent) 32%, transparent);
     filter: brightness(1.02);
   }
 }

@@ -280,9 +280,23 @@ const handleClose = () => {
 
 <style scoped lang="scss">
 .file-preview-demo-page {
+  // 演示页自己的皮肤：日间保留紫色渐变 + 白卡片，
+  // 夜间切成深色渐变 + 深色卡片，文字 / 描边 / 阴影同步换色。
+  --fp-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --fp-card: rgba(255, 255, 255, 0.95);
+  --fp-text: #333333;
+  --fp-muted: #666666;
+  --fp-accent: #667eea;
+  --fp-border: #e0e0e0;
+  --fp-thumb: #f5f5f5;
+  --fp-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --fp-shadow-hover: 0 8px 16px rgba(0, 0, 0, 0.2);
+  --fp-item-hover-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+
   // --app-h 跟随移动端地址栏变化，比 100vh 准确。
   min-height: var(--app-h);
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--fp-bg);
+  color: var(--fp-text);
   padding: 40px 20px;
   // 滚动条纵向
   overflow-x: auto;
@@ -313,17 +327,17 @@ const handleClose = () => {
     margin: 0 auto 40px;
 
     .feature-card {
-      background: rgba(255, 255, 255, 0.95);
+      background: var(--fp-card);
       border-radius: 12px;
       padding: 30px;
       text-align: center;
       cursor: pointer;
       transition: all 0.3s ease;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      box-shadow: var(--fp-shadow);
 
       &:hover {
         transform: translateY(-5px);
-        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+        box-shadow: var(--fp-shadow-hover);
       }
 
       .card-icon {
@@ -359,12 +373,12 @@ const handleClose = () => {
       h3 {
         font-size: 18px;
         margin: 0 0 8px 0;
-        color: #333;
+        color: var(--fp-text);
       }
 
       p {
         font-size: 13px;
-        color: #666;
+        color: var(--fp-muted);
         margin: 0;
       }
     }
@@ -375,21 +389,21 @@ const handleClose = () => {
     margin: 0 auto;
 
     .demo-section {
-      background: rgba(255, 255, 255, 0.95);
+      background: var(--fp-card);
       border-radius: 12px;
       padding: 30px;
       margin-bottom: 30px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      box-shadow: var(--fp-shadow);
 
       h2 {
         font-size: 20px;
         margin: 0 0 20px 0;
-        color: #333;
+        color: var(--fp-text);
       }
 
       .hint {
         margin-top: 12px;
-        color: #666;
+        color: var(--fp-muted);
         font-size: 13px;
       }
 
@@ -399,21 +413,21 @@ const handleClose = () => {
         gap: 16px;
 
         .file-item {
-          border: 2px solid #e0e0e0;
+          border: 2px solid var(--fp-border);
           border-radius: 8px;
           overflow: hidden;
           cursor: pointer;
           transition: all 0.2s ease;
 
           &:hover {
-            border-color: #667eea;
+            border-color: var(--fp-accent);
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+            box-shadow: var(--fp-item-hover-shadow);
           }
 
           .file-preview-thumb {
             height: 150px;
-            background: #f5f5f5;
+            background: var(--fp-thumb);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -454,7 +468,7 @@ const handleClose = () => {
 
             .file-name {
               font-size: 13px;
-              color: #333;
+              color: var(--fp-text);
               overflow: hidden;
               text-overflow: ellipsis;
               white-space: nowrap;
@@ -462,12 +476,33 @@ const handleClose = () => {
 
             .file-action {
               font-size: 11px;
-              color: #667eea;
+              color: var(--fp-accent);
             }
           }
         }
       }
     }
   }
+}
+
+// 夜间：暗色渐变 + 深色卡片；主题色作为强调与悬停描边，
+// 既保留演示页自己的视觉语言，又不会在夜间显示一整片白卡片。
+html[data-theme="dark"] .file-preview-demo-page {
+  --fp-bg:
+    radial-gradient(
+      120% 100% at 0% 0%,
+      color-mix(in srgb, var(--theme-color) 18%, transparent),
+      transparent 62%
+    ),
+    linear-gradient(135deg, #0b1220 0%, #020617 100%);
+  --fp-card: rgba(15, 23, 42, 0.92);
+  --fp-text: #e5e7eb;
+  --fp-muted: #9ca3af;
+  --fp-accent: var(--theme-color-strong);
+  --fp-border: rgba(148, 163, 184, 0.24);
+  --fp-thumb: #111c2e;
+  --fp-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  --fp-shadow-hover: 0 12px 30px rgba(0, 0, 0, 0.55);
+  --fp-item-hover-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
 }
 </style>

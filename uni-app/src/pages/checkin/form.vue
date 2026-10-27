@@ -93,6 +93,7 @@ function handlePreviewImage(current: string) {
   });
 }
 
+// HEIC/HEIF 不在小程序端转码：原文件直接上传，服务端会解码并统一转成 WebP
 async function uploadFile(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
     uni.uploadFile({

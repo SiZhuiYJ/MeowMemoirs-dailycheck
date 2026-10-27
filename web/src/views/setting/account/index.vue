@@ -69,67 +69,25 @@ async function handleSave() {
         <h3 class="setting-title">账号修改</h3>
         <p class="setting-subtitle">账号名将作为全局唯一标识，请谨慎修改。</p>
       </div>
-      <div class="form-group">
-        <div class="field">
-          <text class="setting-label">账号名 (全局唯一)</text>
-          <input class="setting-input" v-model="userAccount" placeholder="设置账号名"
-            :disabled="!!authStore.user?.userAccount && !accountStatus.canUpdate" />
-          <text v-if="!accountStatus.canUpdate && accountStatus.nextUpdateAt" class="hint-text">
-            下次可修改时间：{{
-              new Date(accountStatus.nextUpdateAt).toLocaleDateString()
-            }}
-          </text>
-          <text class="setting-desc">账号名是您的唯一标识，请谨慎修改。</text>
-        </div>
+
+      <div class="setting-field">
+        <label class="setting-label" for="setting-account">账号名（全局唯一）</label>
+        <input id="setting-account" v-model="userAccount" class="setting-input" placeholder="设置账号名"
+          :disabled="!!authStore.user?.userAccount && !accountStatus.canUpdate" />
+        <span v-if="!accountStatus.canUpdate && accountStatus.nextUpdateAt" class="setting-hint">
+          下次可修改时间：{{
+            new Date(accountStatus.nextUpdateAt).toLocaleDateString()
+          }}
+        </span>
+        <span class="setting-desc">账号名是您的唯一标识，请谨慎修改。</span>
       </div>
     </div>
 
-    <div class="actions">
-      <button class="btn-save" :loading="loading" :disabled="!!authStore.user?.userAccount && !accountStatus.canUpdate"
-        @click="handleSave">
+    <div class="setting-footer">
+      <el-button type="primary" class="setting-submit" :loading="loading"
+        :disabled="!!authStore.user?.userAccount && !accountStatus.canUpdate" @click="handleSave">
         保存
-      </button>
+      </el-button>
     </div>
   </div>
 </template>
-
-<style scoped lang="scss">
-// 页面骨架见 features/setting/style/index.scss。
-.form-group {
-  margin-bottom: 20px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-}
-
-.hint-text {
-  display: block;
-  font-size: 11px;
-  color: #fa5151;
-  margin-top: 8px;
-}
-
-.btn-save {
-  background-color: var(--theme-action-bg);
-  color: var(--theme-action-contrast);
-  border-radius: 8px;
-  font-size: 15px;
-  height: 44px;
-  line-height: 44px;
-  margin-top: 10px;
-  width: 100%;
-  border: none;
-  cursor: pointer;
-}
-
-.btn-save:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.actions {
-  padding: 0;
-}
-</style>

@@ -13,8 +13,8 @@ const emit = defineEmits<{
     <label class="container">
         <input type="checkbox" :checked="props.isPinned" @change="emit('togglePinned')" />
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 75 100" class="pin">
-            <line stroke-width="12" stroke="black" y2="100" x2="37" y1="64" x1="37"></line>
-            <path stroke-width="10" stroke="black"
+            <line stroke-width="12" stroke="currentColor" y2="100" x2="37" y1="64" x1="37"></line>
+            <path stroke-width="10" stroke="currentColor"
                 d="M16.5 36V4.5H58.5V36V53.75V54.9752L59.1862 55.9903L66.9674 67.5H8.03256L15.8138 55.9903L16.5 54.9752V53.75V36Z">
             </path>
         </svg>
@@ -33,6 +33,11 @@ const emit = defineEmits<{
     width: 47%;
     height: auto;
     transform: rotate(35deg);
+    // 未选中：中性描边；选中后整颗图钉用主题色填充。
+    // 不再写死黑色 / 紫色，夜间模式下才不会变成「黑描边看不见」。
+    color: var(--chat-muted);
+    fill: none;
+    stroke: currentColor;
 }
 
 .container {
@@ -49,21 +54,14 @@ const emit = defineEmits<{
 }
 
 .container input:checked~.pin {
-    fill: rgb(179, 139, 255);
-    stroke: white;
-}
-
-.container input:checked~.pin line {
-    stroke: rgb(179, 139, 255);
-}
-
-.container input:checked~.pin path {
-    stroke: rgb(179, 139, 255);
+    color: var(--chat-accent);
+    fill: currentColor;
+    stroke: currentColor;
 }
 
 .container:hover {
-    background-color: rgb(244, 238, 255);
-    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.041);
+    background-color: var(--chat-accent-soft);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.06);
 }
 
 .container:active {

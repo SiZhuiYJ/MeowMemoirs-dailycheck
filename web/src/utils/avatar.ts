@@ -1,5 +1,6 @@
 import { API_BASE_URL } from "@/config";
 import { convertToWebP } from "@/utils/convertToWebP";
+import { isHeicFile } from "@/utils/heic";
 
 const AVATAR_PREVIEW_MAX_PIXELS = 1200;
 const AVATAR_THUMBNAIL_MAX_PIXELS = 96;
@@ -79,21 +80,33 @@ export async function createAvatarUploadFormData(file: File): Promise<FormData> 
   const normalizedName =
     file.name.replace(/\.[^.]+$/, "").trim() || "avatar";
 
-  const avatarFile = (await convertToWebP(file, {
-    quality: 1,
-    maxWidth: AVATAR_PREVIEW_MAX_PIXELS,
-    maxHeight: AVATAR_PREVIEW_MAX_PIXELS,
-    output: "file",
-    fileName: `${normalizedName}.webp`,
-  })) as File;
+  let avatarFile: File;
+  let thumbnailFile: File;
 
-  const thumbnailFile = (await convertToWebP(file, {
-    quality: 0.76,
-    maxWidth: AVATAR_THUMBNAIL_MAX_PIXELS,
-    maxHeight: AVATAR_THUMBNAIL_MAX_PIXELS,
-    output: "file",
-    fileName: `${normalizedName}-thumb.webp`,
-  })) as File;
+  try {
+    avatarFile = (await convertToWebP(file, {
+      quality: 1,
+      maxWidth: AVATAR_PREVIEW_MAX_PIXELS,
+      maxHeight: AVATAR_PREVIEW_MAX_PIXELS,
+      output: "file",
+      fileName: `${normalizedName}.webp`,
+    })) as File;
+
+    thumbnailFile = (await convertToWebP(file, {
+      quality: 0.76,
+      maxWidth: AVATAR_THUMBNAIL_MAX_PIXELS,
+      maxHeight: AVATAR_THUMBNAIL_MAX_PIXELS,
+      output: "file",
+      fileName: `${normalizedName}-thumb.webp`,
+    })) as File;
+  } catch (error) {
+    // 浏览器解不了 HEIC（旧内核 / WASM 被拦截）时退回原文件：
+    // 服务端会解码并生成 WebP 与缩略图，用户仍然能换头像。
+    if (!isHeicFile(file)) throw error;
+    console.warn("[avatar] HEIC 本地转换失败，交由服务端处理", error);
+    avatarFile = file;
+    thumbnailFile = file;
+  }
 
   const formData = new FormData();
   formData.append("file", avatarFile);

@@ -661,10 +661,10 @@ watch(
               更换群头像
             </el-button>
             <span class="avatar-tip">
-              {{ canChangeGroupAvatar ? "支持上传常见图片格式" : "仅群主或管理员可更换群头像" }}
+              {{ canChangeGroupAvatar ? "支持 JPG/PNG/WebP/HEIC 等图片格式" : "仅群主或管理员可更换群头像" }}
             </span>
           </div>
-          <input ref="avatarInputRef" class="hidden-input" type="file" accept="image/*" @change="handleAvatarChange">
+          <input ref="avatarInputRef" class="hidden-input" type="file" accept="image/*,.heic,.heif,.hif" @change="handleAvatarChange">
         </div>
 
         <div class="detail-meta">
@@ -933,7 +933,7 @@ watch(
 .avatar-preview {
   overflow: hidden;
   border-radius: 16px;
-  background: #f3f4f6;
+  background: var(--chat-inset);
 }
 
 .avatar-actions {
@@ -943,7 +943,7 @@ watch(
 }
 
 .avatar-tip {
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 11px;
   line-height: 18px;
 }
@@ -957,17 +957,22 @@ watch(
   display: grid;
   gap: 8px;
   padding: 14px 16px;
-  // 对话框现在是近白 / 浅粉的主题底，纯白信息卡容易和背景糊在一起：
+  // 对话框底色跟随日 / 夜主题：纯白 / 纯黑信息卡容易和背景糊在一起，
   // 用「主题色描边 + 极浅主题色底 + 微投影」把卡片边界做出来。
-  border: 1px solid color-mix(in srgb, var(--theme-color-strong, #9a4f8d) 12%, #e5e7eb);
+  border: 1px solid
+    color-mix(in srgb, var(--theme-color-strong) 14%, var(--chat-border-strong));
   border-radius: 12px;
-  background: color-mix(in srgb, var(--theme-color-strong, #9a4f8d) 4%, #f7f7f9);
-  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.05);
+  background: color-mix(
+    in srgb,
+    var(--theme-color-strong) 6%,
+    var(--chat-surface-soft)
+  );
+  box-shadow: 0 1px 2px rgba(2, 6, 23, 0.12);
 }
 
 .meta-item {
   margin: 0;
-  color: #111827;
+  color: var(--chat-text);
   font-size: 13px;
   line-height: 20px;
 }
@@ -987,9 +992,9 @@ watch(
   display: grid;
   gap: 16px;
   padding: 16px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--chat-border-strong);
   border-radius: 12px;
-  background: #fff;
+  background: var(--chat-surface-solid);
 }
 
 .direct-friend-main {
@@ -1017,13 +1022,13 @@ watch(
 }
 
 .direct-friend-name {
-  color: #111827;
+  color: var(--chat-text);
   font-size: 14px;
   line-height: 22px;
 }
 
 .direct-friend-meta {
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
   word-break: break-all;
@@ -1037,7 +1042,7 @@ watch(
 
 .direct-friend-tip {
   margin: 0;
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 11px;
   line-height: 18px;
 }
@@ -1052,13 +1057,13 @@ watch(
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  color: #111827;
+  color: var(--chat-text);
   font-size: 13px;
   font-weight: 600;
 }
 
 .section-tip {
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 11px;
   font-weight: 400;
 }
@@ -1075,9 +1080,9 @@ watch(
   align-items: center;
   gap: 12px;
   padding: 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--chat-border-strong);
   border-radius: 12px;
-  background: #fff;
+  background: var(--chat-surface-solid);
 }
 
 .member-main {
@@ -1094,11 +1099,11 @@ watch(
 
   &:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(17, 24, 39, 0.16);
+    box-shadow: var(--chat-hover-shadow);
   }
 
   &:focus-visible {
-    outline: 2px solid #111827;
+    outline: 2px solid var(--chat-text);
     outline-offset: 2px;
   }
 }
@@ -1117,7 +1122,7 @@ watch(
 
 .member-name {
   overflow: hidden;
-  color: #111827;
+  color: var(--chat-text);
   font-size: 13px;
   font-weight: 600;
   line-height: 20px;
@@ -1126,7 +1131,7 @@ watch(
 }
 
 .member-subtext {
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 11px;
   line-height: 18px;
 }
@@ -1144,7 +1149,7 @@ watch(
   align-items: center;
   justify-content: flex-end;
   gap: 14px;
-  color: #111827;
+  color: var(--chat-text);
   font-size: 18px;
 }
 
@@ -1165,11 +1170,11 @@ watch(
   transition: background-color 0.15s ease;
 
   &:hover {
-    background: #f4eeff;
+    background: var(--chat-accent-soft);
   }
 
   &:focus-visible {
-    outline: 2px solid var(--chat-accent, #9a4f8d);
+    outline: 2px solid var(--chat-accent);
     outline-offset: 2px;
   }
 }
@@ -1187,7 +1192,7 @@ watch(
 .invite-dialog-text,
 .mute-dialog-text {
   margin: 0;
-  color: #4b5563;
+  color: var(--chat-text-secondary);
   font-size: 13px;
   line-height: 20px;
 }
@@ -1217,7 +1222,7 @@ watch(
   display: grid;
   gap: 12px;
   padding: 14px 0;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--chat-border);
 }
 
 .join-request-row:last-child {
@@ -1237,7 +1242,7 @@ watch(
 }
 
 .join-request-meta {
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
 }
@@ -1255,7 +1260,7 @@ watch(
 }
 
 .friend-option-meta {
-  color: #9ca3af;
+  color: var(--chat-muted-light);
   font-size: 11px;
 }
 

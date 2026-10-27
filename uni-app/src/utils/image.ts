@@ -6,6 +6,10 @@
  * 实现原理：
  * 1. H5环境：通过Canvas绘制图片并导出为WebP格式Blob
  * 2. 小程序环境：因API限制直接返回原路径（需服务端转换）
+ *
+ * HEIC/HEIF：H5 的 <img> 无法解码时这里会回退原路径，小程序端也原样上传，
+ * 最终由服务端 api/Infrastructure/HeicImageLoader.cs 解码并转成 WebP。
+ * 因此 uni-app 端不额外引入 WASM 解码器也能正常上传 iPhone 照片。
  */
 export function compressImageToWebP(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {

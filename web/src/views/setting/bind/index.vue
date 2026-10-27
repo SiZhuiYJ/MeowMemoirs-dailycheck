@@ -359,7 +359,9 @@ async function toggleBind(bindName: string) {
             <div class="bind-list" v-loading="loading">
                 <div class="bind-item" v-for="binding in thirdPartyBindings" :key="binding.provider">
                     <div class="bind-info">
-                        <svg-icon class="bind-icon" :icon-class="binding.icon" color="#121212" size="40px" />
+                        <span class="bind-icon" aria-hidden="true">
+                            <svg-icon :icon-class="binding.icon" size="26px" />
+                        </span>
                         <div class="bind-details">
                             <span class="bind-name">{{ binding.name }}</span>
                             <span class="bind-desc">
@@ -387,24 +389,35 @@ async function toggleBind(bindName: string) {
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 // 页面骨架见 features/setting/style/index.scss。
 .bind-list {
-    margin-top: 8px;
+    margin-top: 4px;
 }
 
 .bind-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px;
-    border-bottom: 0.5px solid rgba(0, 0, 0, 0.1);
+    gap: 12px;
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--chat-border);
+    transition: background-color 0.16s ease;
 
     &:last-child {
         border-bottom: none;
     }
 
-    &:hover {
-        background-color: var(--theme-color-soft);
+    // 触屏上没有 hover，避免点过的行「粘」在悬停底色上
+    @media (hover: hover) and (pointer: fine) {
+        &:hover {
+            background-color: var(--chat-surface-soft);
+        }
+    }
+
+    :deep(.el-button) {
+        flex-shrink: 0;
     }
 }
 
@@ -412,29 +425,58 @@ async function toggleBind(bindName: string) {
     display: flex;
     align-items: center;
     flex: 1;
+    min-width: 0;
 }
 
+// 品牌图标自带黑色路径，垫一层固定白底，夜间模式下也能看清。
+// 这里的 #fff 不随主题变化是刻意的（同聊天页媒体上的白色蒙层）。
 .bind-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
     width: 40px;
     height: 40px;
     margin-right: 12px;
-    border-radius: 8px;
+    border-radius: 10px;
+    background: #fff;
 }
 
 .bind-details {
     flex: 1;
+    min-width: 0;
 }
 
 .bind-name {
     display: block;
-    font-size: 15px;
-    color: var(--text-color);
-    margin-bottom: 4px;
+    margin-bottom: 2px;
+    overflow: hidden;
+    color: var(--chat-text);
+    font-size: 14px;
+    line-height: 20px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .bind-desc {
     display: block;
-    font-size: 13px;
-    color: var(--text-muted);
+    overflow: hidden;
+    color: var(--chat-muted);
+    font-size: 12px;
+    line-height: 18px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@include rp.device-mobile {
+    .bind-item {
+        padding: 6px 2px;
+    }
+
+    .bind-icon {
+        width: 36px;
+        height: 36px;
+        margin-right: 10px;
+    }
 }
 </style>

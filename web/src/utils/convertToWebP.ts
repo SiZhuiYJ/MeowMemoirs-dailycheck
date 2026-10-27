@@ -5,11 +5,14 @@
  * - 接受 `File | Blob | string(URL)` 作为输入
  * - 支持设置 `quality`（0-1）和 `maxWidth` / `maxHeight`，保留宽高比
  * - 支持返回 `Blob`、`DataURL` 或 `File`
+ * - 支持 HEIC/HEIF：浏览器不能直接解码的格式会先经 heic2any 解成 JPEG
  *
  * 限制：
  * - 浏览器端实现依赖 canvas，不能保留 GIF 的动画帧（会只取第一帧）
  * - 跨域图片需要服务器设置 `Access-Control-Allow-Origin`，否则可能无法绘制到 canvas
  */
+import { toBrowserDecodableBlob } from "@/utils/heic";
+
 export type ConvertOptions = {
     quality?: number; // 0 - 1
     maxWidth?: number;
@@ -231,7 +234,11 @@ async function decodeForDraw(blob: Blob, maxWidth?: number, maxHeight?: number):
  */
 export async function convertToWebPBlob(input: File | Blob | string, options: ConvertOptions = {}): Promise<Blob> {
     const { quality = 0.8, maxWidth, maxHeight } = options;
-    const blob = await fetchToBlobIfNeeded(input);
+    const rawBlob = await fetchToBlobIfNeeded(input);
+
+    // HEIC/HEIF 先解成 JPEG：canvas / createImageBitmap / Image 都不认 HEIC。
+    // 同一 File 的解码结果会被 HEIC 工具缓存，头像预览 + 缩略图不会重复解码。
+    const blob = await toBrowserDecodableBlob(rawBlob);
 
     // For GIFs: canvas will draw only the first frame (animated GIFs will be flattened)
     const source = await decodeForDraw(blob, maxWidth, maxHeight);

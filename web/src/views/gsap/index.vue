@@ -933,4 +933,16 @@ video {
     background: var(--gradient-lipstick);
     background-blend-mode: color-dodge;
 }
+
+// 夜间：整页的白色底板切成全局深色底；画廊标题原本是黑字，
+// 跟随主题改成浅色。其余区块自身是图片 / 视频 / 亮色渐变，
+// 不强行反转，保留原演示页的视觉语言。
+html[data-theme="dark"] #smooth-content {
+    background-color: var(--bg-color);
+}
+
+html[data-theme="dark"] .scrolling-gallery .gallery-title-start,
+html[data-theme="dark"] .scrolling-gallery .gallery-title-end {
+    color: var(--text-color);
+}
 </style>

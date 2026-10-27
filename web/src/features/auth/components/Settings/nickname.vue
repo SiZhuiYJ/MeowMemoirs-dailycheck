@@ -39,45 +39,34 @@ onMounted(() => {
   if (user.value?.nickName) {
     nickName.value = user.value.nickName;
   }
-  console.log(user.value);
 });
 </script>
 
 <template>
-  <div class="card">
-    <div class="form-group">
-      <div class="field">
-        <label class="setting-label">昵称</label>
-        <input class="setting-input" v-model="nickName" placeholder="设置昵称" />
-        <label class="setting-desc">好的昵称能让大家更容易记住你。</label>
-      </div>
+  <div class="nickname-form">
+    <div class="setting-header">
+      <h3 class="setting-title">昵称</h3>
+      <p class="setting-subtitle">好的昵称能让大家更容易记住你。</p>
     </div>
-  </div>
 
-  <div class="actions">
-    <el-button class="btn-save" :loading="loading" @click="handleSave">保存</el-button>
+    <div class="setting-field">
+      <input id="setting-nickname" v-model="nickName" class="setting-input" aria-label="昵称" placeholder="设置昵称" />
+    </div>
+
+    <div class="setting-footer">
+      <el-button type="primary" class="setting-submit" :loading="loading" @click="handleSave">
+        保存
+      </el-button>
+    </div>
   </div>
 </template>
 
 <style scoped lang="scss">
+// 卡片外壳由 profile 页的 .setting-card 提供；这里只排「标题 + 输入 + 操作」。
 // 输入框 / 标签 / 说明文字见 features/setting/style/index.scss 的
 // .setting-input / .setting-label / .setting-desc。
-.card {
-  background-color: var(--bg-elevated);
-  border-radius: 12px;
-  padding: 20px;
-  margin-bottom: 20px;
-}
-
-.btn-save {
-  border-radius: 8px;
-  font-size: 15px;
-  height: 44px;
-  line-height: 44px;
-  margin-top: 10px;
-}
-
-.actions {
-  padding: 0 10px;
+.nickname-form {
+  display: flex;
+  flex-direction: column;
 }
 </style>

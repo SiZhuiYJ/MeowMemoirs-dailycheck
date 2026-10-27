@@ -53,3 +53,16 @@ export function extractDomain(emailStr: string): string {
     const parts = emailStr.split('@');
     return parts[1] || emailStr;
 }
+
+/**
+ * 是否为微信注册时生成的内部占位邮箱（wx_*@wechat.local）。
+ * 这类邮箱既收不到验证码，也没有用户可用的密码。
+ */
+export function isWechatPlaceholderEmail(email?: string | null): boolean {
+    return !!email && /@wechat\.local\s*$/i.test(email);
+}
+
+/** 简单的邮箱格式校验（与后端 MailAddress 校验保持一致的可用性）。 */
+export function isValidEmail(email: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}

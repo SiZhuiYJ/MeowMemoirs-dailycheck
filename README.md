@@ -128,7 +128,12 @@ npm run dev
 | 打卡记录 Checkins | 打卡（需 1–3 张图片）、补卡、按计划的日历与详情 |
 | 好友 Friends | 好友申请、好友列表、用户拉黑 / 黑名单（拉黑后禁止对方加好友、单聊与搜索；主页仍可查看，群聊不受影响） |
 | 聊天 Chat | 会话/群聊、成员与角色、入群申请、消息收发、已读回执、文件消息、SignalR 实时推送 |
-| 文件 Files | 上传、预览、下载（图片转 WebP、SHA256 去重） |
+| 文件 Files | 上传、预览、下载（图片转 WebP、HEIC/HEIF 适配、SHA256 去重） |
+
+> **图片格式**：JPG / PNG / GIF / WebP / BMP / SVG / ICO 以及 iPhone 默认的
+> **HEIC / HEIF** 均可上传。Web 端用 `heic2any` 在浏览器内先解码再转 WebP；
+> 服务端也会用纯托管的 `Heic.NET` 兜底解码，统一落盘为 WebP（不依赖
+> libheif / ImageMagick 等原生库）。
 
 > **鉴权模型（双令牌）**
 >

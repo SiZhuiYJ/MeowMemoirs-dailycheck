@@ -56,12 +56,14 @@ async function uploadImage() {
       </div>
 
       <div class="avatar-main">
-        <ProgressiveAvatar class="avatar-preview" :src="avatar.src" :thumbnail-src="avatar.thumbnailSrc"
-          :is-preview="true" width="100%" :height="0" shape="square">
-          <span class="avatar-text-large">
-            {{ getFallbackText() }}
-          </span>
-        </ProgressiveAvatar>
+        <div class="avatar-frame">
+          <ProgressiveAvatar class="avatar-preview" :src="avatar.src" :thumbnail-src="avatar.thumbnailSrc"
+            :is-preview="true" width="100%" :height="0" shape="square">
+            <span class="avatar-text-large">
+              {{ getFallbackText() }}
+            </span>
+          </ProgressiveAvatar>
+        </div>
 
         <ImageUploader @crop="onCropped" />
 
@@ -78,13 +80,19 @@ async function uploadImage() {
 .avatar-main {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   align-items: center;
+}
+
+// 外层定宽：padding-bottom: 100% 的百分比是相对**包含块**的宽度，
+// 所以方形预览必须由这个固定宽度的容器来撑，不能直接给头像设 width: 240px。
+.avatar-frame {
+  width: min(240px, 100%);
 }
 
 .avatar-preview {
   padding-bottom: 100%;
-  border-radius: 16px;
+  border-radius: 12px;
 }
 
 .avatar-text-large {
@@ -94,7 +102,7 @@ async function uploadImage() {
   justify-content: center;
   align-items: center;
   background-color: var(--theme-primary-bg);
-  border-radius: 16px;
+  border-radius: 12px;
   font-size: 36px;
   color: var(--theme-color-contrast);
 }

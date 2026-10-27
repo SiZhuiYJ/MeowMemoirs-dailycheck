@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // web/src/components/FilePreview/index.vue
-import { defineAsyncComponent, ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { defineAsyncComponent, ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
-import type { CarouselInstance } from 'element-plus'
+import type { CarouselInstance, ScrollbarInstance } from 'element-plus'
 import { ArrowDown, ArrowUp } from '@element-plus/icons-vue'
 import { MiniAudioPlayer } from '../MiniAudioPlayer/index'
 import SvgIcon from '@/components/SvgIcon/index.vue';
@@ -89,6 +89,10 @@ const videoRefs = ref<Record<number, HTMLVideoElement | null>>({})
 const videoContainerRefs = ref<Record<number, HTMLDivElement | null>>({})
 const previewOverlayRef = ref<HTMLElement>()
 const carouselRef = ref<CarouselInstance>()
+// 缩略图列表：需要拿到 el-scrollbar 的滚动容器和缩略图节点，
+// 才能把当前文件的缩略图滚到中间
+const thumbnailScrollbarRef = ref<ScrollbarInstance>()
+const thumbnailListRef = ref<HTMLElement>()
 const loadedFileKeys = ref<Set<string>>(new Set())
 
 const setImageRef = (index: number) => (el: Element | ComponentPublicInstance | null) => {
@@ -694,6 +698,62 @@ const handleCarouselChange = (index: number) => {
   resetPreview()
 }
 
+/**
+ * 把当前文件的缩略图滚动到缩略图条的可视区中间。
+ *
+ * 缩略图一多就横向溢出，而列表默认停在最左边：从消息里点开靠后的文件时，
+ * 高亮的缩略图往往在可视区外，用户看不到自己打开的到底是哪一张。
+ *
+ * 定位方式是「当前缩略图中心 → 滚动容器中心」，再夹到 [0, 最大滚动距离]：
+ * - 列表不够长 / 当前项在前几张时贴左边，在后几张时贴右边（居中会留白）；
+ * - 无论夹在哪一端，当前缩略图都保证完整可见。
+ *
+ * @param behavior 打开预览时用 'auto'（避免一进来就看到列表在滑动），
+ *                 切换文件时用 'smooth'（跟随预览切换的节奏）。
+ */
+const scrollActiveThumbnailIntoView = (behavior: ScrollBehavior = 'smooth') => {
+  // el-scrollbar 暴露的 wrapRef 运行时已被解包成 DOM 元素，
+  // 但 element-plus 的类型声明仍标成 Ref，这里按 DOM 元素取用。
+  const wrap = (thumbnailScrollbarRef.value?.wrapRef as unknown as HTMLElement | undefined) ?? null
+  // 缩略图列表里只有按钮，且与 fileList 一一对应，直接按索引取即可
+  const item = thumbnailListRef.value?.children[currentIndex.value] as HTMLElement | undefined
+  if (!wrap || !item) return
+
+  // 覆盖层 v-show 隐藏、或折叠面板收起时没有布局尺寸（clientWidth 为 0），
+  // 此时滚不了；展开 / 显示时会有新的调用补上。
+  const viewWidth = wrap.clientWidth
+  if (!viewWidth) return
+
+  const maxScrollLeft = Math.max(wrap.scrollWidth - viewWidth, 0)
+  if (maxScrollLeft <= 0) return
+
+  // 用 getBoundingClientRect 取得的是滚动后的实际位置，
+  // 加上当前 scrollLeft 换算回内容坐标；hover 的 scale 是绕中心缩放，中心点不受影响。
+  const wrapRect = wrap.getBoundingClientRect()
+  const itemRect = item.getBoundingClientRect()
+  const itemCenter = itemRect.left + itemRect.width / 2
+  const viewCenter = wrapRect.left + viewWidth / 2
+  const targetLeft = Math.min(
+    Math.max(wrap.scrollLeft + itemCenter - viewCenter, 0),
+    maxScrollLeft,
+  )
+
+  // 已经在目标位置（例如点击的就是居中那张）就不滚动，避免无意义的动画
+  if (Math.abs(wrap.scrollLeft - targetLeft) < 1) return
+
+  wrap.scrollTo({ left: targetLeft, behavior })
+}
+
+/**
+ * 等本轮 DOM 更新（.active 切换、折叠面板展开）完成后再滚动，
+ * 并多等一帧，保证缩略图条与滚动容器已经完成布局测量。
+ */
+const scheduleActiveThumbnailScroll = (behavior: ScrollBehavior = 'smooth') => {
+  nextTick(() => {
+    requestAnimationFrame(() => scrollActiveThumbnailIntoView(behavior))
+  })
+}
+
 const content = ref<string | null>(null);
 
 async function convertBlobUrl() {
@@ -826,6 +886,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
 watch(currentIndex, (newIndex) => {
   carouselRef.value?.setActiveItem(newIndex)
   resetPreview()
+  scheduleActiveThumbnailScroll()
 })
 
 // 监听当前文件变化，确保 loading 状态正确
@@ -858,6 +919,18 @@ watch(
   { immediate: true },
 )
 
+// 打开预览时，把「当前打开文件」的缩略图对到列表中间（两端会贴边，但保证可见）。
+// 用 'auto' 而不是 smooth：一打开就看到列表自己滑动一下反而像错位。
+watch(visible, (value) => {
+  if (value) scheduleActiveThumbnailScroll('auto')
+})
+
+// 用户收起再展开缩略图面板时，容器在收起期间没有尺寸，滚动会被跳过；
+// 展开后补一次（同样用 'auto'，避免刚展开就看到列表滑动）。
+watch(activeNames, (names) => {
+  if (names.includes('1')) scheduleActiveThumbnailScroll('auto')
+})
+
 // 视口尺寸变化（旋转屏幕、浏览器地址栏收起、软键盘）后重新夹紧位移/视频适配比例，
 // 否则图片的拖动范围、视频旋转后的缩放会按旧尺寸算，画面能拖到容器外。
 const handleViewportResize = () => {
@@ -867,6 +940,8 @@ const handleViewportResize = () => {
     } else if (currentFileType.value === 'video') {
       refreshVideoFit()
     }
+    // 断点变化会改缩略图尺寸 / 每屏张数，重新把当前项对到中间
+    scrollActiveThumbnailIntoView('auto')
   })
 }
 
@@ -877,6 +952,8 @@ onMounted(() => {
   document.addEventListener('mouseup', handleDocumentMouseUp)
   window.addEventListener('resize', handleViewportResize)
   window.addEventListener('orientationchange', handleViewportResize)
+  // 组件可能带着 visible = true 挂载（父级 v-if），首次打开也要对位
+  scheduleActiveThumbnailScroll('auto')
 })
 
 onUnmounted(() => {
@@ -956,8 +1033,8 @@ onUnmounted(() => {
               </template>
 
               <template #default>
-                <el-scrollbar>
-                  <div v-if="fileList.length > 1" class="thumbnail-list">
+                <el-scrollbar ref="thumbnailScrollbarRef">
+                  <div v-if="fileList.length > 1" ref="thumbnailListRef" class="thumbnail-list">
                     <button v-for="(file, index) in fileList" :key="index" class="thumbnail-item"
                       :class="{ active: currentIndex === index }" @click="handleSwitchFile(index)">
                       <img v-if="getFileType(file) === 'image'" :src="file.path || file.url" :alt="file.name" />
@@ -1128,17 +1205,29 @@ onUnmounted(() => {
 @use "@/styles/responsive-mixins" as rp;
 
 .file-preview-overlay {
+  // 全屏遮罩跟随日 / 夜主题：夜间必须压暗，否则打开图片 / 文件时
+  // 整块覆盖层仍是半透明白底，和暗色页面完全脱节。
+  --file-preview-overlay-bg: rgba(255, 255, 255, 0.8);
+  --file-preview-toolbar-bg: rgba(255, 255, 255, 0.6);
+
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
   z-index: 9999;
-  background-color: rgba(255, 255, 255, 0.8);
+  background-color: var(--file-preview-overlay-bg);
   display: flex;
   flex-direction: column;
   // 移动端：文档/图片滚到尽头时不要把滚动传给后面的页面（会露出底下的聊天页）
   overscroll-behavior: contain;
+}
+
+// 夜间遮罩 / 顶部工具栏一起压暗；工具栏里的文件名等文字由 Element Plus
+// 的暗色变量负责，不会出现「深底深字」。
+html[data-theme="dark"] .file-preview-overlay {
+  --file-preview-overlay-bg: rgba(2, 6, 23, 0.88);
+  --file-preview-toolbar-bg: rgba(2, 6, 23, 0.72);
 }
 
 // 预览是全屏 fixed 覆盖层，顶部工具栏会压到刘海/状态栏上，
@@ -1149,7 +1238,7 @@ onUnmounted(() => {
   align-items: center;
   padding: 0;
   // padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) 12px calc(12px + var(--safe-left));
-  background-color: rgba(255, 255, 255, 0.6);
+  background-color: var(--file-preview-toolbar-bg);
   backdrop-filter: blur(10px);
   color: #fff;
   z-index: 10;

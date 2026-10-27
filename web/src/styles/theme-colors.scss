@@ -75,8 +75,8 @@
   --accent-alt: var(--theme-color);
 }
 
-// 日间色阶。抽成 mixin 是为了让「固定浅色面」（聊天页、聊天弹窗）
-// 在夜间模式下也能拿到同一套浅色 token，避免白底上出现夜间模式的浅粉文字。
+// 日间色阶。抽成 mixin 是为了让日间主题只维护一份色板，
+// 避免组件里复制浅色 token、破坏深浅主题的一致性。
 @mixin light-theme-tokens {
   // —— 日间模式：把种子色压深一档，保证白底上的可读性 ——
   --theme-color-strong: #9a4f8d;
@@ -113,9 +113,9 @@
   --el-color-primary-light-9: color-mix(in srgb, var(--theme-color-strong) 10%, #fff);
   --el-color-primary-dark-2: color-mix(in srgb, var(--theme-color-strong) 80%, #000);
 
-  // Element Plus 基础变量也切成浅色。聊天页的弹窗被 Teleport 到 body，
-  // 夜间模式下如果只换主题 token，弹窗仍是深色底，而内部文字是深色，
-  // 会出现「黑底黑字 + 深色语义按钮」。固定浅色面必须连 EP 基础变量一起换。
+  // Element Plus 基础变量也切成浅色。只换主题 token 是不够的：
+  // 弹窗 / 下拉层被 Teleport 到 body，基础变量不变会出现
+  // 「黑底黑字 + 深色语义按钮」，所以日间色阶必须连 EP 基础变量一起切。
   color-scheme: light;
   --el-color-white: #ffffff;
   --el-color-black: #000000;
@@ -185,22 +185,6 @@
 
 html[data-theme="light"] {
   @include light-theme-tokens;
-}
-
-// 固定浅色面：聊天页本身是浅色设计，弹窗又被 Teleport 到 body，
-// 不继承 .chat-page 的变量，所以两处都要显式加这个类。
-.theme-light-surface {
-  @include light-theme-tokens;
-  --chat-accent: #9a4f8d;
-  --chat-accent-soft: #f7e8f4;
-}
-
-// 当浅色类挂在 <html> 上时，EP 变量会和 html.dark[data-theme="dark"] 竞争；
-// 后者特异性更高，所以这里再补一条更高特异性的声明。
-html.dark[data-theme="dark"].theme-light-surface {
-  @include light-theme-tokens;
-  --chat-accent: #9a4f8d;
-  --chat-accent-soft: #f7e8f4;
 }
 
 // 夜间 EP 变量要压过 element-plus/theme-chalk/dark/css-vars.css 的 html.dark

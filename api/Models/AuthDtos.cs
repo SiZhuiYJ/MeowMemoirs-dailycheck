@@ -321,6 +321,34 @@ public class ChangePasswordRequest
 }
 
 /// <summary>
+/// 换绑邮箱请求参数。
+/// </summary>
+public class ChangeEmailRequest
+{
+    /// <summary>
+    /// 需要换绑到的新邮箱地址。
+    /// </summary>
+    public string NewEmail { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 发送到新邮箱的验证码。
+    /// </summary>
+    public string NewEmailCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 当前密码，用于身份校验；与 CurrentEmailCode 至少提供一个。
+    /// 微信注册账号的邮箱是内部占位地址，可省略。
+    /// </summary>
+    public string? Password { get; set; }
+
+    /// <summary>
+    /// 发送到当前邮箱的验证码，用于身份校验；与 Password 至少提供一个。
+    /// 微信注册账号的邮箱是内部占位地址，可省略。
+    /// </summary>
+    public string? CurrentEmailCode { get; set; }
+}
+
+/// <summary>
 /// 微信绑定请求参数，用于将当前登录用户与微信账号进行绑定。
 /// </summary>
 public class WechatBindRequest

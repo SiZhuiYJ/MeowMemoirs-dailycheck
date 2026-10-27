@@ -51,10 +51,12 @@ async function handleDeactivateConfirm(): Promise<void> {
                 <h3 class="setting-title">注销账号</h3>
                 <p class="setting-subtitle">该操作不可逆，请谨慎处理。</p>
             </div>
+
             <div class="setting-form">
                 <p class="setting-warning-text">
-                    注销后账号将无法登录，所有数据保留30天后彻底删除。请输入验证码确认注销。
+                    注销后账号将无法登录，所有数据保留 30 天后彻底删除。请输入验证码确认注销。
                 </p>
+
                 <div class="setting-field">
                     <span>邮箱验证码</span>
                     <div class="setting-code-row">
@@ -68,20 +70,13 @@ async function handleDeactivateConfirm(): Promise<void> {
                     </div>
                 </div>
             </div>
-            <span class="setting-footer">
-                <button class="setting-submit setting-submit--danger" :disabled="deactivateLoading"
+
+            <div class="setting-footer">
+                <el-button type="danger" class="setting-submit" :loading="deactivateLoading"
                     @click="handleDeactivateConfirm">
-                    {{ deactivateLoading ? "处理中..." : "确认注销" }}
-                </button>
-            </span>
+                    确认注销
+                </el-button>
+            </div>
         </div>
     </div>
 </template>
-
-<style scoped lang="scss">
-// 页面骨架、表单、验证码按钮与危险按钮见
-// features/setting/style/index.scss，这里只补一处本页的间距微调。
-.setting-code-row {
-    padding: 4px 0;
-}
-</style>

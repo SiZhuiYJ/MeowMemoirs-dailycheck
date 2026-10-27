@@ -69,10 +69,10 @@ function unlockBodyScroll() {
  * 卡片，保留圆角。
  *
  * 顶部 / 底部栏沿用聊天页的 `.chat-header` / `.composer` 类名和皮肤；
- * 弹层被 Teleport 到 body，脱离了 `.chat-page` 的 CSS 变量作用域，所以本组件
- * 在 `.chat-dialog` 上重新声明一整套 `--chat-*` 变量（值与
- * features/chat/style/index.scss 对齐），三档设备（大屏电脑 32px /
- * 平板·手机 24px）的密度也在这里再切一次。
+ * 弹层被 Teleport 到 body，脱离了 `.chat-page` 的尺寸变量作用域，所以本组件
+ * 在 `.chat-dialog` 上重新声明一套尺寸变量（三档设备：大屏电脑 32px /
+ * 平板·手机 24px）。颜色皮肤来自全局 `styles/chat-theme.scss` 的 `--chat-*`
+ * 变量，日间 / 夜间都能正确切换。
  *
  * 面板背景与 `components/ThemeColorDialog.vue` 的「主题色对话框」同一套配方：
  * 10% 主题色 + 两处主题色径向光晕（左上 / 右下），描边和投影也带主题色，
@@ -441,9 +441,10 @@ watch(
 @use "@/styles/app-shell" as shell;
 
 // ==============================================
-// 变量：与 features/chat/style/index.scss 的 .chat-page 对齐
+// 尺寸变量：与 features/chat/style/index.scss 的 .chat-page 对齐
 // ==============================================
-// 弹层被 Teleport 到 body，拿不到 .chat-page 上的变量，所以在这里重新声明一份。
+// 弹层被 Teleport 到 body，拿不到 .chat-page 上的尺寸变量，所以在这里重新声明一份。
+// 颜色皮肤（--chat-bg / --chat-surface / --chat-accent…）来自全局 chat-theme.scss。
 // 全局 .chat-header / .composer 的规则也会读这些变量（毛玻璃背景等）。
 .chat-dialog {
   // 打开时脚本会 focus 面板自身（读屏播报标题），不要因此在面板外圈出现焦点框。
@@ -462,8 +463,8 @@ watch(
   --chat-bar-h: calc(var(--chat-control-h) + var(--chat-pad) * 2);
 
   // 与 ThemeColorDialog 同款主题色底：左上 / 右下两处径向光晕 + 10% 主题色。
-  // 聊天页 / 弹层是固定浅色面，基底用 light-surface 下的 --el-bg-color-overlay
-  // （白色），夜间模式下也不会变成深色板。
+  // 基底用当前主题面的 --el-bg-color-overlay：日间是白色、夜间是深色，
+  // 弹层因此跟随聊天页所在的日 / 夜主题，而不是固定浅色。
   --chat-bg:
     radial-gradient(
       120% 95% at 0% 0%,
@@ -477,15 +478,12 @@ watch(
     ),
     color-mix(in srgb, var(--theme-color) 10%, var(--el-bg-color-overlay, #fff));
   // 表面 / 文字 / 描边全部取当前主题面（Element Plus 变量）：
-  // 聊天页挂了 .theme-light-surface，拿到浅色值；主题色对话框被顶栏在暗色页面
-  // 打开时拿到暗色值，不会出现「深底深字」。
+  // 日间页面拿到浅色值、夜间页面拿到深色值；
+  // 用户主页也复用同一套 --chat-* 变量，不会出现「深底深字」。
   --chat-surface: color-mix(in srgb, var(--el-bg-color-overlay, #fff) 94%, transparent);
   --chat-border: color-mix(in srgb, var(--el-text-color-primary, #111827) 10%, transparent);
-  --chat-shadow: var(--theme-outer-glow);
-  --chat-accent: #9a4f8d;
-  --chat-accent-soft: #f7e8f4;
-  --chat-muted: var(--el-text-color-secondary, #6b7280);
-  --chat-danger: #dc2626;
+  // --chat-accent / --chat-accent-soft / --chat-muted / --chat-danger 直接继承
+  // styles/chat-theme.scss 的全局变量（它们会随日 / 夜主题变化），不要再本地写死。
 
   // 全局 .chat-header / .composer 现在由 app-shell 的通用 mixin 提供，
   // 读取 --shell-*；弹层这里把聊天变量映射过去。

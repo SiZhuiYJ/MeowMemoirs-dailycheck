@@ -12,7 +12,7 @@ import {
  * 新主题的画面从圆心向外揭开，波纹本身用当前主题色描边 + 发光。
  *
  * 主题色由用户在下拉里选择，持久化到 localStorage。种子色会实时生成
- * 整套色阶（强调色、浅底、深色动作按钮、Element Plus primary、聊天浅色面），
+ * 整套色阶（强调色、浅底、深色动作按钮、Element Plus primary、聊天强调色），
  * 因此任意颜色都能保持文字可读，不需要为每个颜色单独写样式。
  *
  * 实现分两条路径：
@@ -112,17 +112,14 @@ function supportsViewTransition(): boolean {
 /**
  * 把当前主题色生成的全套变量写到 <html> 行内样式。
  *
- * 聊天页 / 用户主页挂载时 <html> 带 .theme-light-surface：
- * 这类固定浅色面要用日间色阶，即使全局主题是夜间。
+ * 现在所有页面都跟随全局主题，按 <html data-theme> 生成日间 / 夜间色阶，
+ * 不再有需要单独锁回日间的固定浅色面。
  */
 export function refreshThemePalette(): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  const lightSurface = root.classList.contains("theme-light-surface");
   const mode: ThemeMode =
-    lightSurface || root.getAttribute("data-theme") !== "dark"
-      ? "light"
-      : "dark";
+    root.getAttribute("data-theme") === "dark" ? "dark" : "light";
   const palette = buildThemePalette(appliedThemeColor, mode);
   for (const [name, value] of Object.entries(palette)) {
     root.style.setProperty(name, value);

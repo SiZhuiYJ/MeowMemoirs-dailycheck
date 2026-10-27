@@ -15,13 +15,9 @@ import {
   parseConversationId,
 } from '@/features/chat/utils/navigation';
 import { getUserAvatarSources } from '@/utils/avatar';
-import { useLightSurface } from '@/composables/use-light-surface';
 
 const route = useRoute();
 const router = useRouter();
-
-// 用户主页复用聊天页的浅色结构，同样继承浅色色阶
-useLightSurface();
 
 const loading = ref(false);
 const profile = ref<UserProfile | null>(null);
@@ -371,6 +367,15 @@ async function copyAccount() {
 .user-home-page {
   @include shell.app-shell-tokens;
   @include shell.app-page-shell;
+
+  // 用户主页复用聊天页的 --chat-* 皮肤：日间浅色、夜间深色，
+  // 面板 / 悬浮栏 / 描边 / 阴影都跟聊天页保持同一套色板。
+  --shell-bg: var(--chat-bg);
+  --shell-surface: var(--chat-surface);
+  --shell-border: var(--chat-border);
+  --shell-shadow: var(--chat-shadow);
+  --shell-muted: var(--chat-muted);
+  --shell-accent-soft: var(--chat-accent-soft);
 }
 
 .user-home-panel {
@@ -410,7 +415,7 @@ async function copyAccount() {
   margin: 0;
   padding-left: 6px;
   overflow: hidden;
-  color: #111827;
+  color: var(--chat-text);
   font-size: var(--shell-title-fs);
   font-weight: 700;
   line-height: 20px;
@@ -440,9 +445,9 @@ async function copyAccount() {
 
 .user-home-avatar {
   flex-shrink: 0;
-  color: #111827;
+  color: var(--chat-text);
   font-size: 32px;
-  background: var(--shell-accent-soft);
+  background: var(--chat-accent-soft);
 }
 
 .user-home-identity {
@@ -450,7 +455,7 @@ async function copyAccount() {
 
   h2 {
     margin: 0 0 4px;
-    color: #111827;
+    color: var(--chat-text);
     font-size: 22px;
     font-weight: 700;
     line-height: 30px;
@@ -465,7 +470,7 @@ async function copyAccount() {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
 }
@@ -482,19 +487,19 @@ async function copyAccount() {
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  color: #15803d;
+  color: var(--chat-success-text);
   font-size: 11px;
   line-height: 18px;
-  background: #f0fdf4;
+  background: var(--chat-success-soft);
 
   &.frozen {
-    color: #b91c1c;
-    background: #fef2f2;
+    color: var(--chat-danger-text);
+    background: var(--chat-danger-soft);
   }
 
   &.blocked {
-    color: #b91c1c;
-    background: #fef2f2;
+    color: var(--chat-danger-text);
+    background: var(--chat-danger-soft);
   }
 }
 
@@ -505,21 +510,21 @@ async function copyAccount() {
   margin: 0;
   padding: 16px;
   border-radius: 10px;
-  background: #f8fafc;
+  background: var(--chat-surface-soft);
 
   div {
     min-width: 0;
   }
 
   dt {
-    color: #6b7280;
+    color: var(--chat-muted);
     font-size: 11px;
     line-height: 18px;
   }
 
   dd {
     margin: 2px 0 0;
-    color: #111827;
+    color: var(--chat-text);
     font-size: 13px;
     font-weight: 600;
     line-height: 20px;
@@ -539,7 +544,7 @@ async function copyAccount() {
 }
 
 .state-title {
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 13px;
   line-height: 20px;
 }

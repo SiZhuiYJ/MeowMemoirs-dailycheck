@@ -14,6 +14,20 @@
 import { API_BASE_URL } from "@/config";
 import { installInstrumentation, type TelemetryApi } from "./instrument";
 import {
+  abortFlowRecord,
+  clearFlows,
+  completeFlow,
+  createFlow,
+  getFlow,
+  getFlows,
+  getRunningFlows,
+  initFlowStore,
+  listInterruptedFlows,
+  peekFlowStep,
+  persistFlows,
+  recordFlowStep,
+} from "./flow";
+import {
   appendEvent,
   buildEvent,
   clearEvents,
@@ -28,10 +42,24 @@ import {
   sanitizeData,
   truncateText,
 } from "./store";
-import type { TelemetryCategory, TelemetryEvent, TelemetryLevel } from "./types";
+import type {
+  TelemetryCategory,
+  TelemetryEvent,
+  TelemetryFlowRef,
+  TelemetryLevel,
+} from "./types";
 
-export type { TelemetryEvent, TelemetryLevel, TelemetryCategory } from "./types";
+export type {
+  TelemetryEvent,
+  TelemetryLevel,
+  TelemetryCategory,
+  TelemetryFlowRecord,
+  TelemetryFlowRef,
+  TelemetryFlowStatus,
+  TelemetryFlowStep,
+} from "./types";
 export { getEvents, clearEvents, getIdentity, getPending, markPending, clearPending };
+export { getFlows, getRunningFlows, clearFlows };
 
 const ENABLED = import.meta.env.VITE_TELEMETRY_ENABLED !== "false";
 const REPORT_ENABLED = import.meta.env.VITE_TELEMETRY_REPORT !== "false";
@@ -97,6 +125,11 @@ export function isTelemetryDebugEnabled() {
   return DEBUG_ENABLED;
 }
 
+/** 业务代码用它判断「埋点整体是否启用」，关闭时不做任何额外采集。 */
+export function isTelemetryEnabled() {
+  return ENABLED;
+}
+
 function notify(event: TelemetryEvent) {
   for (const listener of listeners) {
     try {
@@ -135,8 +168,9 @@ export function track(
   name: string,
   data?: Record<string, unknown>,
   level: TelemetryLevel = "info",
+  flow?: TelemetryFlowRef,
 ): TelemetryEvent {
-  const event = buildEvent({ level, category, name, data });
+  const event = buildEvent({ level, category, name, data, flow });
   if (!ENABLED) return event;
   if (!withinRateLimit()) return event;
 
@@ -145,6 +179,172 @@ export function track(
 
   if (level === "error" && REPORT_ENABLED) scheduleErrorFlush();
   return event;
+}
+
+/** 把一步同时写进事件流与流程记录；流程已结束时返回 null。 */
+function emitFlowStep(
+  flowId: string,
+  step: string,
+  level: TelemetryLevel,
+  data: Record<string, unknown> | undefined,
+  category: TelemetryCategory,
+): TelemetryEvent | null {
+  const flow = getFlow(flowId);
+  if (!flow || flow.status !== "running") return null;
+
+  const context = peekFlowStep(flowId);
+  if (!context) return null;
+
+  const ref: TelemetryFlowRef = {
+    id: flow.id,
+    name: flow.name,
+    step,
+    index: context.index,
+    elapsedMs: context.elapsedMs,
+  };
+  const event = track(category, step, data, level, ref);
+  // 即使事件被限流丢弃，流程记录也要保留这一步 —— 事后看「断在哪」比看单条事件更重要。
+  recordFlowStep(flowId, step, level, data, event.id, context);
+  return event;
+}
+
+export interface TelemetryFlowHandle {
+  readonly id: string;
+  readonly name: string;
+  readonly category: TelemetryCategory;
+  /** 记录一步并产生同名事件；流程已结束则返回 null。 */
+  step(
+    step: string,
+    data?: Record<string, unknown>,
+    level?: TelemetryLevel,
+    category?: TelemetryCategory,
+  ): TelemetryEvent | null;
+  /** 正常结束（可选自定义结束步骤名）。 */
+  finish(
+    step?: string,
+    data?: Record<string, unknown>,
+    level?: TelemetryLevel,
+    category?: TelemetryCategory,
+  ): TelemetryEvent | null;
+  /** 异常 / 取消 / 被拦截结束。 */
+  abort(
+    reason: string,
+    data?: Record<string, unknown>,
+    level?: TelemetryLevel,
+    category?: TelemetryCategory,
+  ): TelemetryEvent | null;
+  isActive(): boolean;
+  lastStep(): string | null;
+}
+
+function createNoopFlowHandle(name: string, category: TelemetryCategory): TelemetryFlowHandle {
+  return {
+    id: "",
+    name,
+    category,
+    step: () => null,
+    finish: () => null,
+    abort: () => null,
+    isActive: () => false,
+    lastStep: () => null,
+  };
+}
+
+/**
+ * 开始一次业务流程，返回可继续追加步骤的句柄。
+ *
+ * 同名流程若还在 running（上一次点击没等到 change / 取消，卡住了），
+ * 会先被标记为 superseded 收尾，避免流程永久挂着。
+ */
+export function startFlow(
+  name: string,
+  meta?: Record<string, unknown>,
+  category: TelemetryCategory = "app",
+): TelemetryFlowHandle {
+  if (!ENABLED) return createNoopFlowHandle(name, category);
+
+  for (const previous of getRunningFlows(name)) {
+    emitFlowStep(
+      previous.id,
+      "flow-aborted",
+      "warn",
+      { reason: "superseded", note: "新的同名流程开始，旧流程没有正常收尾" },
+      category,
+    );
+    abortFlowRecord(previous.id, "superseded");
+  }
+
+  const flow = createFlow(name, meta);
+  emitFlowStep(flow.id, "flow-start", "info", meta, category);
+
+  let active = true;
+  const stillRunning = () => active && getFlow(flow.id)?.status === "running";
+  const close = () => {
+    active = false;
+  };
+
+  return {
+    id: flow.id,
+    name,
+    category,
+    step(stepName, data, level = "info", stepCategory = category) {
+      if (!stillRunning()) return null;
+      return emitFlowStep(flow.id, stepName, level, data, stepCategory);
+    },
+    finish(stepName = "flow-complete", data, level = "info", stepCategory = category) {
+      if (!stillRunning()) return null;
+      const event = emitFlowStep(flow.id, stepName, level, data, stepCategory);
+      completeFlow(flow.id, stepName);
+      close();
+      return event;
+    },
+    abort(reason, data, level = "warn", stepCategory = category) {
+      if (!stillRunning()) return null;
+      const event = emitFlowStep(
+        flow.id,
+        "flow-aborted",
+        level,
+        { reason, ...(data ?? {}) },
+        stepCategory,
+      );
+      abortFlowRecord(flow.id, reason);
+      close();
+      return event;
+    },
+    isActive: stillRunning,
+    lastStep() {
+      const record = getFlow(flow.id);
+      const last = record && record.steps.length > 0 ? record.steps[record.steps.length - 1] : null;
+      return last?.step ?? null;
+    },
+  };
+}
+
+/**
+ * 上次页面加载遗留下来、没来得及收尾的流程。
+ *
+ * 移动端最常见的一种「上传没反应」其实是选择器打开时页面被系统回收 / 用户下拉刷新，
+ * 事件还来不及上报。启动时把这类流程标成 interrupted，并补一条 error 事件。
+ */
+function recoverInterruptedFlows() {
+  const identity = getIdentity();
+  for (const flow of listInterruptedFlows(identity.pageLoadId, identity.sessionId)) {
+    const last = flow.steps.length > 0 ? flow.steps[flow.steps.length - 1] : null;
+    emitFlowStep(
+      flow.id,
+      "flow-interrupted",
+      "error",
+      {
+        flowName: flow.name,
+        lastStep: last?.step ?? null,
+        steps: flow.steps.length,
+        startedAgoMs: Date.now() - flow.startedAt,
+        note: "上一次页面加载期间的流程没有正常结束（刷新 / 关闭 / 被系统回收）",
+      },
+      "app",
+    );
+    abortFlowRecord(flow.id, "page-reload-or-close");
+  }
 }
 
 /** 统一记录错误：自动提取 message/stack，并附带上下文。 */
@@ -240,6 +440,7 @@ export function exportJson(): string {
       exportedAt: new Date().toISOString(),
       identity: getIdentity(),
       pending: getPending(),
+      flows: getFlows(),
       events: getEvents(),
     },
     null,
@@ -255,6 +456,7 @@ export function initTelemetry() {
   initialized = true;
 
   initIdentity();
+  initFlowStore();
 
   // 载入「已上报 id」，避免刷新后重复上报历史事件
   try {
@@ -269,13 +471,21 @@ export function initTelemetry() {
   }
 
   installInstrumentation(api);
+  // 必须在 installInstrumentation 之后：补发的 interrupted 事件要走正常的采集管道
+  recoverInterruptedFlows();
 
   // 本地缓冲的落盘和「是否上报」无关：切后台 / 关页面时都立即写一次，
   // 平时则由 store 里的 2s 节流合并写入。
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") persistOnHide();
+    if (document.visibilityState === "hidden") {
+      persistOnHide();
+      persistFlows();
+    }
   });
-  window.addEventListener("pagehide", () => persistOnHide());
+  window.addEventListener("pagehide", () => {
+    persistOnHide();
+    persistFlows();
+  });
 
   if (!ENABLED || !REPORT_ENABLED) return;
   flushTimer = setInterval(() => flush(), FLUSH_INTERVAL_MS);
@@ -302,6 +512,10 @@ export const telemetry = {
   flush,
   subscribe,
   exportJson,
+  startFlow,
+  getFlows,
+  getRunningFlows,
+  clearFlows,
   getEvents,
   clearEvents: () => {
     clearEvents();
@@ -311,6 +525,7 @@ export const telemetry = {
   getPending,
   markPending,
   clearPending,
+  isEnabled: () => ENABLED,
   isDebugEnabled: () => DEBUG_ENABLED,
   isReportingActive: () => flushIntervalActive,
   stop: stopTelemetry,

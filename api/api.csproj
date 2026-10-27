@@ -9,6 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- HEIC/HEIF 是 iPhone 相册的默认格式，ImageSharp 本身不支持，这里用纯托管解码器 -->
+    <PackageReference Include="Heic.NET" Version="0.1.7" />
     <PackageReference Include="MailKit" Version="4.16.0" />
     <PackageReference Include="MimeKit" Version="4.16.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />

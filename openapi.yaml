@@ -198,6 +198,34 @@ paths:
         '401':
           description: 认证失败
 
+  /auth/change-email:
+    post:
+      tags: [Authentication]
+      summary: 换绑邮箱
+      description: |
+        换绑当前登录账号的邮箱。需要新邮箱验证码；
+        普通账号还需提供当前密码或当前邮箱验证码完成身份校验。
+        微信注册账号（内部占位邮箱 wx_*@wechat.local）仅需新邮箱验证码。
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeEmailRequest'
+      responses:
+        '200':
+          description: 换绑成功，返回更新后的用户信息与双 Token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: 新邮箱无效、验证码错误或当前身份校验失败
+        '409':
+          description: 新邮箱已被其他账号使用
+
   /auth/profile:
     post:
       tags: [Authentication]
@@ -482,7 +510,7 @@ paths:
     post:
       tags: [Files]
       summary: 上传头像
-      description: 上传用户头像图片
+      description: 上传用户头像图片（支持 JPG/PNG/GIF/WebP/BMP/HEIC/HEIF，服务端统一转 WebP）
       security:
         - bearerAuth: []
       requestBody:
@@ -542,7 +570,7 @@ paths:
     post:
       tags: [Files]
       summary: 上传普通图片
-      description: 上传普通图片文件（需认证）
+      description: 上传普通图片文件（需认证，支持 JPG/PNG/GIF/WebP/BMP/HEIC/HEIF，服务端统一转 WebP）
       security:
         - bearerAuth: []
       requestBody:
@@ -739,7 +767,7 @@ components:
           description: 接收验证码的邮箱地址
         actionType:
           type: string
-          description: 操作类型（register/login/change-password等）
+          description: 操作类型（register/login/change-password/change-email/change-email-current等）
 
     UpdateUserProfileRequest:
       type: object
@@ -783,6 +811,26 @@ components:
         code:
           type: string
           description: 邮箱验证码
+
+    ChangeEmailRequest:
+      type: object
+      required:
+        - newEmail
+        - newEmailCode
+      properties:
+        newEmail:
+          type: string
+          format: email
+          description: 需要换绑到的新邮箱
+        newEmailCode:
+          type: string
+          description: 新邮箱收到的验证码（actionType=change-email）
+        password:
+          type: string
+          description: 当前密码；与 currentEmailCode 至少提供一个（微信占位邮箱可省略）
+        currentEmailCode:
+          type: string
+          description: 当前邮箱收到的验证码；与 password 至少提供一个（微信占位邮箱可省略）
 
     # 计划相关模型
     CreatePlanRequest:

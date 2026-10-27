@@ -581,7 +581,7 @@ function formatDuration(seconds: number): string {
               {{ loadStatus === 'loading' ? `正在加载 ${Math.round(loadProgress)}%` : '加载失败，请重试' }}
             </div>
             <el-progress v-if="loadStatus === 'loading'" :percentage="loadProgress" :stroke-width="6" :show-text="false"
-              color="#9a4f8d" />
+              color="var(--chat-accent)" />
           </div>
         </transition>
       </div>
@@ -774,7 +774,7 @@ function formatDuration(seconds: number): string {
   justify-content: center;
   gap: 8px;
   padding: 40px;
-  color: #999;
+  color: var(--chat-muted-light);
   font-size: 12px;
 }
 
@@ -789,9 +789,9 @@ function formatDuration(seconds: number): string {
   @include file-media-width;
   min-height: 120px;
   padding: 20px;
-  color: #777;
+  color: var(--chat-text-secondary);
   font-size: 12px;
-  background: #f5f5f5;
+  background: var(--chat-card);
   border-radius: 8px;
   box-sizing: border-box;
 
@@ -854,9 +854,9 @@ function formatDuration(seconds: number): string {
   justify-content: center;
   gap: 8px;
   padding: 40px;
-  color: #999;
+  color: var(--chat-muted-light);
   font-size: 12px;
-  background: #f5f5f5;
+  background: var(--chat-card);
   border-radius: 8px;
 }
 
@@ -865,14 +865,14 @@ function formatDuration(seconds: number): string {
   @include file-media-width;
   border-radius: 8px;
   overflow: hidden;
-  background: #f5f5f5;
+  background: var(--chat-card);
 
   .video-cover {
     position: relative;
     // 只是**尺寸未知时的兜底**：拿到封面真实宽高后由内联 aspect-ratio 覆盖
     // （竖屏视频按 16:9 展示会把封面裁成一条横条）。
     aspect-ratio: 16 / 9;
-    background: #e5e7eb;
+    background: var(--chat-inset);
 
     img {
       width: 100%;
@@ -900,7 +900,7 @@ function formatDuration(seconds: number): string {
     .file-name {
       overflow: hidden;
       margin-bottom: 4px;
-      color: #333;
+      color: var(--chat-text);
       font-size: 12px;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -910,7 +910,7 @@ function formatDuration(seconds: number): string {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      color: #999;
+      color: var(--chat-muted-light);
       font-size: 11px;
     }
   }
@@ -922,13 +922,13 @@ function formatDuration(seconds: number): string {
   gap: 12px;
   @include file-card-width;
   padding: 12px;
-  background: #f5f5f5;
+  background: var(--chat-card);
   border-radius: 8px;
   // 卡片现在整体可点（点开详情面板），hover 给个同样的可点反馈
   transition: background-color 0.2s;
 
   &:hover {
-    background: #e8e8e8;
+    background: var(--chat-card-hover);
   }
 
   .audio-icon {
@@ -947,7 +947,7 @@ function formatDuration(seconds: number): string {
 
     .file-name {
       overflow: hidden;
-      color: #333;
+      color: var(--chat-text);
       font-size: 12px;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -957,7 +957,7 @@ function formatDuration(seconds: number): string {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      color: #999;
+      color: var(--chat-muted-light);
       font-size: 11px;
     }
   }
@@ -969,12 +969,12 @@ function formatDuration(seconds: number): string {
   gap: 12px;
   @include file-card-width;
   padding: 12px;
-  background: #f5f5f5;
+  background: var(--chat-card);
   border-radius: 8px;
   transition: background-color 0.2s;
 
   &:hover {
-    background: #e8e8e8;
+    background: var(--chat-card-hover);
   }
 
   .document-icon {
@@ -987,15 +987,15 @@ function formatDuration(seconds: number): string {
     flex-shrink: 0;
 
     &.document {
-      background: #f7e8f4;
+      background: var(--chat-accent-soft);
     }
 
     &.archive {
-      background: #fff3e0;
+      background: var(--chat-warning-soft);
     }
 
     &.unknown {
-      background: #f5f5f5;
+      background: var(--chat-inset);
     }
   }
 
@@ -1007,7 +1007,7 @@ function formatDuration(seconds: number): string {
   .file-name {
     overflow: hidden;
     margin-bottom: 4px;
-    color: #333;
+    color: var(--chat-text);
     font-size: 13px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1018,7 +1018,7 @@ function formatDuration(seconds: number): string {
     flex-wrap: wrap;
     gap: 8px;
     align-items: center;
-    color: #999;
+    color: var(--chat-muted-light);
     font-size: 11px;
   }
 
@@ -1026,7 +1026,8 @@ function formatDuration(seconds: number): string {
     padding: 1px 6px;
     border-radius: 3px;
     font-size: 10px;
-    background: #e0e0e0;
+    color: var(--chat-text-secondary);
+    background: var(--chat-inset);
   }
 }
 
@@ -1041,25 +1042,25 @@ function formatDuration(seconds: number): string {
 .document-upload-progress-bar {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #111827, #475569);
+  background: linear-gradient(90deg, var(--chat-accent), var(--theme-color-deep));
   transition: width 0.16s linear;
 }
 
 .file-meta .status-text {
   display: inline-block;
   font-size: 11px;
-  color: #909399;
+  color: var(--chat-muted-light);
 
   &.ready {
     color: #67c23a;
   }
 
   &.uploading {
-    color: #9a4f8d;
+    color: var(--chat-accent);
   }
 
   &.error {
-    color: #f56c6c;
+    color: var(--chat-danger);
   }
 }
 
@@ -1068,8 +1069,8 @@ function formatDuration(seconds: number): string {
   align-items: center;
   gap: 8px;
   padding: 16px;
-  color: #f56c6c;
-  background: #fef0f0;
+  color: var(--chat-danger);
+  background: var(--chat-danger-soft);
   border-radius: 8px;
 }
 

@@ -111,7 +111,7 @@ const sentAtText = computed(() => formatChatDateTime(props.sentAt));
   width: 64px;
   height: 64px;
   border-radius: 10px;
-  background: #f3f4f6;
+  background: var(--chat-inset);
 
   // 图标按盒子的百分比缩放：极窄屏（320px 抽屉）下也不会顶破
   :deep(.svg-icon) {
@@ -125,12 +125,12 @@ const sentAtText = computed(() => formatChatDateTime(props.sentAt));
   overflow: hidden;
   padding: 2px 8px;
   border-radius: 4px;
-  color: #4b5563;
+  color: var(--chat-text-secondary);
   font-size: 12px;
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: #eef0f3;
+  background: var(--chat-inset);
 }
 
 .file-detail-rows {

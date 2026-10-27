@@ -7,6 +7,7 @@
  *  3) 刷新时正在做什么（卸载时快照「进行中的操作」，例如文件上传）
  */
 import { getPending, getIdentity } from "./store";
+import { getRunningFlows } from "./flow";
 import { classifyViewport, readViewportInput } from "@/utils/device-layout";
 import type { TelemetryCategory, TelemetryEvent, TelemetryLevel } from "./types";
 
@@ -81,7 +82,8 @@ function envSnapshot() {
 /** 卸载前把「正在进行的操作」一起记下来，用于解释「回来之后东西没了」。 */
 function pendingSnapshot() {
   const pending = getPending();
-  if (pending.length === 0) return undefined;
+  const runningFlows = getRunningFlows();
+  if (pending.length === 0 && runningFlows.length === 0) return undefined;
   return {
     pendingCount: pending.length,
     pending: pending.map((op) => ({
@@ -89,6 +91,19 @@ function pendingSnapshot() {
       runningMs: Date.now() - op.startedAt,
       ...op.meta,
     })),
+    ...(runningFlows.length > 0
+      ? {
+        runningFlows: runningFlows.map((flow) => {
+          const last = flow.steps.length > 0 ? flow.steps[flow.steps.length - 1] : null;
+          return {
+            name: flow.name,
+            lastStep: last?.step ?? null,
+            runningMs: Date.now() - flow.startedAt,
+            steps: flow.steps.length,
+          };
+        }),
+      }
+      : {}),
   };
 }
 

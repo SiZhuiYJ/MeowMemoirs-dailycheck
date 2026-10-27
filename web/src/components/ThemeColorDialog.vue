@@ -34,9 +34,8 @@ const visible = defineModel<boolean>({ default: false });
 
 <style scoped lang="scss">
 .theme-color-dialog {
-  // ThemeColorPicker 用的是全局中性变量（--text-color / --bg-elevated …），
-  // 这些变量不随 .theme-light-surface 切换；这里统一映射到当前主题面的 EP 变量，
-  // 避免聊天页（暗色模式 + 浅色面）里出现浅字浅底。
+  // ThemeColorPicker 用的是全局中性变量（--text-color / --bg-elevated …）；
+  // 这里统一映射到当前主题面的 EP 变量，避免深浅主题切换时出现浅字浅底。
   --text-color: var(--el-text-color-primary);
   --text-muted: var(--el-text-color-secondary);
   --bg-elevated: var(--el-bg-color-overlay);

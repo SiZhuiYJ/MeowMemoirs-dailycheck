@@ -78,4 +78,22 @@ function getBlobUrl(url: string): string {
   font-size: 12px;
   color: var(--text-muted);
 }
+
+// 夜间：状态徽标改用半透明深色底 + 亮色文字，避免浅黄/浅绿底上的亮字发灰
+html[data-theme="dark"] .detail-item {
+  .dot.success {
+    background: rgba(34, 197, 94, 0.16);
+    color: #86efac;
+  }
+
+  .dot.retro {
+    background: rgba(234, 179, 8, 0.16);
+    color: #fcd34d;
+  }
+
+  .dot.unknown {
+    background: #334155;
+    color: #e2e8f0;
+  }
+}
 </style>

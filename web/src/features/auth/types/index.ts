@@ -35,7 +35,20 @@ export type ActionType =
   | "login" // "登录",
   | "change-password" // "修改密码",
   | "deactivate" // "注销账号",
-  | "reset-password"; // "重置密码",
+  | "reset-password" // "重置密码",
+  | "change-email" // "换绑邮箱（新邮箱）",
+  | "change-email-current"; // "换绑邮箱（验证当前邮箱）"
+
+export interface ChangeEmailPayload {
+  /** 需要换绑到的新邮箱 */
+  newEmail: string;
+  /** 新邮箱收到的验证码 */
+  newEmailCode: string;
+  /** 当前密码（普通账号与 currentEmailCode 二选一） */
+  password?: string | null;
+  /** 当前邮箱收到的验证码（普通账号与 password 二选一） */
+  currentEmailCode?: string | null;
+}
 
 export interface PasswordPayload {
   newPassword: string;

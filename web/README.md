@@ -96,17 +96,28 @@ Element Plus primary 的 light-3/5/7/8/9 / dark-2 也同步生成。
 
 全局外阴影使用主题色光晕：`--theme-outer-glow` 会按当前种子色生成
 `0 24px 70px rgba(var(--theme-color-rgb), .24)`，并同步给
-`--el-box-shadow`、`--shell-shadow` 以及设置页卡片；弹窗、下拉、面板和卡片
+`--el-box-shadow`、`--shell-shadow`；弹窗、下拉和浮层面板
 因此共享同一套外发光效果。小浮层使用 `--theme-outer-glow-soft`。
+
+> 设置页（`/setting/*`）与用户主页同构：`app-shell` 渐变底 + 圆角面板 +
+> 悬浮毛玻璃顶栏，卡片与表单控件一律引用 `--chat-*` 皮肤变量；
+> 顶栏右侧保留原来的设置菜单（`SettingsMenu` / `SettingsMenuItem`：
+> 当前页名 + 汉堡 + 展开动画），只是把尺寸收到 32 / 24px 控件高度，
+> 下拉列表行高收到 27 / 24px（原来 7 项会占掉近半屏）；
+> 子页切换也保留原来的 GSAP 缩放 + 左右滑动，只有 `:css="false"`（不再叠加
+> `views/main/index.vue` 的 `.routes-*`）和结束时的 `clearProps` 是新加的 ——
+> 否则 CSS 的 `translateX(-12%)` 会变成残留的内联位移。
 
 Element Plus 的 primary 也映射到同一色板：日间 `--el-color-primary: #9b4f93`，
 夜间回到种子色；实心 primary 按钮统一用 `--theme-action-bg` + 白字，
 plain / link 版本仍用浅底 + 可读强调色字。success / warning / danger 等语义色保持
 Element Plus 默认值，不参与主题色替换。
 
-> 聊天页是固定的浅色面，`useLightSurface()` 会给 `<html>` 挂 `.theme-light-surface`，
-> 并让主题色始终取**日间色阶**的 `--theme-color-strong` / `--theme-color-soft`
-> 作为 `--chat-accent` / `--chat-accent-soft`；离开聊天页后恢复当前日夜模式的色阶。
+> 聊天页、用户主页、设置页与聊天弹层跟随全局日 / 夜主题：面板、气泡、文件卡片、弹层、
+> 右键菜单、设置卡片和滚动区都使用 `src/styles/chat-theme.scss` 的 `--chat-*` 变量，
+> 日间值定义在 `:root`，夜间值由 `html[data-theme="dark"]` 覆盖。
+> 强调色 `--chat-accent` / `--chat-accent-soft` 来自主题色阶：日间是压深可读色，
+> 夜间是提亮的种子色 + 半透明浅底，自定义主题色同样生效。
 
 切换入口：
 
@@ -143,23 +154,87 @@ Element Plus 默认值，不参与主题色替换。
   浅色主题底仍用 `--theme-color-soft` / `--theme-color-strong`。
 - **不要再给 `el-button` 写 `color="#111827"` 之类的硬编码颜色**：
   它会生成内联 CSS 变量，覆盖全局主题规则。需要实心主按钮就写 `type="primary"`。
-- 聊天页 / 用户主页是固定浅色面：挂载时给 `<html>` 加 `.theme-light-surface`，
-  连同 Element Plus 的基础变量、语义色一起切到浅色。这样 Teleport 到 body 的
-  聊天弹窗、下拉层也拿到正确色板，不会在夜间模式下变成「浅粉字 + 深色底」。
+- 现在所有页面都跟随全局日 / 夜主题；用户主页与聊天页共用 `--chat-*` 色板，
+  聊天弹层 / 下拉层读取同一套变量与 Element Plus 暗色变量，不再有固定浅色面。
+- 聊天页与用户主页新增样式一律引用 `--chat-*` 变量（`--chat-bubble` /
+  `--chat-card` / `--chat-border` / `--chat-muted` / `--chat-danger`…），
+  不要写死 `#fff` / `#6b7280`；透明遮罩、媒体上的白色文字等确实不随主题变化的
+  颜色可以保留。
 - 设置菜单、聊天操作行、文件预览工具栏等原生 `<button>` 也统一引用主题变量；
   语义型的危险 / 警告按钮保留红 / 黄。
 
 | 文件 | 作用 |
 | --- | --- |
 | `src/composables/use-theme.ts` | 主题状态、localStorage、View Transition / 降级动画、快速连点合并 |
-| `src/styles/theme-colors.scss` | 全局主题色板 + Element Plus 按钮 / 表单控件 / 固定浅色面覆盖 |
+| `src/styles/theme-colors.scss` | 全局主题色板 + Element Plus 按钮 / 表单控件覆盖 |
+| `src/styles/chat-theme.scss` | 聊天页 / 弹层的明暗皮肤变量（面板、气泡、文件卡片、语义提示、头像占位） |
 | `src/styles/theme-transition.scss` | 圆形揭开、波纹环、降级颜色过渡 |
 | `index.html` | 首屏内联脚本，先写 `data-theme` / `.dark`，避免夜间用户先闪一帧日间 |
+| `tools/dev-verify/verify-telemetry-theme.mjs` | 真实 chromium 验证埋点诊断页日 / 夜色板、事件卡与 JSON 代码块 |
+| `tools/dev-verify/verify-chat-theme.mjs` | 真实 chromium 验证聊天页日 / 夜色板、弹层 / 下拉菜单、正文与气泡对比度 |
 | `tools/dev-verify/verify-theme-transition.mjs` | 真实 chromium 验证色板、两条动画路径、快速连点与减少动态效果 |
 
 > 波纹的结束半径会按视口对角线换算成 `circle()` 的百分比写进
 > `--theme-ripple-end-radius`，保证「揭开的圆边」和「波纹环」始终重合。
 > 改动画时长时改 `use-theme.ts` 的 `THEME_TRANSITION_MS`（CSS 会读取同一个值）。
+
+---
+
+## 埋点与聊天文件上传全流程监控
+
+聊天页的「点击上传 → 文件选择器 → 选文件 → 预处理 → 上传 → 消息发出」是一条跨组件、跨页面的链路。
+移动端 Chrome 上「点上传没反应」的现场通常没有 DevTools，因此这条链路除了普通事件，还会落一条
+**flow 记录**（同一个 `flowId` 串起所有步骤，并持久化到 localStorage）。
+
+### 记录哪些关键判定
+
+| 步骤 | 能回答的问题 |
+| --- | --- |
+| `trigger-pointerdown` / `trigger-touchstart` | 用户到底有没有点中按钮？点在哪个坐标、命中哪个元素、input 是否 disabled？ |
+| `input-click` / `input-click-missing` | 点击有没有到达真实的 `<input type=file>`？没到达时被哪个上层元素接住了？ |
+| `picker-open-signal` | 浏览器有没有尝试打开选择器（`blur` / `visibilitychange` / `pagehide`）？ |
+| `picker-not-opened` | click 已触发、但 5s 内没有任何打开信号，也没有 `change` —— 判定浏览器没有唤起文件管理器 |
+| `file-change` / `file-prepare-*` | 选择器里选了什么？预处理（WebP / 视频抽帧）耗时与失败原因 |
+| `file-upload-*` / `file-message-sending` / `file-upload-done` | 上传进度、拿到 fileKey、发送消息、消息 id 与各阶段耗时 |
+| `flow-complete` / `flow-aborted` / `flow-interrupted` | 正常结束、取消 / 被拦截，还是上次页面加载被刷新 / 系统回收打断 |
+
+### 在手机上看
+
+打开 `/debug/telemetry`（免登录）：
+
+1. 顶部「自动诊断」会直接给结论，例如
+   「点击到了上传按钮区域，但没有到达 file input —— 被上层元素拦截」、
+   「input click 已触发，但浏览器没有唤起文件选择器」；
+2. 下面的「上传流程」卡片是逐步时间线，每步带 `+耗时`、等级与关键数据
+   （命中的元素、`blockedBy`、信号类型、文件数、上传/发送耗时）；
+3. 点「复制流程」可以把最近 3 次流程直接发出来；「下载」导出的事件 JSON 里也包含 `flows`。
+
+> 诊断悬浮按钮（左下角「诊断」）默认停在输入区上方，不会压住上传键的 44px 命中区；
+> 如果流程里的 `blockedBy` 仍指向别的元素，说明那个元素盖住了上传入口，按提示处理即可。
+
+### 代码位置与扩展方式
+
+| 文件 | 作用 |
+| --- | --- |
+| `src/libs/telemetry/flow.ts` | 流程记录的持久化（最多 10 条 / 每条 36 步），刷新后可回溯 |
+| `src/libs/telemetry/index.ts` | `startFlow()` 句柄、`flow` 事件字段、上次页面加载遗留流程的 `flow-interrupted` 恢复 |
+| `src/libs/telemetry/chatFileFlow.ts` | 聊天上传流程语义、环境快照、点击命中检测、页面隐藏/卸载补步 |
+| `src/features/chat/components/FileUploadButton.vue` | 原生 pointer/touch/click、选择器打开信号、取消与超时判定 |
+| `src/features/chat/components/MessagePanel.vue` | 上传/发送各阶段与整批收尾 |
+
+新增阶段只需在业务代码里调用：
+
+```ts
+import { chatFileFlowStep } from '@/libs/telemetry/chatFileFlow';
+
+chatFileFlowStep('my-stage', { some: 'data' }, 'info');
+```
+
+埋点默认开启，`VITE_TELEMETRY_ENABLED=false` 可整体关闭；所有采集都包了 try/catch，
+且不会在原生事件里做 `preventDefault` / DOM 操作，不会影响选择器本身。
+
+验证脚本：`node tools/dev-verify/verify-chat-upload-flow.mjs`
+（真实 chromium + 移动端 Chrome UA + 触摸点击，覆盖成功链路与「没有打开信号」判定）。
 
 ---
 
@@ -304,7 +379,7 @@ Element Plus 默认值，不参与主题色替换。
 | --- | --- |
 | 尺寸 | 面板 `width = content-width`（窄窗口由 `max-width: 100vw` 夹住）、`height: auto`、`max-height: var(--app-h, 100dvh)`。内容少时是一张带 14px 圆角 / 1px 描边 / 投影的居中卡片；内容多时才撑满窗口高度 |
 | 背景 | 与 `components/ThemeColorDialog.vue` 同一套主题色配方：左上 / 右下两处主题色径向光晕 + 10% 主题色底，描边和投影也带主题色；跟随自定义主题色实时变化 |
-| 主题面 | 面板底色 / 文字 / 描边取 Element Plus 的主题变量：聊天页挂 `.theme-light-surface` 时是浅色，主题色对话框从暗色页面的顶栏打开时自动变成暗色，不会出现深底深字 |
+| 主题面 | 面板底色 / 文字 / 描边取当前主题面的 Element Plus 变量：日间是浅色、夜间是深色；主题色对话框从任一页面打开都会跟随当前主题，不会出现深底深字 |
 | 顶部 / 底部栏 | **绝对定位悬浮 + 毛玻璃**（半透明渐变 + `backdrop-filter: blur(6px)`），内容从栏下面滚过去，沿用聊天页 `.chat-header` / `.composer` 的皮肤；内容列的上下留白正好等于两条栏的高度，因此两条栏不占面板高度 |
 | 全屏 | 面板**宽度或高度有一项达到窗口的 100%，且另一项至少占窗口的 80%** 时加 `.chat-dialog--fullscreen`，`border-radius: 0`，避免四角在屏幕边缘漏出遮罩底色；只是宽度铺满但很矮的窄窗弹层仍算卡片，保留圆角。状态由观察面板 / 遮罩尺寸的 `ResizeObserver` 实时维护 |
 | 内容宽度 | `content-width` 同时是面板宽度与内容列上限（`760px` / `720px` / `640px` / …）；窗口比它窄时自动铺满 |

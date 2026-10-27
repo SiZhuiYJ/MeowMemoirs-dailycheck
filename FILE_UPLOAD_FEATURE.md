@@ -24,6 +24,13 @@ uploads/
 
 ### 图片 (自动转换为WebP)
 - JPG, JPEG, PNG, GIF, WebP, BMP, SVG, ICO
+- HEIC, HEIF, HIF（iPhone 相册默认格式；浏览器端先解码，服务端再兜底转换）
+
+> HEIC/HEIF 说明：Web 端在选图后由 `heic2any` 解码并转成 WebP；
+> 如果浏览器不支持、超时或直接调用 API，服务端会用纯托管的 `Heic.NET`
+> 解码后同样落盘为 `.webp`，因此存储目录里不会出现 `.heic` 文件。
+> 服务端实现不依赖 libheif / ImageMagick / ffmpeg，Termux、Linux、Windows
+> 都能直接运行。
 
 ### 视频 (原样保存)
 - MP4, AVI, MOV, WMV, FLV, MKV, WebM, M4V

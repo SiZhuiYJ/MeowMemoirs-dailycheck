@@ -8,6 +8,11 @@ export const SUPPORTED_FILE_TYPES = {
     "image/webp",
     "image/bmp",
     "image/svg+xml",
+    // iPhone 相册默认格式；前端会尽量转 WebP，服务端也会兜底转码
+    "image/heic",
+    "image/heif",
+    "image/heic-sequence",
+    "image/heif-sequence",
   ],
   video: [
     "video/mp4",
@@ -118,6 +123,9 @@ const EXT_PREVIEW_TYPE_MAP: Record<string, FilePreviewType> = {
   xml: "text",
   css: "text",
   js: "text",
+  heic: "image",
+  heif: "image",
+  hif: "image",
   zip: "archive",
   rar: "archive",
   "7z": "archive",
@@ -164,7 +172,7 @@ export function getFileCategory(mimeType?: string | null): FileCategory {
  * （表现为「.md 根本选不了」）。现在 accept 由这里拼出来，加格式只改这一处。
  */
 export const FILE_EXTENSIONS = {
-  image: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "ico"],
+  image: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "ico", "heic", "heif", "hif"],
   video: ["mp4", "avi", "mov", "wmv", "flv", "mkv", "webm", "m4v"],
   audio: ["mp3", "wav", "ogg", "m4a", "flac", "aac", "wma", "opus"],
   document: [

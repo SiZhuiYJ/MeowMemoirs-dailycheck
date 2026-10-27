@@ -13,7 +13,8 @@ const menuList = ref([
     { name: "密码修改", path: "/setting/password" },
     { name: "平台绑定", path: "/setting/bind" },
 ]);
-// 默认显示第一个菜单名称
+
+// 下拉按钮上显示当前子页名称
 const menuName = computed(() => {
     const currentPath = router.currentRoute.value.path;
     const currentMenu = menuList.value.find(menu => menu.path === currentPath);
@@ -31,6 +32,8 @@ const openThemeColorDialog = () => {
 </script>
 
 <template>
+    <!-- 保留原来的设置菜单（当前页名 + 汉堡 + 展开动画），
+         尺寸由 SettingsMenu / SettingsMenuItem 按新顶栏（32 / 24px）收紧。 -->
     <SettingsMenu>
         <template #title>{{ menuName }}</template>
         <template #default="{ isOpen }">
@@ -54,12 +57,12 @@ const openThemeColorDialog = () => {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
+    gap: 8px;
 }
 
 .theme-menu-dot {
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     border: 1px solid var(--theme-color-strong);
     border-radius: 50%;
     background: var(--theme-color);

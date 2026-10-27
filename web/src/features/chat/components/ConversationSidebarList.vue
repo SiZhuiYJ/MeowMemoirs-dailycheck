@@ -278,7 +278,7 @@ function getItemTime(item: ConversationSummary) {
 }
 
 .conversation-empty-title {
-  color: #111827;
+  color: var(--chat-text);
   font-size: 13px;
   font-weight: 600;
 }

@@ -5,6 +5,7 @@
 import type {
   TelemetryCategory,
   TelemetryEvent,
+  TelemetryFlowRef,
   TelemetryLevel,
   TelemetryPendingOp,
 } from "./types";
@@ -24,9 +25,11 @@ let buffer: TelemetryEvent[] = [];
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 const pendingOps = new Map<string, TelemetryPendingOp>();
 
-function randomId(): string {
+export function createId(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
+
+const randomId = createId;
 
 /** 截断过长的字符串，防止把响应体/堆栈整个塞进存储。 */
 export function truncateText(value: unknown, max = MAX_STRING): string {
@@ -155,6 +158,8 @@ export function buildEvent(input: {
   name: string;
   data?: Record<string, unknown>;
   stack?: string;
+  /** 所属业务流程；为空表示这条事件不属于任何流程。 */
+  flow?: TelemetryFlowRef;
 }): TelemetryEvent {
   const now = Date.now();
   const event: TelemetryEvent = {
@@ -171,6 +176,15 @@ export function buildEvent(input: {
     data: input.data ? sanitizeData(input.data) : undefined,
     stack: input.stack ? truncateText(input.stack, 1200) : undefined,
   };
+
+  if (input.flow) {
+    event.flowId = input.flow.id;
+    event.flowName = input.flow.name;
+    event.flowStep = input.flow.step;
+    event.flowIndex = input.flow.index;
+    event.flowElapsedMs = input.flow.elapsedMs;
+  }
+
   return event;
 }
 

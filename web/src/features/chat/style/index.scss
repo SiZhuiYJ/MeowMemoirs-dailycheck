@@ -62,25 +62,10 @@
   // 「更多」下拉菜单，不再占用创建区高度。
   --chat-create-h: calc(var(--chat-control-h) + var(--chat-pad) * 2);
 
-  --chat-bg: linear-gradient(180deg, #f7f7f5 0%, #ebeae4 100%);
-  --chat-surface: rgba(255, 255, 255, 0.94);
-  --chat-border: rgba(17, 24, 39, 0.08);
-  --chat-shadow: var(--theme-outer-glow);
-  // 聊天页是固定浅色面。.theme-light-surface 会把全局主题变量
-  // 切成日间色阶，这里直接继承，才能跟随用户自定义的主题色。
-  --chat-accent: var(--theme-color-strong, #9a4f8d);
-  --chat-accent-soft: var(--theme-color-soft, #f7e8f4);
-  // 引用卡片：左侧消息用中性变种，自己消息用主题色变种。
-  // 这样「左侧普通气泡 + 中性引用」「右侧主题气泡 + 主题引用」各自成对。
-  --chat-reply-bg: #e9ecef;
-  --chat-reply-hover: #e1e5e9;
-  --chat-reply-border: #9ca3af;
-  --chat-reply-self-bg: color-mix(in srgb, var(--chat-accent) 18%, #fff);
-  --chat-reply-self-hover: color-mix(in srgb, var(--chat-accent) 24%, #fff);
-  // 点击引用跳转时的闪烁提示
-  --chat-highlight-bg: color-mix(in srgb, var(--chat-accent) 22%, #fff);
-  --chat-muted: #6b7280;
-  --chat-danger: #dc2626;
+  // 皮肤变量（面板 / 气泡 / 文字 / 卡片 / 语义色）统一在
+  // styles/chat-theme.scss：日间值在 :root，夜间值由 html[data-theme="dark"] 覆盖。
+  // 这里只保留与设备档位有关的尺寸。
+  //
   // 用全局的 --app-h（use-device-layout 写入的真实像素高度）而不是 100vh：
   // 100vh 在移动端不随地址栏收缩，也不随软键盘变化，会把底部输入框顶出屏幕。
   --chat-vh: var(--app-h);
@@ -440,7 +425,7 @@
       }
 
       .bubble {
-        background: var(--chat-accent-soft);
+        background: var(--chat-bubble-mine);
         border-top-left-radius: 12px;
         border-top-right-radius: 0px;
       }
@@ -495,7 +480,7 @@
   border-top-right-radius: 12px;
   border-bottom-right-radius: 12px;
   border-bottom-left-radius: 12px;
-  background: #f3f4f6;
+  background: var(--chat-bubble);
   line-height: 1.5;
   word-break: break-word;
   width: fit-content;

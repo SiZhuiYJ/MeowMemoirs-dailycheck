@@ -1,6 +1,11 @@
 ////
 /// 设置页共享骨架（/setting/*）。
 ///
+/// 视觉与聊天页 / 用户主页保持一致：
+///   · 外层由 views/setting/index.vue 提供 app-shell 的渐变底、圆角面板与悬浮顶栏；
+///   · 卡片、文字、描边一律引用 `--chat-*` 皮肤变量（日 / 夜主题共用一套）；
+///   · 表单控件用「白底 + 主题强调色描边」的圆角输入框，聚焦时带一圈主题浅色光晕。
+///
 /// 六个子页（个人信息 / 账号 / 头像 / 注销 / 密码 / 平台绑定）原本各自复制了
 /// 一整套 `.setting-subpage` `.setting-card` `.setting-title` … 规则；这里统一
 /// 维护一份，页面里只保留自己独有的控件样式。
@@ -9,69 +14,122 @@
 /// 由 styles/index.scss 全局引入一次，因此不依赖路由是否进入过设置页。
 ////
 
+@use "@/styles/responsive-mixins" as rp;
+
+// 设置页输入框比聊天页 32/24px 的控件稍高一档：表单要填密码 / 验证码，
+// 触屏上更好点中。变量放在 :root 是因为顶栏弹窗被 Teleport 到 body。
+:root {
+  --setting-input-h: 36px;
+}
+
+@include rp.device-mobile {
+  :root {
+    --setting-input-h: 32px;
+  }
+}
+
 // —— 页面骨架 ——
 .setting-subpage {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  width: min(760px, 92vw);
-  margin: 24px auto;
+  gap: 12px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
 }
 
 .setting-card {
-  background-color: var(--bg-elevated);
-  border-radius: 16px;
-  padding: 24px;
-  border: 1px solid var(--border-color);
-  box-shadow: var(--theme-outer-glow);
+  padding: 18px;
+  border: 1px solid var(--chat-border);
+  border-radius: 12px;
+  // 比面板浅一档的「内嵌块」：--chat-card (#f5f5f5) 上 #6b7280 只有 4.43:1，
+  // 换成 #f9fafb 后次要文字达到 4.6:1（AA），也仍与白色输入框分层。
+  background: var(--chat-surface-soft);
 }
 
 .setting-header {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .setting-title {
   margin: 0;
-  font-size: 18px;
-  color: var(--text-color);
+  color: var(--chat-text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
 }
 
 .setting-subtitle {
-  margin: 8px 0 0;
-  color: var(--text-muted);
+  margin: 6px 0 0;
+  color: var(--chat-muted);
   font-size: 12px;
+  line-height: 18px;
 }
 
-// —— 单行输入（账号 / 昵称等共用）——
+// —— 单行输入（账号 / 昵称 / 邮箱等共用）——
 .setting-label {
   display: block;
-  margin-bottom: 8px;
-  font-size: 13px;
-  color: var(--text-muted);
+  margin-bottom: 6px;
+  color: var(--chat-muted);
+  font-size: 12px;
+  line-height: 18px;
 }
 
-.setting-input {
+// 文本框专用：单选框 / 复选框保留浏览器原生外观。
+// 如果让它们也吃到 width:100% / 36px 高 / 边框背景，.radio-label 里的
+// 单选按钮会撑满整行（换绑邮箱块曾踩过这个坑）。
+.setting-input,
+.setting-field input:not([type="radio"]):not([type="checkbox"]) {
   width: 100%;
-  height: 44px;
-  padding: 0 12px;
+  height: var(--setting-input-h);
+  padding: 0 10px;
+  border: 1px solid var(--chat-border-strong);
   border-radius: 8px;
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-color);
-  color: var(--text-color);
-  font-size: 13px;
-  box-sizing: border-box;
   outline: none;
+  background: var(--chat-surface-solid);
+  color: var(--chat-text);
+  font-size: 13px;
+  line-height: 20px;
+  box-sizing: border-box;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease,
+    background-color 0.16s ease;
+
+  &::placeholder {
+    color: var(--chat-muted-light);
+  }
+
+  &:hover:not(:disabled) {
+    border-color: var(--chat-muted-light);
+  }
 
   &:focus {
-    border-color: var(--theme-color-strong);
+    border-color: var(--chat-accent);
+    box-shadow: 0 0 0 3px var(--chat-accent-soft);
+  }
+
+  &:disabled {
+    background: var(--chat-inset);
+    color: var(--chat-muted);
+    cursor: not-allowed;
   }
 }
 
 .setting-desc {
   display: block;
-  margin-top: 8px;
+  margin-top: 6px;
+  // 说明文字也要可读：不用更浅的 --chat-muted-light（在浅底上只有 2.4:1）。
+  color: var(--chat-muted);
   font-size: 11px;
-  color: var(--text-muted);
+  line-height: 17px;
+}
+
+// 需要提醒但不算错误的补充信息（例如「下次可修改时间」）
+.setting-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--chat-danger);
+  font-size: 11px;
+  line-height: 17px;
 }
 
 // —— 表单（密码修改 / 注销账号共用）——
@@ -84,43 +142,37 @@
 .setting-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 
   > span {
-    font-size: 13px;
-    color: var(--text-muted);
-  }
-
-  input {
-    width: 100%;
-    padding: 8px 10px;
-    border-radius: 6px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-color);
-    color: var(--text-color);
-    font-size: 13px;
-    box-sizing: border-box;
+    color: var(--chat-muted);
+    font-size: 12px;
+    line-height: 18px;
   }
 }
 
 .setting-code-row {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
 .setting-code-button {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100px;
+  height: var(--setting-input-h);
   padding: 0 10px;
-  border-radius: 6px;
   border: 1px solid var(--theme-color-muted);
+  border-radius: 8px;
   background: var(--theme-color-soft);
   color: var(--theme-color-strong);
-  cursor: pointer;
   font-size: 11px;
+  line-height: 16px;
   white-space: nowrap;
+  cursor: pointer;
   transition: background-color 0.2s ease, color 0.2s ease;
 
   &:hover:not(:disabled) {
@@ -134,45 +186,55 @@
   }
 }
 
+// 危险操作提示块：与聊天页的语义提示同一套「浅底 + 同色描边」写法。
 .setting-warning-text {
   margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: #ef4444;
+  padding: 10px 12px;
+  border: 1px solid var(--chat-danger-border);
+  border-radius: 8px;
+  background: var(--chat-danger-soft);
+  color: var(--chat-danger-text);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .setting-footer {
   display: flex;
   justify-content: center;
   gap: 8px;
-  margin-top: 18px;
+  margin-top: 16px;
 }
 
+// 提交按钮只负责宽度：颜色 / 高度 / 圆角 / hover 全部交给 el-button 的全局主题规则
+// （主操作 = type="primary"，危险操作 = type="danger"）。
 .setting-submit {
   width: min(320px, 100%);
-  padding: 10px 16px;
-  border-radius: 10px;
-  border: none;
-  background: var(--theme-action-bg);
-  color: var(--theme-action-contrast);
-  cursor: pointer;
-
-  &:hover:not(:disabled) {
-    background: var(--theme-primary-bg);
-    color: var(--theme-color-contrast);
-  }
-
-  &:disabled {
-    opacity: 0.7;
-    cursor: not-allowed;
-  }
 }
 
-// 危险操作（注销）
-.setting-submit--danger {
-  background: #ef4444;
+@include rp.device-mobile {
+  .setting-subpage {
+    gap: 8px;
+  }
 
-  &:hover:not(:disabled) {
-    background: #dc2626;
+  .setting-card {
+    padding: 14px;
+    border-radius: 10px;
+  }
+
+  .setting-header {
+    margin-bottom: 12px;
+  }
+
+  .setting-title {
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .setting-desc {
+    margin-top: 4px;
+  }
+
+  .setting-footer {
+    margin-top: 12px;
   }
 }

@@ -45,7 +45,9 @@ public class LocalFileService : IFileService
 
     private static readonly string[] AllowedImageExtensions =
     [
-        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp",
+        // iPhone 相册默认格式；服务端会解码后统一转成 WebP
+        ".heic", ".heif", ".hif"
     ];
 
     private static readonly Dictionary<string, string> SupportedFileTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -53,6 +55,7 @@ public class LocalFileService : IFileService
         // 图片
         { ".jpg", "image/jpeg" }, { ".jpeg", "image/jpeg" }, { ".png", "image/png" },
         { ".gif", "image/gif" }, { ".webp", "image/webp" }, { ".bmp", "image/bmp" },
+        { ".heic", "image/heic" }, { ".heif", "image/heif" }, { ".hif", "image/heif" },
         { ".svg", "image/svg+xml" }, { ".ico", "image/x-icon" },
         // 视频
         { ".mp4", "video/mp4" }, { ".avi", "video/x-msvideo" }, { ".mov", "video/quicktime" },
@@ -426,7 +429,7 @@ public class LocalFileService : IFileService
 
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (!AllowedImageExtensions.Contains(ext))
-            throw new InvalidOperationException("仅支持常见图片格式");
+            throw new InvalidOperationException("仅支持 JPG/PNG/GIF/WebP/BMP/HEIC 等常见图片格式");
     }
 
     private static void ValidateChatFile(IFormFile file)
@@ -462,36 +465,12 @@ public class LocalFileService : IFileService
         var (hash, fileKey) = await ComputeHashAsync(file.OpenReadStream(), cancellationToken);
         var webpPath = Path.Combine(targetDirectory, fileKey + ".webp");
 
-        // 文件已存在则直接返回
+        // 文件已存在（内容哈希相同 = 字节相同）则直接复用
         if (File.Exists(webpPath))
             return (hash, fileKey);
 
-        // 不存在则转换并保存
-        try
-        {
-            var originalExt = Path.GetExtension(file.FileName).ToLowerInvariant();
-            await using var sourceStream = file.OpenReadStream();
-
-            if (originalExt == ".webp")
-            {
-                await using var fileStream = new FileStream(webpPath, FileMode.CreateNew, FileAccess.Write);
-                await sourceStream.CopyToAsync(fileStream, cancellationToken);
-            }
-            else
-            {
-                using var image = await Image.LoadAsync(sourceStream, cancellationToken);
-                await image.SaveAsWebpAsync(webpPath, cancellationToken);
-            }
-        }
-        catch (IOException) when (File.Exists(webpPath))
-        {
-            // 并发写入时，另一个请求已经创建了文件，忽略异常
-        }
-        catch
-        {
-            try { File.Delete(webpPath); } catch { /* 忽略删除失败 */ }
-            throw new InvalidOperationException("图片处理失败");
-        }
+        // 不存在则转换并保存；HEIC/HEIF 的解码分支在 SaveImageAsWebpAsync 里统一处理
+        await SaveImageAsWebpAsync(file, webpPath, cancellationToken);
 
         return (hash, fileKey);
     }
@@ -547,7 +526,7 @@ public class LocalFileService : IFileService
                 return;
             }
 
-            using var image = await Image.LoadAsync(sourceStream, cancellationToken);
+            using var image = await LoadImageForConversionAsync(sourceStream, originalExt, cancellationToken);
             if (maxWidth.HasValue || maxHeight.HasValue)
             {
                 image.Mutate(context => context.Resize(new ResizeOptions
@@ -568,6 +547,20 @@ public class LocalFileService : IFileService
             try { File.Delete(targetPath); } catch { /* ignore cleanup failures */ }
             throw new InvalidOperationException("图片处理失败");
         }
+    }
+
+    /// <summary>
+    /// 按真实扩展名选择解码器。HEIC/HEIF 走纯托管解码，其余交给 ImageSharp。
+    /// </summary>
+    private static async Task<Image> LoadImageForConversionAsync(
+        Stream stream,
+        string extension,
+        CancellationToken cancellationToken)
+    {
+        if (HeicImageLoader.IsHeicExtension(extension))
+            return await HeicImageLoader.LoadAsync(stream, cancellationToken);
+
+        return await Image.LoadAsync(stream, cancellationToken);
     }
 
     private static (string FilePath, string Extension) GetFilePathWithFallback(
@@ -605,6 +598,8 @@ public class LocalFileService : IFileService
         ".gif" => "image/gif",
         ".webp" => "image/webp",
         ".bmp" => "image/bmp",
+        ".heic" => "image/heic",
+        ".heif" or ".hif" => "image/heif",
         _ => SupportedFileTypes.GetValueOrDefault(extension, "application/octet-stream")
     };
 

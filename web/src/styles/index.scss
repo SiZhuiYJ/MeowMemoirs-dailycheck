@@ -5,6 +5,8 @@
 @use "./responsive.scss";
 // 全局主题色板 + Element Plus primary 覆盖
 @use "./theme-colors.scss";
+// 聊天页 / 聊天弹层的明暗皮肤变量（面板、气泡、文件卡片等）
+@use "./chat-theme.scss";
 // 日间 / 夜间切换的中心扩散波纹动画
 @use "./theme-transition.scss";
 // 设置页共享骨架 + 表单控件：设置子页与顶栏的「修改密码 / 注销」弹窗共用

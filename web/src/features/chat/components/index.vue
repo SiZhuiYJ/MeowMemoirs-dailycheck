@@ -9,17 +9,13 @@ import type { ConversationSummary } from '../types';
 import { CHAT_CONVERSATION_QUERY, parseConversationId } from '../utils/navigation';
 import router from '@/routers';
 import { useDeviceLayout } from '@/composables/use-device-layout';
-import { useLightSurface } from '@/composables/use-light-surface';
 
 const chat = useChatCore();
 const route = useRoute();
 
-/**
- * 聊天页是固定浅色面。挂载时给 <html> 加 theme-light-surface，
- * 让按钮 / 标签 / 下拉层（含 Teleport 到 body 的弹窗）都继承浅色色阶，
- * 而不是夜间模式那套浅粉文字。
- */
-useLightSurface();
+// 聊天页跟随全局日 / 夜主题：
+// 面板、气泡、文件卡片等皮肤色由 styles/chat-theme.scss 的 --chat-* 变量切换；
+// Teleport 到 body 的弹层同样读取这组全局变量，不会掉回浅色。
 
 /**
  * 三档设备（正常情况只有这三档，见 features/chat/style/index.scss 文件头）：

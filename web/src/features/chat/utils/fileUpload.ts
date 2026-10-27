@@ -1,5 +1,6 @@
 import type { AxiosProgressEvent } from "axios";
 import { convertToWebP, extractVideoFrameToWebP } from "@/utils/convertToWebP";
+import { isHeicFile } from "@/utils/heic";
 import { getVideoDuration } from "@/utils/mediaDuration";
 import { getVideoFileMetadata } from "@/utils/videoMetadata";
 import { getChatFileUrl, uploadChatFile } from "../api/files";
@@ -31,6 +32,11 @@ const IMAGE_WEBP_QUALITY = 0.9;
 const MAX_IMAGE_CONVERT_BYTES = 20 * 1024 * 1024;
 /** 单张图转码的超时：卡住就退回原图，绝不让按钮一直转圈。 */
 const IMAGE_CONVERT_TIMEOUT_MS = 8_000;
+/**
+ * HEIC 需要先下载 WASM 解码器再解 HEVC，首次转换明显更慢；
+ * 超时后仍然退回原文件，由服务端兜底转码。
+ */
+const HEIC_CONVERT_TIMEOUT_MS = 25_000;
 /** 视频封面是缩略图，没必要按原分辨率抽帧。 */
 const VIDEO_COVER_MAX_EDGE = 1280;
 const VIDEO_COVER_QUALITY = 0.85;
@@ -158,6 +164,7 @@ async function convertImageSafely(file: File): Promise<File> {
   }
 
   try {
+    const timeout = isHeicFile(file) ? HEIC_CONVERT_TIMEOUT_MS : IMAGE_CONVERT_TIMEOUT_MS;
     const converted = await withTimeout(
       convertToWebP(file, {
         quality: IMAGE_WEBP_QUALITY,
@@ -166,7 +173,7 @@ async function convertImageSafely(file: File): Promise<File> {
         output: "file",
         fileName: getWebPFileName(file.name),
       }),
-      IMAGE_CONVERT_TIMEOUT_MS,
+      timeout,
       () => null,
     );
 

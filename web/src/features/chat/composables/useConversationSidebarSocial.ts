@@ -519,13 +519,26 @@ export function useConversationSidebarSocial(options: {
     }
   }
 
+  /**
+   * 好友申请列表里的「对方」：
+   * 收到的申请显示申请人，发出的申请显示接收人。
+   */
+  function getFriendRequestUser(request: FriendRequest) {
+    return resolveFriendRequestTarget(request);
+  }
+
+  function getFriendRequestAvatar(request: FriendRequest) {
+    const target = getFriendRequestUser(request);
+    return getUserAvatarSources(target.userId, target.avatarKey);
+  }
+
   function getFriendLabel(request: FriendRequest) {
-    const target = resolveFriendRequestTarget(request);
+    const target = getFriendRequestUser(request);
     return target.nickName || target.userAccount || String(target.userId);
   }
 
   function getFriendMeta(request: FriendRequest) {
-    const target = resolveFriendRequestTarget(request);
+    const target = getFriendRequestUser(request);
     return target.userAccount || `ID: ${target.userId}`;
   }
 
@@ -613,6 +626,8 @@ export function useConversationSidebarSocial(options: {
     getFriendSearchActionText,
     getFriendSearchAvatar,
     getRequestStatusType,
+    getFriendRequestUser,
+    getFriendRequestAvatar,
     getFriendLabel,
     getFriendMeta,
     formatFriendRequestTime,

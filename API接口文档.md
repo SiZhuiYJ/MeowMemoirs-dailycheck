@@ -32,6 +32,7 @@
 |---|---|---|
 | POST | `/deactivate` | 注销/停用账户 |
 | POST | `/change-password` | 修改密码 |
+| POST | `/change-email` | 换绑邮箱（新邮箱验证码 + 当前身份校验） |
 | POST | `/profile` | 更新个人资料 |
 | GET | `/me` | 获取当前用户资料 |
 | GET | `/account/status` | 获取账号更新状态 |
@@ -106,7 +107,8 @@
 
 上传限制：
 - 单文件最大 10MB
-- 必须是图片文件
+- 必须是图片文件，支持 JPG / PNG / GIF / WebP / BMP / SVG / ICO / **HEIC / HEIF**
+- HEIC/HEIF 会由服务端解码后统一转换为 WebP 存储（聊天图片同样适用）
 
 ---
 

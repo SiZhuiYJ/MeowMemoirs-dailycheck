@@ -183,7 +183,7 @@ export function pickActionOnColor(background: string): string {
 /**
  * 生成一整套主题变量。
  * @param seed 用户选择的种子色
- * @param mode 当前实际应使用的明暗色阶（聊天浅色面固定传 light）
+ * @param mode 当前实际应使用的明暗色阶（由调用方按当前主题传入）
  */
 export function buildThemePalette(
   seed: string,
@@ -194,7 +194,7 @@ export function buildThemePalette(
   const hsl = rgbToHsl(rgb);
   const { h, s, l } = hsl;
 
-  // —— 日间色阶（聊天浅色面也用它） ——
+  // —— 日间色阶 ——
   const lightStrong = hslToHex({
     h,
     s: clamp(s * 0.84, 0.18, 0.7),
@@ -336,8 +336,9 @@ export function buildThemePalette(
     "--el-color-primary-light-8": light(0.8),
     "--el-color-primary-light-9": light(0.9),
     "--el-color-primary-dark-2": mixHex(primary, darkMixBase, 0.2),
-    // 聊天页固定浅色面：始终用日间的强调色 / 浅底
-    "--chat-accent": lightStrong,
-    "--chat-accent-soft": lightSoft,
+    // 聊天页的强调色跟随当前明暗：日间用压深的可读色，夜间用提亮的种子色；
+    // 浅底在日间是实色，夜间是半透明主题色（叠在深色面板上）。
+    "--chat-accent": strong,
+    "--chat-accent-soft": soft,
   };
 }

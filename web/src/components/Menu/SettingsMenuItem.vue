@@ -18,16 +18,21 @@ const emit = defineEmits<Emits>();
     </div>
 </template>
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .menu-list {
     --delay: 0.4s;
     --trdelay: 0.15s;
     --index: 0;
-    padding: 8px 10px;
+    // 行高与 32 / 24px 的顶栏控件对齐，7 项不再占掉半屏
+    padding: 5px 9px;
     border-radius: inherit;
     transition: background-color 0.2s 0s;
     position: relative;
     transform: translateY(30px);
     opacity: 0;
+    font-size: 12px;
+    line-height: 17px;
 }
 
 .menu-list::after {
@@ -59,5 +64,14 @@ const emit = defineEmits<Emits>();
     transition:
         transform 0.4s calc(var(--delay) + (var(--trdelay) * var(--index))),
         opacity 0.4s calc(var(--delay) + (var(--trdelay) * var(--index)));
+}
+
+// 手机 / 平板档：菜单行再收一档，和 24px 的触发按钮同一密度。
+@include rp.device-mobile {
+    .menu-list {
+        padding: 4px 8px;
+        font-size: 11px;
+        line-height: 16px;
+    }
 }
 </style>

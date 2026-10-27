@@ -88,6 +88,6 @@ const percentage = computed(() => Math.round(props.progress * 100))
 .default-text {
     font-size: 13px;
     font-weight: bold;
-    color: #333;
+    color: var(--text-color);
 }
 </style>

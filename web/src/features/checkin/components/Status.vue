@@ -47,7 +47,7 @@ const props = defineProps<{
 
     &.future {
         background: rgba(129, 129, 129, 0.2);
-        color: #353535;
+        color: var(--text-color);
     }
 
     &.pending {
@@ -57,6 +57,34 @@ const props = defineProps<{
 
     &.unknown {
         background: #94a3b8;
+    }
+}
+
+// 夜间：提高状态标签的对比度（浅色底 + 亮色字在深色页面上会发灰）
+html[data-theme="dark"] .dot {
+    &.success {
+        background: rgba(34, 197, 94, 0.16);
+        color: #86efac;
+    }
+
+    &.made {
+        background: rgba(234, 179, 8, 0.16);
+        color: #fcd34d;
+    }
+
+    &.missed {
+        background: rgba(248, 113, 113, 0.16);
+        color: #fca5a5;
+    }
+
+    &.future {
+        background: rgba(148, 163, 184, 0.16);
+        color: var(--text-muted);
+    }
+
+    &.unknown {
+        background: #334155;
+        color: #e2e8f0;
     }
 }
 </style>

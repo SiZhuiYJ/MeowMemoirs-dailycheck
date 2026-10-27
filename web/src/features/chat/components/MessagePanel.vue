@@ -11,6 +11,13 @@ import {
 } from 'vue';
 import { storeToRefs } from 'pinia';
 import { telemetry } from '@/libs/telemetry';
+import {
+  abortChatFileUploadFlow,
+  chatFileFlowStep,
+  finishChatFileUploadFlow,
+  hasActiveChatFileUploadFlow,
+  startChatFileUploadFlow,
+} from '@/libs/telemetry/chatFileFlow';
 import router from '@/routers';
 import {
   ChatDotRound,
@@ -550,11 +557,15 @@ async function handleCopyImageMessage(message: MessageSummary) {
   try {
     const blobUrl = await resolveMessageFileBlobUrl(message, extra.fileKey!);
     const result = await copyImageFromUrl(blobUrl);
-    ElMessage.success(
-      result === 'image'
-        ? '图片已复制'
-        : '当前浏览器不支持复制图片，已复制图片地址',
-    );
+    if (result === 'image') {
+      ElMessage.success('图片已复制');
+    } else if (result === 'rich-image') {
+      // HTTP 局域网没有 Async Clipboard，这里复制的是带图片的 HTML。
+      // 粘贴到聊天软件的输入框/富文本编辑器仍是一张图，但不是系统级 image/png。
+      ElMessage.success('图片已复制（HTTP 兼容模式）');
+    } else {
+      ElMessage.success('当前浏览器不支持写入图片，已复制图片地址');
+    }
   } catch (error) {
     console.error('复制图片失败:', error);
     ElMessage.error(error instanceof Error ? error.message : '复制图片失败');
@@ -1300,17 +1311,32 @@ async function confirmDropUpload() {
 }
 
 async function handleFileSelected(files: File[]) {
+  // 拖拽 / 重建补发等路径可能没有 FileUploadButton 开的流程，这里补一个并继续同一条流程。
+  if (!hasActiveChatFileUploadFlow()) {
+    startChatFileUploadFlow({
+      source: 'message-panel',
+      meta: { files: files.length, note: '进入上传阶段时没有活动流程，补建一条' },
+    });
+  }
+
   if (!currentConversation.value?.id) {
+    chatFileFlowStep('file-rejected', { reason: 'no-conversation', count: files.length }, 'warn');
+    abortChatFileUploadFlow('no-conversation', { count: files.length });
     ElMessage.error('请先选择一个会话');
     return;
   }
 
   if (!props.sendMessageHandler) {
+    chatFileFlowStep('file-rejected', { reason: 'no-send-handler', count: files.length }, 'error');
+    abortChatFileUploadFlow('no-send-handler', { count: files.length });
     ElMessage.error('发送消息处理器未配置');
     return;
   }
 
   const replyToMessageId = props.replyingMessage?.id ?? null;
+  const conversationId = currentConversation.value.id;
+  const batchStartedAt = Date.now();
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
   uploadingFiles.value = true;
   let successCount = 0;
   let failedCount = 0;
@@ -1318,32 +1344,71 @@ async function handleFileSelected(files: File[]) {
   // 标记「有上传在进行」：页面若在此期间被刷新/卸载，埋点快照里能看到它
   telemetry.markPending('file-upload-batch', '文件上传中', {
     count: files.length,
-    conversationId: currentConversation.value.id,
+    conversationId,
   });
+
+  chatFileFlowStep('file-batch-accepted', {
+    count: files.length,
+    totalBytes,
+    conversationId,
+    replyToMessageId,
+    messageTypes: files.slice(0, 6).map((file) => file.type || 'unknown'),
+  }, 'info');
 
   try {
     for (const file of files) {
       const tempId = createPendingUpload(file, replyToMessageId);
       const fileStartedAt = Date.now();
+      const progressMilestones = new Set<number>();
+      let maxProgress = 0;
+      let uploadMs: number | null = null;
+      // 与旧实现保持一致：批量发送期间切了会话就跟着当前会话走（不在这里改变既有语义）
+      const targetConversationId = currentConversation.value?.id ?? conversationId;
 
-      telemetry.track('file', 'file-upload-start', {
+      chatFileFlowStep('file-upload-start', {
         fileName: file.name,
         size: file.size,
         type: file.type,
-        conversationId: currentConversation.value.id,
+        conversationId: targetConversationId,
       }, 'info');
 
       try {
-        const { extra, messageType } = await uploadFileForMessage(currentConversation.value.id, file, {
+        const { extra, messageType } = await uploadFileForMessage(targetConversationId, file, {
           onProgress: (progress) => {
             updatePendingProgress(tempId, progress);
+            maxProgress = Math.max(maxProgress, progress);
+            // 只记 25 / 50 / 75 三个里程碑：既能看到「上传到一半卡住」，
+            // 又不会因为每 1% 一条事件把手机上的埋点缓冲写爆。
+            for (const milestone of [25, 50, 75]) {
+              if (maxProgress < milestone || progressMilestones.has(milestone)) continue;
+              progressMilestones.add(milestone);
+              chatFileFlowStep('file-upload-progress', {
+                fileName: file.name,
+                progress: milestone,
+                actualProgress: maxProgress,
+                elapsedMs: Date.now() - fileStartedAt,
+              }, 'debug');
+            }
           },
           onThumbnailReady: (thumbnailUrl) => {
             updatePendingThumbnail(tempId, thumbnailUrl);
+            chatFileFlowStep('file-thumbnail-ready', {
+              fileName: file.name,
+              elapsedMs: Date.now() - fileStartedAt,
+            }, 'debug');
           },
         });
 
+        uploadMs = Date.now() - fileStartedAt;
         updatePendingProgress(tempId, 100);
+
+        chatFileFlowStep('file-upload-response', {
+          fileName: file.name,
+          uploadMs,
+          fileKey: extra.fileKey,
+          messageType,
+          size: file.size,
+        }, 'info');
 
         // 上传回包里就有 fileKey：先记进待发消息（下面「待发气泡 → 真实消息」的
         // 匹配就靠它，见 isSameFileMessage），**并且在把消息发出去之前**把本地 blob
@@ -1361,21 +1426,44 @@ async function handleFileSelected(files: File[]) {
           replyToMessageId,
         };
 
+        chatFileFlowStep('file-message-sending', {
+          fileName: file.name,
+          messageType,
+          conversationId,
+        }, 'debug');
+
+        const sendStartedAt = Date.now();
         const sentMessage = await props.sendMessageHandler(payload);
         if (!sentMessage) {
           throw new Error('发送消息失败');
         }
+        const sendMs = Date.now() - sendStartedAt;
 
         settlePendingUpload(tempId, sentMessage);
         successCount++;
-        telemetry.track('file', 'file-upload-done', {
+        chatFileFlowStep('file-upload-done', {
           fileName: file.name,
           messageId: sentMessage.id,
           durationMs: Date.now() - fileStartedAt,
+          uploadMs,
+          sendMs,
+          fileKey: extra.fileKey,
+          messageType,
         }, 'info');
       } catch (error: unknown) {
         failedCount++;
         markPendingFailed(tempId);
+        const message = error instanceof Error ? error.message : '上传失败';
+        chatFileFlowStep('file-upload-failed', {
+          fileName: file.name,
+          size: file.size,
+          type: file.type,
+          uploadMs,
+          durationMs: Date.now() - fileStartedAt,
+          errorName: error instanceof Error ? error.name : typeof error,
+          message,
+          note: '上传或发送阶段失败',
+        }, 'error');
         telemetry.captureError('file-upload-failed', error, {
           fileName: file.name,
           size: file.size,
@@ -1383,10 +1471,22 @@ async function handleFileSelected(files: File[]) {
           note: '上传或发送阶段失败',
         });
         console.error(`Failed to upload file ${file.name}:`, error);
-        const message = error instanceof Error ? error.message : '上传失败';
         ElMessage.error(`${file.name}: ${message}`);
       }
     }
+
+    const batch = {
+      successCount,
+      failedCount,
+      total: files.length,
+      totalBytes,
+      durationMs: Date.now() - batchStartedAt,
+    };
+
+    chatFileFlowStep('file-upload-batch-done', batch, failedCount > 0 ? 'warn' : 'info');
+    // 走到这里说明整批都处理完了：全部成功记 done，部分/全部失败仍算流程结束，
+    // 但用 warn 级结束步骤，诊断页一眼能看出「流程走完了但结果不好」。
+    finishChatFileUploadFlow(batch, failedCount > 0 ? 'warn' : 'info');
 
     if (successCount > 0 && failedCount === 0) {
       ElMessage.success(files.length === 1 ? '文件发送成功' : `${successCount} 个文件发送成功`);
@@ -1394,6 +1494,15 @@ async function handleFileSelected(files: File[]) {
       ElMessage.warning(`${successCount} 个文件发送成功，${failedCount} 个失败`);
     }
   } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    chatFileFlowStep('file-upload-batch-failed', {
+      fileCount: files.length,
+      successCount,
+      failedCount,
+      durationMs: Date.now() - batchStartedAt,
+      message,
+    }, 'error');
+    abortChatFileUploadFlow('batch-error', { fileCount: files.length, message });
     telemetry.captureError('file-upload-batch-failed', error, { fileCount: files.length });
     console.error('File upload error:', error);
     ElMessage.error('文件发送失败');
@@ -1806,7 +1915,7 @@ onBeforeUnmount(() => {
 
 .history-loading {
   padding: 10px var(--chat-pad, 12px);
-  color: #909399;
+  color: var(--chat-muted-light);
   font-size: 11px;
   text-align: center;
 }
@@ -1822,20 +1931,20 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   padding: 7px 14px;
-  border: 1px solid var(--chat-accent, #9a4f8d);
+  border: 1px solid var(--chat-accent);
   border-radius: 999px;
-  color: var(--chat-accent, #9a4f8d);
+  color: var(--chat-accent);
   font-size: 12px;
   font-weight: 600;
   line-height: 18px;
   cursor: pointer;
-  background: var(--chat-accent-soft, #f7e8f4);
-  box-shadow: 0 8px 22px rgba(154, 79, 141, 0.18);
+  background: var(--chat-accent-soft);
+  box-shadow: var(--theme-outer-glow-lighter);
   transition: transform 0.15s ease, background-color 0.15s ease;
 
   &:hover {
     transform: translateY(-1px);
-    background: color-mix(in srgb, var(--chat-accent-soft, #f7e8f4) 82%, #fff);
+    background: var(--chat-accent-soft-hover);
   }
 }
 
@@ -1858,7 +1967,7 @@ onBeforeUnmount(() => {
   z-index: 20;
   display: grid;
   place-items: center;
-  background: rgba(17, 24, 39, 0.18);
+  background: var(--chat-mask);
   backdrop-filter: blur(2px);
   pointer-events: none;
 }
@@ -1869,11 +1978,11 @@ onBeforeUnmount(() => {
   gap: 12px;
   min-width: 180px;
   padding: 28px 32px;
-  border: 1px solid rgba(255, 255, 255, 0.65);
+  border: 1px solid var(--chat-overlay-border);
   border-radius: 8px;
-  color: #111827;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 20px 48px rgba(17, 24, 39, 0.2);
+  color: var(--chat-text);
+  background: var(--chat-overlay-surface);
+  box-shadow: var(--chat-shadow);
 }
 
 .drop-upload-title {
@@ -1888,7 +1997,7 @@ onBeforeUnmount(() => {
 }
 
 .drop-file-question {
-  color: #111827;
+  color: var(--chat-text);
   font-size: 14px;
   font-weight: 600;
   line-height: 22px;
@@ -1898,7 +2007,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 12px;
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
 }
@@ -1916,13 +2025,13 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   padding: 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--chat-border-strong);
   border-radius: 8px;
-  background: #fff;
+  background: var(--chat-surface-solid);
 
   &.invalid {
-    border-color: #fecaca;
-    background: #fff7f7;
+    border-color: var(--chat-danger-border);
+    background: var(--chat-danger-soft);
   }
 }
 
@@ -1932,8 +2041,8 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  color: #374151;
-  background: #f3f4f6;
+  color: var(--chat-text-secondary);
+  background: var(--chat-inset);
 }
 
 .drop-file-info {
@@ -1942,7 +2051,7 @@ onBeforeUnmount(() => {
 
 .drop-file-name {
   overflow: hidden;
-  color: #111827;
+  color: var(--chat-text);
   font-size: 13px;
   font-weight: 600;
   line-height: 20px;
@@ -1954,7 +2063,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 11px;
   line-height: 18px;
 }
@@ -1974,15 +2083,15 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 
   &.valid {
-    border-color: #bbf7d0;
-    color: #15803d;
-    background: #f0fdf4;
+    border-color: var(--chat-success-border);
+    color: var(--chat-success-text);
+    background: var(--chat-success-soft);
   }
 
   &.invalid {
-    border-color: #fecaca;
-    color: #b91c1c;
-    background: #fef2f2;
+    border-color: var(--chat-danger-border);
+    color: var(--chat-danger-text);
+    background: var(--chat-danger-soft);
   }
 }
 
@@ -2014,9 +2123,9 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: var(--chat-gap, 12px);
   padding: var(--chat-pad, 12px);
-  border-left: 3px solid var(--chat-accent, #9a4f8d);
+  border-left: 3px solid var(--chat-accent);
   border-radius: 8px;
-  background: var(--chat-accent-soft, #f7e8f4);
+  background: var(--chat-accent-soft);
 }
 
 .replying-banner-main {
@@ -2031,18 +2140,18 @@ onBeforeUnmount(() => {
   transition: background-color 0.15s ease;
 
   &:hover {
-    background: color-mix(in srgb, var(--chat-accent-soft, #f7e8f4) 72%, #fff);
+    background: var(--chat-accent-soft-hover);
   }
 }
 
 .replying-label {
-  color: var(--chat-accent, #9a4f8d);
+  color: var(--chat-accent);
   font-size: 11px;
   line-height: 18px;
 }
 
 .replying-sender {
-  color: var(--chat-accent, #9a4f8d);
+  color: var(--chat-accent);
   font-size: 12px;
   font-weight: 600;
   line-height: 18px;
@@ -2050,7 +2159,7 @@ onBeforeUnmount(() => {
 
 .replying-preview {
   overflow: hidden;
-  color: var(--chat-muted, #6b7280);
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
   text-overflow: ellipsis;

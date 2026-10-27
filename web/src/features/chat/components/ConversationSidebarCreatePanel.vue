@@ -12,7 +12,7 @@ import ProgressiveAvatar from "@/components/ProgressiveAvatar/index.vue";
 import ChatDialog from "./ChatDialog.vue";
 import ThemeColorDialog from "@/components/ThemeColorDialog.vue";
 import router from "@/routers";
-import { getUserAvatarUrl, getUserAvatarSources } from "@/utils/avatar";
+import { getUserAvatarUrl } from "@/utils/avatar";
 import {
   useConversationCreateForm,
   type ConversationFriendOption,
@@ -93,6 +93,8 @@ const {
   getFriendSearchActionText,
   getFriendSearchAvatar,
   getRequestStatusType,
+  getFriendRequestUser,
+  getFriendRequestAvatar,
   getFriendLabel,
   getFriendMeta,
   formatFriendRequestTime,
@@ -423,11 +425,13 @@ function handleMoreMenuVisibleChange(visible: boolean) {
               </div>
 
               <div class="friend-request-Subject">
-
-                <ProgressiveAvatar class="conversation-avatar"
-                  :src="getUserAvatarSources(item.receiver.userId, item.receiver.avatarKey).src"
-                  :thumbnail-src="getUserAvatarSources(item.receiver.userId, item.receiver.avatarKey).thumbnailSrc"
-                  :is-preview="true" :size="60" shape="square">
+                <ProgressiveAvatar class="conversation-avatar friend-request-avatar"
+                  :src="getFriendRequestAvatar(item).src"
+                  :thumbnail-src="getFriendRequestAvatar(item).thumbnailSrc"
+                  :data-user-id="getFriendRequestUser(item).userId" :size="60" shape="square"
+                  :title="`查看 ${getFriendLabel(item)} 的主页`" role="button" tabindex="0"
+                  @click="openUserProfile(getFriendRequestUser(item).userId)"
+                  @keydown.enter.prevent="openUserProfile(getFriendRequestUser(item).userId)">
                   {{ getFriendLabel(item).slice(0, 1) }}
                 </ProgressiveAvatar>
 
@@ -616,13 +620,13 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 }
 
 .social-dropdown-status-label {
-  color: #9ca3af;
+  color: var(--chat-muted-light);
   font-size: 11px;
   line-height: 16px;
 }
 
 .social-dropdown-status-text {
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
   word-break: break-word;
@@ -639,7 +643,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 
 .search-tip {
   margin: 0;
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
 }
@@ -648,7 +652,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
   display: grid;
   gap: 12px;
   padding: 14px 0;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--chat-border);
 }
 
 .search-result-row:last-child {
@@ -672,11 +676,11 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 
   &:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(17, 24, 39, 0.16);
+    box-shadow: var(--chat-hover-shadow);
   }
 
   &:focus-visible {
-    outline: 2px solid var(--chat-accent, #9a4f8d);
+    outline: 2px solid var(--chat-accent);
     outline-offset: 2px;
   }
 }
@@ -695,15 +699,15 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 }
 
 .search-result-meta {
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
   word-break: break-all;
 }
 
 :deep(.match-highlight) {
-  color: #b91c1c;
-  background: #fee2e2;
+  color: var(--chat-danger-text);
+  background: var(--chat-danger-soft);
   border-radius: 4px;
   padding: 0 2px;
 }
@@ -715,17 +719,17 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 
 .group-search-card {
   padding: 14px 16px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--chat-border-strong);
   border-radius: 12px;
-  background: #f9fafb;
+  background: var(--chat-field);
 }
 
 .social-dropdown-count {
   min-width: 18px;
   padding: 0 6px;
   border-radius: 999px;
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--chat-inset);
+  color: var(--chat-muted);
   font-size: 11px;
   line-height: 18px;
   text-align: center;
@@ -747,7 +751,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 .friend-list-tip,
 .create-group-tip {
   margin: 0;
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
 }
@@ -761,7 +765,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
   gap: 12px;
   padding: 10px 8px;
   border: none;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--chat-divider);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -774,11 +778,11 @@ function handleMoreMenuVisibleChange(visible: boolean) {
   }
 
   &:hover {
-    background: #f7e8f4;
+    background: var(--chat-accent-soft);
   }
 
   &:focus-visible {
-    outline: 2px solid var(--chat-accent, #9a4f8d);
+    outline: 2px solid var(--chat-accent);
     outline-offset: -2px;
   }
 }
@@ -798,7 +802,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 
 .friend-list-meta {
   overflow: hidden;
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
   text-overflow: ellipsis;
@@ -807,7 +811,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 
 .friend-list-action {
   flex-shrink: 0;
-  color: var(--chat-accent, #9a4f8d);
+  color: var(--chat-accent);
   font-size: 12px;
 }
 
@@ -826,7 +830,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 .blacklist-count,
 .blacklist-tip {
   margin: 0;
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
 }
@@ -834,7 +838,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 .blacklist-tip {
   padding: 10px 12px;
   border-radius: 8px;
-  background: #f9fafb;
+  background: var(--chat-field);
 }
 
 .blacklist-row {
@@ -845,7 +849,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
   align-items: center;
   gap: 12px;
   padding: 10px 8px;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--chat-divider);
 
   &:last-child {
     border-bottom: none;
@@ -858,11 +862,11 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 
   &:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(17, 24, 39, 0.16);
+    box-shadow: var(--chat-hover-shadow);
   }
 
   &:focus-visible {
-    outline: 2px solid var(--chat-accent, #9a4f8d);
+    outline: 2px solid var(--chat-accent);
     outline-offset: 2px;
   }
 }
@@ -882,7 +886,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 
 .blacklist-meta {
   overflow: hidden;
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
   text-overflow: ellipsis;
@@ -919,7 +923,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
   display: grid;
   gap: 12px;
   padding: 14px 0;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--chat-border);
 }
 
 .friend-request-row:last-child {
@@ -944,6 +948,23 @@ function handleMoreMenuVisibleChange(visible: boolean) {
   gap: 8px;
 }
 
+// 好友申请里的对方头像可点击进入主页。
+.friend-request-avatar {
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--chat-hover-shadow);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--chat-accent);
+    outline-offset: 2px;
+  }
+}
+
 .friend-request-text {
   display: flex;
   flex-direction: column;
@@ -953,7 +974,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 }
 
 .friend-request-meta {
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
 }
@@ -970,7 +991,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 
 .group-join-tip {
   margin: 0;
-  color: #6b7280;
+  color: var(--chat-muted);
   font-size: 12px;
   line-height: 18px;
 }

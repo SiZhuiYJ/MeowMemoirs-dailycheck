@@ -6,6 +6,7 @@ import type {
   ActionType,
   AuthData,
   AuthUser,
+  ChangeEmailPayload,
   PasswordPayload,
   RegisterRecord,
   AccountStatus,
@@ -28,10 +29,26 @@ export const authApi = {
   /**
    * 发送邮箱验证码
    * @param data 包含邮箱和操作类型的对象
+   * @param options 请求配置（可关闭全局错误提示，由调用方展示更精确的文案）
    * @returns Promise<void>
    */
-  async sendEmailCode(data: { email: string; actionType: ActionType }) {
-    return await http.post("/mm/Auth/email-code", data);
+  async sendEmailCode(
+    data: { email: string; actionType: ActionType },
+    options: { showError?: boolean } = {},
+  ) {
+    return await http.post("/mm/Auth/email-code", data, options);
+  },
+
+  /**
+   * 换绑当前账号的邮箱
+   * 需要新邮箱验证码；普通账号还需当前密码或当前邮箱验证码。
+   * @param data 换绑邮箱数据
+   * @returns Promise<AuthData>
+   */
+  async changeEmail(data: ChangeEmailPayload) {
+    return await http.post<AuthData>("/mm/Auth/change-email", data, {
+      showError: false,
+    });
   },
 
   /**
@@ -159,6 +176,7 @@ export const authApi = {
 export type {
   ActionType,
   AuthData,
+  ChangeEmailPayload,
   PasswordPayload,
   RegisterRecord,
 } from "../types";

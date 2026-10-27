@@ -10,6 +10,7 @@ import {
   notifyWarning,
 } from "@/utils/notification";
 import { convertToWebP } from "@/utils/convertToWebP";
+import { createHeicPreviewUrl, isHeicFile } from "@/utils/heic";
 
 const props = defineProps<{
   planId?: number;
@@ -29,6 +30,12 @@ const note = ref("");
 const images = ref<File[]>([]);
 const previewSrcs = ref<string[]>([]);
 const loading = ref(false);
+
+/**
+ * HEIC 预览解码串行执行：一次 12MP 的 HEVC 解码就要几十 MB 内存，
+ * 三张图同时解很容易把手机渲染进程打崩。串行只是慢一点，但稳。
+ */
+let heicPreviewQueue: Promise<void> = Promise.resolve();
 
 const currentPlan = computed(() => {
   return plansStore.PlansItems.find((p) => p.id === props.planId);
@@ -53,13 +60,22 @@ async function uploadImages(): Promise<string[]> {
     // 转换为 WebP 格式。
     // 必须带上尺寸上限：打卡照片是手机原图（4000px+），全尺寸建画布 + 全质量编码
     // 会让移动端渲染进程 OOM（表现为「选完图片页面自己刷新了」）。
-    const webpFile = await convertToWebP(file, {
-      quality: 0.9,
-      maxWidth: 1920,
-      maxHeight: 1920,
-      output: 'file',
-      fileName: file.name.replace(/\.[^.]+$/, '.webp')
-    }) as File;
+    let webpFile: File;
+    try {
+      webpFile = (await convertToWebP(file, {
+        quality: 0.9,
+        maxWidth: 1920,
+        maxHeight: 1920,
+        output: 'file',
+        fileName: file.name.replace(/\.[^.]+$/, '.webp')
+      })) as File;
+    } catch (error) {
+      // HEIC 本地解码失败时不要直接判死：后端同样能解码 .heic，
+      // 把原文件传上去仍然能得到一张 WebP。
+      if (!isHeicFile(file)) throw error;
+      notifyWarning(`${file.name}: 本地转换失败，改由服务端转换`);
+      webpFile = file;
+    }
 
     const formData = new FormData();
     formData.append("file", webpFile);
@@ -74,18 +90,44 @@ async function uploadImages(): Promise<string[]> {
 
 function handleFilesChange(event: Event) {
   const input = event.target as HTMLInputElement;
-  if (input.files) {
-    const newFiles = Array.from(input.files);
-    if (images.value.length + newFiles.length > 3) {
-      notifyWarning("最多只能上传三张图片");
-      return;
-    }
-    images.value.push(...newFiles);
-    newFiles.forEach((file) => {
-      previewSrcs.value.push(URL.createObjectURL(file));
-    });
-  }
+  const newFiles = Array.from(input.files ?? []);
   input.value = "";
+
+  if (newFiles.length === 0) return;
+
+  if (images.value.length + newFiles.length > 3) {
+    notifyWarning("最多只能上传三张图片");
+    return;
+  }
+
+  newFiles.forEach((file) => {
+    const imageIndex = images.value.push(file) - 1;
+    // 先挂一个 object URL 占位，保证预览列表的 key 唯一；
+    // HEIC 浏览器不能直接显示，解码完成后替换成 JPEG 预览。
+    previewSrcs.value.push(URL.createObjectURL(file));
+
+    if (!isHeicFile(file)) return;
+
+    heicPreviewQueue = heicPreviewQueue.then(async () => {
+      // 排队期间用户可能已经删除/重置了这张图，直接跳过解码
+      if (images.value[imageIndex] !== file) return;
+
+      try {
+        const url = await createHeicPreviewUrl(file);
+        // 解码完成后再确认一次：避免覆盖已经换位/删除的预览
+        if (images.value[imageIndex] !== file) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        const previous = previewSrcs.value[imageIndex];
+        previewSrcs.value[imageIndex] = url;
+        if (previous) URL.revokeObjectURL(previous);
+      } catch {
+        if (images.value[imageIndex] !== file) return;
+        notifyWarning(`${file.name}: 预览生成失败，提交时将由服务端转换`);
+      }
+    });
+  });
 }
 
 function removeImage(index: number) {
@@ -215,7 +257,7 @@ defineExpose({
       <span class="image-list">
         <ImagePreviewList :sources="previewSrcs" removable @remove="removeImage" />
         <label class="upload-button" aria-label="上传文件按钮">
-          <input type="file" id="realFileInput" name="uploadFile" aria-label="选择文件" accept="image/*" multiple
+          <input type="file" id="realFileInput" name="uploadFile" aria-label="选择文件" accept="image/*,.heic,.heif,.hif" multiple
             @change="handleFilesChange" />
         </label>
       </span>

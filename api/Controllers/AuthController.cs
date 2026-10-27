@@ -647,6 +647,8 @@ public class AuthController(
     /// • change-password: 修改密码
     /// • deactivate: 账号注销
     /// • reset-password: 密码重置
+    /// • change-email: 换绑邮箱（发送到新邮箱）
+    /// • change-email-current: 换绑邮箱时验证当前邮箱
     /// 
     /// 安全防护措施：
     /// • 频率限制：同一邮箱每分钟最多发送1次
@@ -682,6 +684,11 @@ public class AuthController(
             ? "register"
             : request.ActionType.Trim().ToLowerInvariant();
 
+        // 内部占位邮箱（微信注册生成的 wx_*@wechat.local）不能接收邮件，
+        // 不接受它们作为验证码目标，避免把「换绑」绕回占位地址。
+        if (IsWechatPlaceholderEmail(email))
+            return BadRequest("该邮箱域名不可用");
+
         var exists = await _db.Users.AnyAsync(x => x.Email == email && !x.IsDeleted, cancellationToken);
 
         if (actionTypeKey is "register" or "signup")
@@ -689,7 +696,15 @@ public class AuthController(
             if (exists)
                 return Conflict("该邮箱已注册");
         }
-        else if (actionTypeKey is "login" or "change-password" or "deactivate" or "reset-password")
+        else if (actionTypeKey == "change-email")
+        {
+            // users.email 的唯一索引也覆盖伪删除账号，这里一并检查，
+            // 避免验证码发出去之后换绑时才撞唯一键。
+            var taken = await _db.Users.AnyAsync(x => x.Email == email, cancellationToken);
+            if (taken)
+                return Conflict("该邮箱已被使用");
+        }
+        else if (actionTypeKey is "login" or "change-password" or "deactivate" or "reset-password" or "change-email-current")
         {
             if (!exists)
                 return BadRequest("该邮箱未注册");
@@ -707,6 +722,8 @@ public class AuthController(
             "change-password" => "修改密码",
             "deactivate" => "注销账号",
             "reset-password" => "重置密码",
+            "change-email" => "换绑邮箱",
+            "change-email-current" => "验证当前邮箱",
             _ => "验证"
         };
 
@@ -933,6 +950,119 @@ public class AuthController(
         await _db.SaveChangesAsync(cancellationToken);
 
         return NoContent();
+    }
+
+    /// <summary>
+    /// 换绑当前登录账号的邮箱。
+    /// 需要验证新邮箱收到的验证码；普通账号还需通过「当前密码」或「当前邮箱验证码」完成身份校验。
+    /// 换绑成功后会生成新的双 Token，并立即更新返回的用户信息。
+    /// </summary>
+    /// <remarks>
+    /// 校验顺序：
+    /// 1. 新邮箱格式、是否与当前邮箱相同、是否已被其他账号占用；
+    /// 2. 当前身份校验：
+    ///    • 普通账号：当前密码或当前邮箱验证码（actionType=change-email-current）二选一；
+    ///    • 微信注册账号：邮箱是内部占位地址（wx_*@wechat.local），既没有可用密码也
+    ///      收不到验证码，因此仅依赖已登录会话 + 新邮箱验证码；
+    /// 3. 新邮箱验证码（actionType=change-email）；
+    /// 4. 更新 users.email 并刷新令牌。
+    ///
+    /// 失败状态码：
+    /// • 400：参数错误 / 验证码错误 / 身份校验失败；
+    /// • 409：新邮箱已被占用；
+    /// • 404：当前用户不存在。
+    /// </remarks>
+    /// <param name="request">换绑邮箱请求参数。</param>
+    /// <param name="cancellationToken">取消操作标记。</param>
+    /// <returns>成功时返回 200 OK 和更新后的用户信息与双 Token。</returns>
+    /// <response code="200">邮箱换绑成功</response>
+    /// <response code="400">新邮箱无效、验证码错误或身份校验失败</response>
+    /// <response code="409">新邮箱已被其他账号使用</response>
+    [HttpPost("change-email")]
+    [Authorize]
+    public async Task<ActionResult<AuthResponse>> ChangeEmail(ChangeEmailRequest request, CancellationToken cancellationToken)
+    {
+        var newEmail = (request.NewEmail ?? string.Empty).Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(newEmail))
+            return BadRequest("邮箱不能为空");
+
+        if (!System.Net.Mail.MailAddress.TryCreate(newEmail, out _))
+            return BadRequest("邮箱格式不正确");
+
+        // 内部占位域名不能作为新邮箱，否则以后又会被当成微信占位账号。
+        if (IsWechatPlaceholderEmail(newEmail))
+            return BadRequest("该邮箱域名不可用");
+
+        var userId = GetUserId();
+        var user = await _db.Users.SingleOrDefaultAsync(x => x.Id == userId && !x.IsDeleted, cancellationToken);
+        if (user == null)
+            return NotFound();
+
+        var currentEmail = (user.Email ?? string.Empty).Trim().ToLowerInvariant();
+        if (string.Equals(currentEmail, newEmail, StringComparison.OrdinalIgnoreCase))
+            return BadRequest("新邮箱不能与当前邮箱相同");
+
+        // 唯一索引同样覆盖伪删除账号，这里不筛 IsDeleted，避免保存时抛唯一键异常。
+        var emailTaken = await _db.Users.AnyAsync(x => x.Email == newEmail && x.Id != userId, cancellationToken);
+        if (emailTaken)
+            return Conflict("该邮箱已被使用");
+
+        if (string.IsNullOrWhiteSpace(request.NewEmailCode))
+            return BadRequest("请输入新邮箱验证码");
+
+        // 微信注册账号的占位邮箱无法收信、也没有可用密码，只能信任当前已登录会话；
+        // 其余账号必须再提供一项「当前身份」证明，防止会话被窃取后直接换绑邮箱。
+        //
+        // 先验证当前身份、再消费新邮箱验证码：密码输错时不会白白作废刚收到的验证码。
+        if (!IsWechatPlaceholderEmail(currentEmail))
+        {
+            var passwordVerified = !string.IsNullOrWhiteSpace(request.Password)
+                && PasswordHasher.Verify(user.PasswordHash, request.Password);
+
+            var currentCodeVerified = false;
+            if (!passwordVerified && !string.IsNullOrWhiteSpace(request.CurrentEmailCode))
+            {
+                var currentCodeStatus = await _verificationCodeService.VerifyCodeAsync(
+                    currentEmail, request.CurrentEmailCode, cancellationToken);
+                currentCodeVerified = currentCodeStatus == VerifyCodeStatus.Success;
+            }
+
+            if (!passwordVerified && !currentCodeVerified)
+            {
+                var hasPassword = !string.IsNullOrWhiteSpace(request.Password);
+                var hasCurrentCode = !string.IsNullOrWhiteSpace(request.CurrentEmailCode);
+
+                if (hasPassword && !hasCurrentCode)
+                    return BadRequest("当前密码不正确");
+                if (!hasPassword && hasCurrentCode)
+                    return BadRequest("当前邮箱验证码错误或已过期");
+                return BadRequest("请输入当前密码或当前邮箱验证码完成身份验证");
+            }
+        }
+
+        var newCodeStatus = await _verificationCodeService.VerifyCodeAsync(newEmail, request.NewEmailCode, cancellationToken);
+        if (newCodeStatus == VerifyCodeStatus.NotFoundOrExpired)
+            return BadRequest("新邮箱验证码已过期或不存在");
+        if (newCodeStatus == VerifyCodeStatus.CodeMismatch)
+            return BadRequest("新邮箱验证码不正确");
+
+        user.Email = newEmail;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // 并发换绑到同一邮箱时由唯一索引兜底。
+            return Conflict("该邮箱已被使用");
+        }
+
+        var tokens = _jwtTokenService.GenerateTokens(user);
+        await StoreTokensInRedis(user.Id, tokens.AccessToken, tokens.RefreshToken);
+
+        return Ok(CreateAuthResponse(user, tokens));
     }
 
     /// <summary>
@@ -1457,6 +1587,13 @@ public class AuthController(
     static string BuildWechatEmail(string openId)
     {
         return $"wx_{openId.ToLowerInvariant()}@wechat.local";
+    }
+
+    /// <summary>是否为微信注册时生成的内部占位邮箱（wx_*@wechat.local）。</summary>
+    static bool IsWechatPlaceholderEmail(string? email)
+    {
+        return !string.IsNullOrWhiteSpace(email)
+            && email.EndsWith("@wechat.local", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

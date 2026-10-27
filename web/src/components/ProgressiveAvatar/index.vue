@@ -134,7 +134,8 @@ function toggleImagePreview() {
   justify-content: center;
   overflow: hidden;
   color: inherit;
-  background: #f3f4f6;
+  // 全局头像占位底：日间浅灰、夜间深灰（见 styles/chat-theme.scss）
+  background: var(--avatar-fallback-bg, #f3f4f6);
 
   &.circle {
     border-radius: 999px;

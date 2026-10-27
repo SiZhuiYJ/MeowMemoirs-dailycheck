@@ -54,21 +54,30 @@ const doCrop = () => {
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .cropper-wrapper {
   --size: 400px;
-  box-shadow: 0 3px 5px 1px #cfcfcf;
-  border: 10px solid white;
-  width: var(--size);
-  height: var(--size);
+  // 固定 400px 在手机上会横向顶破卡片（头像页就踩过）：
+  // 宽度跟着容器收缩，再用 aspect-ratio 撑成正方形；
+  // 裁剪框内部是 100% x 100%，仍然拿到确定的宽高。
+  width: min(var(--size), 100%);
+  aspect-ratio: 1 / 1;
+  height: auto;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 10px solid var(--chat-surface-solid);
+  border-radius: 8px;
+  box-shadow: var(--theme-outer-glow-lighter);
 }
 
 button {
-  padding: 6px 12px;
-  border-radius: 4px;
+  height: var(--setting-input-h, 36px);
+  padding: 0 14px;
+  border-radius: 8px;
   border: 1px solid var(--theme-action-bg);
   background: var(--theme-action-bg);
   color: var(--theme-action-contrast);
+  font-size: 12px;
   cursor: pointer;
   transition: background-color 0.2s ease, color 0.2s ease;
 }

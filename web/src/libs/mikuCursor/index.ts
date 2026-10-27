@@ -79,6 +79,7 @@ const appInteractiveSelectors = [
   ".member-avatar-link",
   ".search-result-avatar-link",
   ".blacklist-avatar",
+  ".friend-request-avatar",
 ] as const;
 
 const elementPlusInteractiveSelectors = [

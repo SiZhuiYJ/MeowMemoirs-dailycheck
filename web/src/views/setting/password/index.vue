@@ -74,6 +74,7 @@ async function handleChangePassword() {
                 <h3 class="setting-title">密码修改</h3>
                 <p class="setting-subtitle">支持旧密码和验证码两种校验方式。</p>
             </div>
+
             <div class="setting-form">
                 <div class="method-selector">
                     <label class="radio-label">
@@ -114,11 +115,12 @@ async function handleChangePassword() {
                 </label>
             </div>
 
-            <span class="setting-footer">
-                <button class="setting-submit" :disabled="changePasswordLoading" @click="handleChangePassword">
-                    {{ changePasswordLoading ? "提交中..." : "确认修改" }}
-                </button>
-            </span>
+            <div class="setting-footer">
+                <el-button type="primary" class="setting-submit" :loading="changePasswordLoading"
+                    @click="handleChangePassword">
+                    确认修改
+                </el-button>
+            </div>
         </div>
     </div>
 </template>
@@ -128,10 +130,12 @@ async function handleChangePassword() {
 // 这里只保留本页独有的「校验方式」选择器。
 .method-selector {
     display: flex;
-    margin-bottom: 16px;
-    background-color: var(--bg-color);
-    padding: 4px;
-    border-radius: 8px;
+    gap: 2px;
+    margin-bottom: 2px;
+    padding: 3px;
+    border: 1px solid var(--chat-border);
+    border-radius: 10px;
+    background: var(--chat-inset);
 }
 
 .radio-label {
@@ -140,8 +144,23 @@ async function handleChangePassword() {
     gap: 6px;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
-    color: var(--text-muted);
     padding: 6px 10px;
+    border-radius: 7px;
+    color: var(--chat-muted);
+    font-size: 12px;
+    line-height: 18px;
+    cursor: pointer;
+    transition: background-color 0.16s ease, color 0.16s ease;
+
+    input {
+        accent-color: var(--chat-accent);
+    }
+
+    // 选中态：与聊天页会话列表的 .active 同一套主题浅底
+    &:has(input:checked) {
+        color: var(--chat-accent);
+        background: var(--chat-accent-soft);
+        font-weight: 600;
+    }
 }
 </style>

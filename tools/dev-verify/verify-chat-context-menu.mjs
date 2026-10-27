@@ -381,6 +381,43 @@ if (imageReady) {
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: 5, y: 5, button: "left", clickCount: 1 });
   await sleep(300);
   check("点击菜单外 -> 菜单关闭", !(await cdp.evaluate(`Boolean(document.querySelector('.chat-context-menu'))`)));
+
+  // ── 1c. 「复制图片」真的写进了剪贴板 ─────────────────────────────────
+  // HTTP 局域网走 execCommand 图文兼容模式，HTTPS / localhost 走 image/png；
+  // 两种情况都应该能在页面里粘回一张图。
+  await cdp.evaluate(dispatchContextMenu(".message-list .image-message"));
+  await sleep(250);
+  check("再次右键图片 -> 菜单出现", await cdp.evaluate(`Boolean(document.querySelector('.chat-context-menu'))`));
+  const copyClicked = await cdp.evaluate(clickMenuLabel("复制图片"));
+  check("点击「复制图片」", copyClicked);
+  await sleep(2500);
+  const copyToast = await cdp.evaluate(
+    `[...document.querySelectorAll('.el-message')].map((el) => el.textContent.trim()).join(' | ')`,
+  );
+  check("复制图片成功提示", copyToast.includes("图片已复制"), copyToast);
+
+  await cdp.evaluate(`(() => {
+    const target = document.createElement('div');
+    target.id = '__copy-paste-target';
+    target.contentEditable = 'true';
+    target.style.cssText = 'position:fixed;left:0;top:0;width:200px;height:120px;opacity:0;z-index:99999';
+    document.body.appendChild(target);
+    target.focus();
+    return true;
+  })()`);
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: "keyDown", modifiers: 2, windowsVirtualKeyCode: 86, nativeVirtualKeyCode: 86, code: "KeyV", key: "v",
+  });
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: "keyUp", modifiers: 2, windowsVirtualKeyCode: 86, nativeVirtualKeyCode: 86, code: "KeyV", key: "v",
+  });
+  await sleep(1000);
+  const pastedImage = await cdp.evaluate(`(() => {
+    const img = document.querySelector('#__copy-paste-target img');
+    return img ? (img.getAttribute('src') || '').slice(0, 64) : '';
+  })()`);
+  check("剪贴板可粘贴为图片", Boolean(pastedImage), pastedImage);
+  await cdp.evaluate(`document.getElementById('__copy-paste-target')?.remove()`);
 } else {
   console.log("INFO  没有图片消息，跳过图片菜单断言");
 }
