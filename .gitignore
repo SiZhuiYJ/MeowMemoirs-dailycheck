@@ -700,9 +700,14 @@ api.Release/
 # 运行期用户上传文件与日志（含个人数据，不入库）
 api/uploads/
 api/errorLog/
+# uploads 目录的打包备份（体积大且含个人数据）
+*.rar
 
 # 本地开发配置（含真实密钥，勿提交）
 api/appsettings.Development.json
+
+# 含真实用户数据的数据库备份（邮箱、密码哈希、聊天正文），只留本地
+sql/private/
 
 # 前端依赖与日志
 uni-app/node_modules/

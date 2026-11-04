@@ -23,7 +23,12 @@
 ├── web/                 # Vue 3 前端
 │   └── src/             # features / components / views / stores / libs
 ├── uni-app/             # uni-app 微信小程序端
-├── sql/                 # 数据库导出与优化脚本
+├── sql/                 # 数据库脚本
+│   ├── 2026-11-04_schema_*.sql  # 建表（仅结构），按业务域分三个文件
+│   ├── 2026-10-2*_*.sql         # 增量迁移脚本（已初始化环境按序补跑）
+│   ├── private/                 # 含真实数据的备份，本地留存，不入库
+│   └── legacy/                  # 早期 MySQL 8 导出，仅存档
+├── tools/               # 开发脚本（建表/备份生成、埋点校验等）
 ├── openapi.yaml         # OpenAPI 描述
 ├── API接口文档.md        # 接口文档（按控制器同步）
 ├── FILE_UPLOAD_FEATURE.md
@@ -47,21 +52,33 @@
 
 ### 1. 数据库
 
+建表（仅结构，三个文件自带 `CREATE DATABASE`，按顺序执行即可）：
+
 ```bash
-mysql -u root -e "CREATE DATABASE dailycheck CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-mysql -u root dailycheck < sql/dailycheck_2026-05-19_140753（本地化更新）.sql
+mysql -u root < sql/2026-11-04_schema_01_user.sql      # 用户与账号（9 张表）
+mysql -u root < sql/2026-11-04_schema_02_chat.sql      # 聊天与群聊（8 张表）
+mysql -u root < sql/2026-11-04_schema_03_checkin.sql   # 打卡（3 张表）
+```
+
+> 三个文件由 MariaDB 13 导出，`utf8mb4_unicode_ci`，MySQL 8 / MariaDB 10.4+ 均可直接导入，
+> 共覆盖 20 张表。它们**只含结构、不含数据**——真实数据里有邮箱、密码哈希和聊天正文，
+> 不能进公开仓库。含数据的版本由 `bash tools/dev-verify/gen-full-dump.sh` 生成到
+> `sql/private/`（已被 `.gitignore` 忽略，只留本地做备份）。
+
+已经初始化过数据库的环境，按顺序补跑增量脚本（缺哪条补哪条）：
+
+```bash
 # 聊天页右键菜单所需的增量表/字段（消息伪删除、按用户清除会话记录）
 mysql -u root dailycheck < sql/2026-10-22_chat_context_menu.sql
 # 群聊管理撤回提示落在原消息位置（chat_messages.recalled_by_user_id / recall_prompt）
 mysql -u root dailycheck < sql/2026-10-22_chat_moderation_recall.sql
+# 用户拉黑表（user_blocks）——缺了会让 /mm/friends* 三个接口 500
+mysql -u root dailycheck < sql/2026-10-23_user_blocks.sql
 ```
 
-> `sql/` 下的导出文件来自 MySQL 8。导入 MariaDB 时注意两点：
+> 早期 MySQL 8 的导出已归档到 `sql/legacy/`，仅在考古时使用。导入 MariaDB 时注意两点：
 > 1. 全文替换 `utf8mb4_0900_ai_ci` → `utf8mb4_unicode_ci`（MariaDB 不支持前者）；
 > 2. 删除 `SET @@GLOBAL.GTID_PURGED=...` 一行（MariaDB 无此变量）。
->
-> 已经初始化过数据库的环境，按顺序执行这两个增量脚本：
-> `sql/2026-10-22_chat_context_menu.sql`、`sql/2026-10-22_chat_moderation_recall.sql`。
 
 ### 2. Redis
 
