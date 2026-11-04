@@ -208,7 +208,10 @@ export function useConversationSidebarSocial(options: {
     const { silent = false } = options;
     friendRequestLoading.value = true;
     try {
-      const { data } = await getFriendRequests();
+      // silent 要一路传到请求层，否则 axios 的全局 notifyWarning 仍会弹 toast
+      const { data } = await getFriendRequests(undefined, {
+        showError: !silent,
+      });
       friendRequests.value = data;
     } catch (error) {
       if (!silent) {
@@ -223,7 +226,7 @@ export function useConversationSidebarSocial(options: {
     const { silent = false } = options;
     blacklistLoading.value = true;
     try {
-      const { data } = await getBlockedUsers();
+      const { data } = await getBlockedUsers({ showError: !silent });
       blacklist.value = data;
     } catch (error) {
       if (!silent) {

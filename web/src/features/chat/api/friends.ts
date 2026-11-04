@@ -1,4 +1,5 @@
 import http from "@/libs/http";
+import type { HttpRequestConfig } from "@/libs/http/type";
 import type {
   BlockedUser,
   CreateFriendRequestPayload,
@@ -13,9 +14,13 @@ export async function getFriends() {
   return await http.get<Friendship[]>("/mm/friends");
 }
 
-export async function getFriendRequests(status?: string) {
+export async function getFriendRequests(
+  status?: string,
+  config: HttpRequestConfig = {},
+) {
   return await http.get<FriendRequest[]>("/mm/friends/requests", {
     params: status ? { status } : undefined,
+    ...config,
   });
 }
 
@@ -58,8 +63,8 @@ export async function deleteFriend(friendUserId: number) {
 }
 
 /** 获取当前用户的黑名单（我拉黑的用户）。 */
-export async function getBlockedUsers() {
-  return await http.get<BlockedUser[]>("/mm/friends/blacklist");
+export async function getBlockedUsers(config: HttpRequestConfig = {}) {
+  return await http.get<BlockedUser[]>("/mm/friends/blacklist", config);
 }
 
 /** 拉黑指定用户；重复拉黑是幂等的。 */
