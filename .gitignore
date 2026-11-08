@@ -699,6 +699,7 @@ api.Release/
 
 # 运行期用户上传文件与日志（含个人数据，不入库）
 api/uploads/
+api/wwwroot/
 api/errorLog/
 # uploads 目录的打包备份（体积大且含个人数据）
 *.rar
