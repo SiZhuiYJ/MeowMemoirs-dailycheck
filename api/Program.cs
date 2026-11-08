@@ -276,4 +276,27 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<ChatHub>("/hubs/chat");
 
+// 生产模式：前端构建产物放在 wwwroot，history 路由的深链接刷新回落到 index.html。
+// /mm 与 /hubs 下的未匹配请求仍返回 404，避免把接口错误吞成页面。
+app.MapFallback(async context =>
+{
+    var path = context.Request.Path.Value ?? string.Empty;
+    if (path.StartsWith("/mm", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/hubs", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    var indexPath = Path.Combine(webRootPath, "index.html");
+    if (!File.Exists(indexPath))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    context.Response.ContentType = "text/html; charset=utf-8";
+    await context.Response.SendFileAsync(indexPath);
+});
+
 app.Run();
