@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useMusicPlayer } from "../composables/useMusicPlayer";
+import { useAudioMetadata } from "../composables/useAudioMetadata";
 import SvgIcon from "@/components/SvgIcon/index.vue";
 
 const props = defineProps<{
@@ -42,6 +43,18 @@ const {
     extractPalette,
 } = player;
 
+// 音频自带的标签信息：优先使用内嵌标签，没有再用外部传入的默认值
+const { metadata, load: loadAudioMetadata } = useAudioMetadata();
+
+const displayTitle = computed(() => metadata.value?.title || props.title || "--");
+const displayArtist = computed(() => metadata.value?.artist || "");
+const displayAlbum = computed(() => metadata.value?.album || "");
+const coverUrl = computed(() => metadata.value?.coverUrl || props.coverUrl || "");
+
+const vinylStyle = computed(() => (
+    coverUrl.value ? { "--cover-url": `url("${coverUrl.value}")` } : {}
+));
+
 // 监听 URL 变化，切换音频源
 watch(() => props.url, (newUrl) => {
     if (newUrl) {
@@ -51,6 +64,11 @@ watch(() => props.url, (newUrl) => {
         loadTrack({ url: newUrl }, false);
     }
 }, { immediate: false });
+
+// 音频地址变化时，重新读取音频内嵌的标题 / 歌手 / 封面等数据
+watch(() => props.url, (newUrl) => {
+    void loadAudioMetadata(newUrl);
+}, { immediate: true });
 
 const timelineStyle = computed(() => ({
     "--slider-progress": `${progress.value}%`,
@@ -74,9 +92,11 @@ const onVolumeInput = (event: Event) => {
 };
 
 
-watch(() => props.coverUrl, (coverUrl) => {
-    if (!coverUrl) return;
-    void extractPalette(coverUrl);
+watch(coverUrl, (currentCover) => {
+    if (!currentCover) return;
+    void extractPalette(currentCover).catch(() => {
+        // 封面不可用（跨域/格式问题）时保持默认配色
+    });
 }, { immediate: true });
 
 const heroStyle = computed((): { [key: string]: string } | undefined => {
@@ -98,14 +118,18 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
             <div class="glow"></div>
             <div class="hero-main">
                 <div class="vinyl-wrap">
-                    <div class="vinyl" :class="{ spinning: isPlaying }" :style="`--cover-url: url(${props.coverUrl})`"
-                        @click="togglePlay">
+                    <div class="vinyl" :class="{ spinning: isPlaying }" :style="vinylStyle" @click="togglePlay">
                     </div>
                 </div>
                 <div class="hero-text">
                     <h1 class="title">
-                        {{ props.title || "--" }}
+                        {{ displayTitle }}
                     </h1>
+                    <p class="subtitle" v-if="displayArtist || displayAlbum">
+                        <span v-if="displayArtist">{{ displayArtist }}</span>
+                        <span class="subtitle-dot" v-if="displayArtist && displayAlbum">·</span>
+                        <span v-if="displayAlbum">{{ displayAlbum }}</span>
+                    </p>
                     <div class="chips">
                         <span class="chip muted" v-if="muted">静音</span>
                         <span class="chip" v-if="formattedDuration">
@@ -285,6 +309,13 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
 .vinyl-wrap {
     display: grid;
     place-items: center;
+    transition: transform 0.3s ease;
+
+    @media (hover: hover) {
+        &:hover {
+            transform: translateY(-4px);
+        }
+    }
 }
 
 .vinyl {
@@ -296,17 +327,17 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
     display: grid;
     place-items: center;
     box-shadow: 0 25px 60px rgba(0, 0, 0, 0.45), inset 0 0 35px rgba(0, 0, 0, 0.4);
-    transition: transform 0.4s ease, box-shadow 0.4s ease;
+    transition: box-shadow 0.4s ease;
     position: relative;
     overflow: hidden;
+    // 动画常驻，只切换播放状态：暂停时停在当前角度，继续播放时从该角度接着转
+    animation: spin 14s linear infinite;
+    animation-play-state: paused;
+    will-change: transform;
 
     &.spinning {
-        animation: spin 14s linear infinite;
+        animation-play-state: running;
         box-shadow: 0 25px 70px rgba(0, 0, 0, 0.55), inset 0 0 40px rgba(0, 0, 0, 0.5);
-    }
-
-    &:hover {
-        transform: translateY(-4px);
     }
 
     @include rp.phone {
@@ -332,10 +363,31 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
     font-size: clamp(1.6rem, 4vw, 2.8rem);
     margin: 0;
     line-height: 1.15;
+    overflow-wrap: anywhere;
 
     @include rp.phone {
         font-size: clamp(1.5rem, 8vw, 2.1rem);
     }
+}
+
+.hero-text .subtitle {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.5rem 0 0;
+    font-size: clamp(0.95rem, 1.6vw, 1.1rem);
+    font-weight: 600;
+    opacity: 0.78;
+    overflow-wrap: anywhere;
+
+    @include rp.phone {
+        justify-content: center;
+    }
+}
+
+.subtitle-dot {
+    opacity: 0.6;
 }
 
 .chips {
