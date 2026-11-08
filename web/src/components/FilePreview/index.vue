@@ -1057,9 +1057,9 @@ onUnmounted(() => {
 
         <!--
           主预览区域。
-          左右翻页按钮放在 .preview-stage 里（position: relative），
-          这样 top: 50% 是相对「预览区」居中，而不是相对整个网页 ——
-          否则上面工具栏占掉的高度会算进去，按钮会明显低于画面中心。
+          工具栏已改为悬浮在预览区上方（position: absolute，不占文档流），
+          所以 .preview-stage 始终铺满整个窗口；左右翻页按钮的 top: 50%
+          也就是相对整个窗口垂直居中。
         -->
         <div class="preview-stage">
           <!-- 上一张/下一张按钮 -->
@@ -1208,7 +1208,6 @@ onUnmounted(() => {
   // 全屏遮罩跟随日 / 夜主题：夜间必须压暗，否则打开图片 / 文件时
   // 整块覆盖层仍是半透明白底，和暗色页面完全脱节。
   --file-preview-overlay-bg: rgba(255, 255, 255, 0.8);
-  --file-preview-toolbar-bg: rgba(255, 255, 255, 0.6);
 
   position: fixed;
   top: 0;
@@ -1223,25 +1222,45 @@ onUnmounted(() => {
   overscroll-behavior: contain;
 }
 
-// 夜间遮罩 / 顶部工具栏一起压暗；工具栏里的文件名等文字由 Element Plus
-// 的暗色变量负责，不会出现「深底深字」。
+// 夜间遮罩压暗；顶部工具栏现在是透明悬浮栏，不再需要单独压暗。
 html[data-theme="dark"] .file-preview-overlay {
   --file-preview-overlay-bg: rgba(2, 6, 23, 0.88);
-  --file-preview-toolbar-bg: rgba(2, 6, 23, 0.72);
 }
 
 // 预览是全屏 fixed 覆盖层，顶部工具栏会压到刘海/状态栏上，
 // 所以基态就让开安全区，小屏（含横屏手机）再收紧内边距。
+//
+// 悬浮栏：绝对定位在预览区上方，不占文档流，背景完全透明。
+// 这样 .preview-stage 可以铺满整个窗口，图片 / 文档按整屏居中。
 .preview-toolbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0;
   // padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) 12px calc(12px + var(--safe-left));
-  background-color: var(--file-preview-toolbar-bg);
-  backdrop-filter: blur(10px);
+  background-color: transparent;
   color: #fff;
   z-index: 10;
+
+  // Element Plus 的折叠面板默认带白底和分隔线，会把悬浮栏又变回一条不透明横条，
+  // 这里全部改成透明（含展开后的缩略图区域）。
+  :deep(.el-collapse),
+  :deep(.el-collapse-item__header),
+  :deep(.el-collapse-item__wrap) {
+    background-color: transparent;
+    border-color: transparent;
+    border-top-color: transparent;
+    border-bottom-color: transparent;
+  }
+
+  // 透明背景下白字容易和白色文档糊在一起，加一层很淡的描边保证可读。
+  .toolbar-left {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  }
 
   // 小屏（窄或矮）都用更紧的内边距：横屏手机 852x393 也算小屏 ——
   // 全屏看图片时工具栏占掉太多高度就没什么可看的了。
@@ -1385,13 +1404,13 @@ html[data-theme="dark"] .file-preview-overlay {
   }
 }
 
-// 预览舞台：左右翻页按钮的定位基准。
-// 之前按钮直接挂在整页覆盖层上，top: 50% 把顶部工具栏的高度也算进去了，
-// 按钮会比画面中心低一截；包一层之后按钮相对「预览区」居中。
+// 预览舞台：铺满整个窗口，同时也是左右翻页按钮的定位基准。
+// 工具栏改为绝对定位的悬浮栏后不再占高度，所以这里用 inset: 0 直接撑满覆盖层，
+// 图片 / 文档 / 视频都按整屏居中。
 .preview-stage {
-  position: relative;
-  flex: 1;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
   display: flex;
 }
 
