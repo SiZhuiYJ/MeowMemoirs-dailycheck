@@ -65,6 +65,116 @@ import prismjs from "vite-plugin-prismjs";
 const resolve = (dir: string) => path.resolve(__dirname, dir);
 const elementPlusResolver = ElementPlusResolver({ importStyle: "css" });
 
+/**
+ * 预构建依赖清单（optimizeDeps.include）。
+ *
+ * 为什么这里要手写一长串：
+ * 1) Element Plus 的组件与样式由 unplugin-vue-components / unplugin-auto-import
+ *    在「转换阶段」动态注入 import，prismjs 的各个语言包由 vite-plugin-prismjs 注入；
+ *    而依赖扫描器（esbuild）读的是没经过插件转换的源码，看不到这些裸模块引用。
+ * 2) 只要有裸依赖没进预构建，Vite 就会在首次请求时「现场发现 → 重新打包」，期间
+ *    这些模块返回 504（Outdated Optimize Dep），经动态 import 引入的路由（聊天、
+ *    个人资料等）会直接抛 "Failed to fetch dynamically imported module" 并伴随
+ *    整页 reload。本项目的开发服务器就跑在 Termux/Android 手机上，一次重打包要
+ *    十几秒，现象就是「点开页面白屏 + 控制台报错」（见 _log 埋点里的 route-error /
+ *    unhandledrejection）。
+ * 3) 把全站实际用到的裸依赖在这里列全，启动时一次性预构建，之后运行时就不会再
+ *    发现新依赖。以后新增「只被 .vue / 自动导入用到」的依赖时，记得补进对应分组。
+ */
+const elementPlusStyleComponents = [
+  "base",
+  "config-provider",
+  "dialog",
+  "dropdown",
+  "dropdown-menu",
+  "dropdown-item",
+  "skeleton",
+  "skeleton-item",
+  "icon",
+  "button",
+  "image-viewer",
+  "scrollbar",
+  "progress",
+  "calendar",
+  "drawer",
+  "collapse",
+  "collapse-item",
+  "time-picker",
+  "switch",
+  "date-picker",
+  "input",
+  "image",
+  "loading",
+  "divider",
+  "message",
+  "message-box",
+  "badge",
+  "text",
+  "tag",
+  "select",
+  "option",
+  "empty",
+  "tooltip",
+  "carousel",
+  "carousel-item",
+  "radio-group",
+  "radio-button",
+];
+
+/** prismjs 语言包：由 vite-plugin-prismjs 注入，同样必须显式预构建。 */
+const prismLanguageEntries = [
+  "core",
+  "clike",
+  "javascript",
+  "typescript",
+  "json",
+  "bash",
+  "css",
+  "sql",
+];
+
+const optimizeDepsInclude = [
+  // Vue 运行时 / 状态 / 请求
+  "vue",
+  "vue-router",
+  "pinia",
+  "pinia-plugin-persistedstate",
+  "axios",
+  "dayjs",
+  "nprogress",
+  // Element Plus：包入口 + 按需组件样式 + 图标
+  "element-plus",
+  "element-plus/es",
+  "element-plus/dist/locale/zh-cn.mjs",
+  "@element-plus/icons-vue",
+  ...elementPlusStyleComponents.map(
+    (name) => `element-plus/es/components/${name}/style/css`,
+  ),
+  // Markdown 预览（v-md-editor + prismjs）
+  "@kangc/v-md-editor/lib/preview",
+  "@kangc/v-md-editor/lib/theme/vuepress.js",
+  "@kangc/v-md-editor/lib/plugins/line-number/index",
+  "@kangc/v-md-editor/lib/plugins/copy-code/index",
+  "@kangc/v-md-editor/lib/plugins/emoji/index",
+  "@kangc/v-md-editor/lib/plugins/todo-list/index",
+  "prismjs",
+  ...prismLanguageEntries.map((lang) => `prismjs/components/prism-${lang}`),
+  // 聊天 / 主题动画 / 文件预览等按路由懒加载的重型依赖
+  "@microsoft/signalr",
+  "gsap",
+  "gsap/ScrollTrigger",
+  "gsap/ScrollSmoother",
+  "gsap/SplitText",
+  "@vue-office/docx",
+  "@vue-office/excel",
+  "@vue-office/pdf",
+  "@vue-office/pptx",
+  "heic2any",
+  "vue-cropper",
+  "mediainfo.js",
+  "webcodecs-encoder",
+];
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -130,6 +240,9 @@ export default defineConfig(({ mode }) => {
         : []),
     ],
     optimizeDeps: {
+      // 启动即预构建全站裸依赖，避免「运行时发现新依赖 → 重打包 → 懒加载路由
+      // 动态 import 失败」。完整原因见文件上方 optimizeDepsInclude 的注释。
+      include: optimizeDepsInclude,
       // npm install @ffmpeg/ffmpeg @ffmpeg/util @ffmpeg/core-mt
       exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
     },
