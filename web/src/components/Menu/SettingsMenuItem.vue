@@ -2,18 +2,35 @@
 interface Props {
     index: number; // 序列号
     isOpen: boolean;
+    /** 禁用：不触发 click，不进入 tab 焦点 */
+    disabled?: boolean;
+    /**
+     * 禁用时是否变淡（默认 true）。
+     * 纯展示行（如聊天页「连接状态」）可以传 false：它本来就不是可点的操作，
+     * 再叠一层 45% 透明度会让小字看不清。
+     */
+    dimWhenDisabled?: boolean;
 }
 
 interface Emits {
-    (e: "click"): void; // 点击事件，传递日期对象
+    (e: "click"): void;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+    disabled: false,
+    dimWhenDisabled: true,
+});
 const emit = defineEmits<Emits>();
+
+function handleClick() {
+    if (props.disabled) return;
+    emit("click");
+}
 </script>
 <template>
-    <div class="menu-list" :class="{ open: isOpen }" :style="{ '--index': index }" @click="emit('click')"
-        @keydown.enter.prevent="emit('click')" tabindex="0" role="menuitem" :inert="!isOpen">
+    <div class="menu-list" :class="{ open: isOpen, disabled, dimmed: disabled && dimWhenDisabled }"
+        :style="{ '--index': index }" @click="handleClick" @keydown.enter.prevent="handleClick" tabindex="0"
+        role="menuitem" :aria-disabled="disabled || undefined" :inert="!isOpen || disabled">
         <slot></slot>
     </div>
 </template>
@@ -64,6 +81,21 @@ const emit = defineEmits<Emits>();
     transition:
         transform 0.4s calc(var(--delay) + (var(--trdelay) * var(--index))),
         opacity 0.4s calc(var(--delay) + (var(--trdelay) * var(--index)));
+}
+
+// 禁用项（例如「发起群聊」好友不足两条时）：不响应 hover，展开后变淡。
+// 变淡只写在展开态（.open）上：如果基础态也写 opacity，会盖掉 .menu-list 的
+// opacity: 0，导致菜单一展开这一项没有淡入过渡、直接出现。
+.menu-list.disabled {
+    cursor: not-allowed;
+}
+
+.menu-list.disabled:hover {
+    background-color: transparent;
+}
+
+.open.menu-list.dimmed {
+    opacity: 0.45;
 }
 
 // 手机 / 平板档：菜单行再收一档，和 24px 的触发按钮同一密度。

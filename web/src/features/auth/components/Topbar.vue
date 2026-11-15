@@ -1,7 +1,9 @@
 <script setup lang="ts">
 
-import { ArrowDown, Brush } from "@element-plus/icons-vue";
 import ProgressiveAvatar from "@/components/ProgressiveAvatar/index.vue";
+import SettingsMenu from "@/components/Menu/SettingsMenu.vue";
+import SettingsMenuItem from "@/components/Menu/SettingsMenuItem.vue";
+import MarqueeText from "@/components/Text/MarqueeText.vue";
 import ThemeColorDialog from "@/components/ThemeColorDialog.vue";
 import { useAuthStore } from "@/features/auth/stores";
 import { authApi } from "@/features/auth/api/index";
@@ -13,10 +15,22 @@ import { getUserAvatarSources } from "@/utils/avatar";
 import { storeToRefs } from "pinia";
 import router from "@/routers/index";
 import { maskEmail, maskString } from "@/utils/auth";
-import Txet from '@/components/Text/index.vue'
 import { useTheme } from "@/composables/use-theme";
 const { user } = storeToRefs(useAuthStore());
 const currentAvatar = computed(() => getUserAvatarSources(user.value?.userId, user.value?.avatarKey));
+
+// 顶栏菜单标题：与原下拉一致，打码邮箱（+ 打码昵称）。
+// 放不下时由 MarqueeText 左右来回滚动，而不是用 CSS 省略号。
+const userMenuText = computed(() => {
+  const email = user.value?.email;
+  if (!email) return "";
+  const nickName = user.value?.nickName;
+  return `${maskEmail(email)}${nickName ? `(${maskString(nickName)})` : ""}`;
+});
+const userInitial = computed(() => {
+  const nickName = user.value?.nickName?.trim();
+  return nickName ? nickName.charAt(0).toUpperCase() : "U";
+});
 
 // SVG Icons
 const MoonIcon = {
@@ -234,42 +248,42 @@ async function handleDeactivateConfirm(): Promise<void> {
         :aria-pressed="theme === 'dark'">
         <component :is="theme === 'dark' ? SunIcon : MoonIcon" />
       </button>
-      <!-- 'p' | 'text' | 'h1' | 'h3' | 'caption' | 'button' | 'image' | 'circle' | 'rect' 
-      头像 -->
-      <el-dropdown v-if="user" trigger="click" placement="bottom-end" popper-class="user-dropdown-popper"
-        @command="handleCommand">
-        <div class="user-info-trigger">
-          <el-skeleton style="display: flex;align-items: center;gap: 8px;" :loading="!user" animated>
-            <template #template>
-              <el-skeleton-item variant="circle" style="width: 30px; height: 30px" />
-              <el-skeleton-item variant="caption" style="width: 150px;" />
-              <el-skeleton-item variant="circle" style="width: 30px; height: 30px" />
-            </template>
-            <template #default>
-              <ProgressiveAvatar
-                :src="currentAvatar.src"
-                :thumbnail-src="currentAvatar.thumbnailSrc"
-                :size="30"
-              >
-                {{ user.nickName ? user.nickName.charAt(0).toUpperCase() : "U" }}
-              </ProgressiveAvatar>
-              <Txet :text="`${maskEmail(user.email)}${user.nickName ? `(${maskString(user.nickName!)})` : ''}`"
-                :width="150" :speed="10" mode="bounce" shrinkWhenShort />
-              <el-icon class="dropdown-arrow"><ArrowDown /></el-icon>
-            </template>
-          </el-skeleton>
-        </div>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item command="profile">个人设置</el-dropdown-item>
-            <el-dropdown-item command="changePassword">修改密码</el-dropdown-item>
-            <el-dropdown-item command="themeColor" :icon="Brush">主题色</el-dropdown-item>
-            <el-dropdown-item command="chat" divided style="color: var(--theme-color-strong)">飞猫传书</el-dropdown-item>
-            <el-dropdown-item command="deactivate" divided style="color: #ef4444">注销账号</el-dropdown-item>
-            <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
-          </el-dropdown-menu>
+      <!-- 用户菜单：与设置页共用 SettingsMenu（标题 + 汉堡 + 展开动画），
+           原来的 el-dropdown 触发器内容放进 #title 插槽，菜单项用 SettingsMenuItem。 -->
+      <SettingsMenu v-if="user" class="topbar-user-menu">
+        <template #title>
+          <span class="user-menu-title">
+            <!-- 头像跟随菜单按钮的方形圆角，不再用圆形 -->
+            <!-- 尺寸 26：按钮高 32，上下各留 3px，配合下面的左内边距让四周留白一致 -->
+            <ProgressiveAvatar :src="currentAvatar.src" :thumbnail-src="currentAvatar.thumbnailSrc" :size="26"
+              shape="square">
+              {{ userInitial }}
+            </ProgressiveAvatar>
+            <!-- 文字放不下时左右来回滚动（保留原下拉的 marquee 效果），宽度由 MarqueeText 自己实测 -->
+            <MarqueeText class="user-menu-name" :text="userMenuText" :speed="10" mode="bounce" />
+          </span>
         </template>
-      </el-dropdown>
+        <template #default="{ isOpen }">
+          <SettingsMenuItem :index="0" :is-open="isOpen" @click="handleCommand('profile')">
+            个人设置
+          </SettingsMenuItem>
+          <SettingsMenuItem :index="1" :is-open="isOpen" @click="handleCommand('changePassword')">
+            修改密码
+          </SettingsMenuItem>
+          <SettingsMenuItem :index="2" :is-open="isOpen" @click="handleCommand('themeColor')">
+            主题色
+          </SettingsMenuItem>
+          <SettingsMenuItem :index="3" :is-open="isOpen" @click="handleCommand('chat')">
+            飞猫传书
+          </SettingsMenuItem>
+          <SettingsMenuItem class="user-menu-danger" :index="4" :is-open="isOpen" @click="handleCommand('deactivate')">
+            注销账号
+          </SettingsMenuItem>
+          <SettingsMenuItem :index="5" :is-open="isOpen" @click="handleCommand('logout')">
+            退出登录
+          </SettingsMenuItem>
+        </template>
+      </SettingsMenu>
     </div>
 
     <!-- Change Password Dialog -->
@@ -388,28 +402,36 @@ async function handleDeactivateConfirm(): Promise<void> {
   gap: 16px;
 }
 
-.user-info-trigger {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  padding: 4px;
-  // width: 300px;
-  border-radius: 100px;
-  transition: background-color 0.2s;
-
-  &:hover {
-    background-color: var(--bg-color);
-  }
+// 用户菜单：SettingsMenu 默认宽度（7.5~10rem）放不下头像 + 邮箱，
+// 通过它支持的 CSS 变量放宽一档（窄屏 10rem，桌面最大 13rem），
+// 让跑马灯有足够窗口；clamp 里的 vw 项随视口收缩。
+// 左侧内边距从默认的 10px 收到 3px：头像 26px、按钮高 32px，上下本来就各留 3px，
+// 左右改成 3px 才和上下对称（尺寸见模板里的 :size="26"）。
+.topbar-user-menu {
+  --settings-menu-width: clamp(10rem, 40vw, 13rem);
+  --settings-menu-pad-left: 3px;
 }
 
-.dropdown-arrow {
-  font-size: 10px;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background-color: var(--bg-elevated);
-  color: var(--text-muted);
+.user-menu-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+// 文字容器：占满头像与汉堡之间的剩余宽度；真实宽度由 ResizeObserver 量给 Txet，
+// 文字变长时由 Txet 左右滚动，不再用 overflow 省略号截断。
+.user-menu-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+}
+
+.user-menu-danger {
+  color: #ef4444;
 }
 
 .theme-toggle-icon {
@@ -489,13 +511,5 @@ async function handleDeactivateConfirm(): Promise<void> {
   font-size: 13px;
   cursor: pointer;
   color: var(--text-color);
-}
-</style>
-
-<style>
-/* Global override for the user dropdown arrow */
-.user-dropdown-popper .el-popper__arrow {
-  left: 50% !important;
-  transform: translateX(-50%) !important;
 }
 </style>

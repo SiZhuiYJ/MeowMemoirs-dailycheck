@@ -1,14 +1,10 @@
 <script setup lang="ts">
-import {
-  ArrowDown,
-  Brush,
-  ChatRound,
-  CircleClose,
-  HomeFilled,
-  Refresh,
-} from "@element-plus/icons-vue";
+import { ChatRound, HomeFilled } from "@element-plus/icons-vue";
 import { ref } from "vue";
 import ProgressiveAvatar from "@/components/ProgressiveAvatar/index.vue";
+import SettingsMenu from "@/components/Menu/SettingsMenu.vue";
+import SettingsMenuItem from "@/components/Menu/SettingsMenuItem.vue";
+import MarqueeText from "@/components/Text/MarqueeText.vue";
 import ChatDialog from "./ChatDialog.vue";
 import ThemeColorDialog from "@/components/ThemeColorDialog.vue";
 import router from "@/routers";
@@ -203,67 +199,67 @@ function handleMoreMenuVisibleChange(visible: boolean) {
         <span class="create-box-back-text">主页</span>
       </el-button>
       <h3>会话列表</h3>
-      <el-dropdown placement="bottom-end" trigger="click" @command="handleSocialCommand"
-        @visible-change="handleMoreMenuVisibleChange">
-        <span class="social-dropdown-trigger">
+      <!-- 更多菜单：与设置页 / 顶栏用户菜单共用 SettingsMenu（标题 + 汉堡 + 展开动画），
+           原 el-dropdown 的菜单项改用 SettingsMenuItem。 -->
+      <SettingsMenu class="social-settings-menu" @visible-change="handleMoreMenuVisibleChange">
+        <template #title>
           <el-badge :value="pendingFriendRequestCount" :show-zero="false" :max="99" :offset="[-6, 6]">
-            <el-button>
-              更多
-              <el-icon class="el-icon--right">
-                <ArrowDown />
-              </el-icon>
-            </el-button>
+            <span class="social-menu-title">更多</span>
           </el-badge>
-        </span>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item command="friendList">
-              <div class="social-dropdown-item">
-                <span>好友列表</span>
-                <span class="social-dropdown-count">{{ friends.length }}</span>
-              </div>
-            </el-dropdown-item>
-            <el-dropdown-item :disabled="friends.length < 2" command="createGroup">
-              发起群聊
-            </el-dropdown-item>
-            <el-dropdown-item divided :disabled="friendSearchSubmittingId !== null" command="addFriend">
-              添加好友
-            </el-dropdown-item>
-            <el-dropdown-item :disabled="groupJoinSubmitting" command="groupJoin">
-              申请加群
-            </el-dropdown-item>
-            <el-dropdown-item command="friendRequest">
-              <div class="social-dropdown-item">
-                <span>好友申请</span>
-                <el-badge :value="pendingFriendRequestCount" :show-zero="false" :max="99" />
-              </div>
-            </el-dropdown-item>
-            <el-dropdown-item command="blacklist">
-              <div class="social-dropdown-item">
-                <span>黑名单</span>
-                <span class="social-dropdown-count">{{ blacklist.length }}</span>
-              </div>
-            </el-dropdown-item>
-
-            <!-- 原顶部工具栏：连接状态 / 刷新 / 开启或停止推送 -->
-            <el-dropdown-item divided disabled>
-              <div class="social-dropdown-status">
-                <span class="social-dropdown-status-label">连接状态</span>
-                <span class="social-dropdown-status-text">{{ statusText }}</span>
-              </div>
-            </el-dropdown-item>
-            <el-dropdown-item command="refresh" :icon="Refresh">
-              刷新
-            </el-dropdown-item>
-            <el-dropdown-item command="togglePush" :icon="CircleClose" :disabled="pushLoading">
-              {{ polling ? "停止推送" : "开启推送" }}
-            </el-dropdown-item>
-            <el-dropdown-item command="themeColor" divided :icon="Brush">
-              主题色
-            </el-dropdown-item>
-          </el-dropdown-menu>
         </template>
-      </el-dropdown>
+        <template #default="{ isOpen }">
+          <SettingsMenuItem :index="0" :is-open="isOpen" @click="handleSocialCommand('friendList')">
+            <span class="social-menu-row">
+              <span>好友列表</span>
+              <span class="social-menu-count">{{ friends.length }}</span>
+            </span>
+          </SettingsMenuItem>
+          <SettingsMenuItem :index="1" :is-open="isOpen" :disabled="friends.length < 2"
+            @click="handleSocialCommand('createGroup')">
+            发起群聊
+          </SettingsMenuItem>
+          <SettingsMenuItem :index="2" :is-open="isOpen" :disabled="friendSearchSubmittingId !== null"
+            @click="handleSocialCommand('addFriend')">
+            添加好友
+          </SettingsMenuItem>
+          <SettingsMenuItem :index="3" :is-open="isOpen" :disabled="groupJoinSubmitting"
+            @click="handleSocialCommand('groupJoin')">
+            申请加群
+          </SettingsMenuItem>
+          <SettingsMenuItem :index="4" :is-open="isOpen" @click="handleSocialCommand('friendRequest')">
+            <span class="social-menu-row">
+              <span>好友申请</span>
+              <el-badge :value="pendingFriendRequestCount" :show-zero="false" :max="99" />
+            </span>
+          </SettingsMenuItem>
+          <SettingsMenuItem :index="5" :is-open="isOpen" @click="handleSocialCommand('blacklist')">
+            <span class="social-menu-row">
+              <span>黑名单</span>
+              <span class="social-menu-count">{{ blacklist.length }}</span>
+            </span>
+          </SettingsMenuItem>
+
+          <!-- 原顶部工具栏：连接状态 / 刷新 / 开启或停止推送 -->
+          <!-- 连接状态是纯展示行：禁用交互但不做整体变淡，否则小字看不清；
+               状态文字放不下时用 MarqueeText 左右滚动（与顶栏用户菜单一致） -->
+          <SettingsMenuItem :index="6" :is-open="isOpen" disabled :dim-when-disabled="false">
+            <span class="social-menu-status">
+              <span class="social-menu-status-label">连接状态</span>
+              <MarqueeText class="social-menu-status-text" :text="statusText" :speed="24" mode="bounce" />
+            </span>
+          </SettingsMenuItem>
+          <SettingsMenuItem :index="7" :is-open="isOpen" @click="handleSocialCommand('refresh')">
+            刷新
+          </SettingsMenuItem>
+          <SettingsMenuItem :index="8" :is-open="isOpen" :disabled="pushLoading"
+            @click="handleSocialCommand('togglePush')">
+            {{ polling ? "停止推送" : "开启推送" }}
+          </SettingsMenuItem>
+          <SettingsMenuItem :index="9" :is-open="isOpen" @click="handleSocialCommand('themeColor')">
+            主题色
+          </SettingsMenuItem>
+        </template>
+      </SettingsMenu>
     </div>
 
     <ChatDialog v-model="friendListDialogVisible" title="好友列表" content-width="640px">
@@ -599,37 +595,50 @@ function handleMoreMenuVisibleChange(visible: boolean) {
   }
 }
 
-.social-dropdown-trigger {
-  display: inline-flex;
-  align-items: center;
+// 「更多」按钮沿用 SettingsMenu 的默认高度（--shell-control-h 已由聊天页映射成
+// --chat-control-h：桌面 32 / 手机 24），宽度按侧栏宽度收窄一档，
+// 给左侧「会话列表」标题让出空间。7.75rem（而不是 7.5rem）是为了给连接状态
+// 留出够放「实时连接中」这类短状态的文字窗口。
+.social-settings-menu {
+  --settings-menu-width: 7.75rem;
 }
 
-.social-dropdown-item {
-  min-width: 112px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.social-dropdown-status {
-  max-width: 220px;
-  display: grid;
-  gap: 2px;
-  white-space: normal;
-}
-
-.social-dropdown-status-label {
-  color: var(--chat-muted-light);
-  font-size: 11px;
+.social-menu-title {
+  font-size: 12px;
   line-height: 16px;
 }
 
-.social-dropdown-status-text {
+.social-menu-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+// 连接状态收成一行（原来 label / 状态上下两排）：标签弱化，状态文字放不下时
+// 用 MarqueeText 左右滚动，行高与其它菜单项一致。
+.social-menu-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.social-menu-status-label {
+  flex: none;
+  color: var(--chat-muted-light);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.social-menu-status-text {
+  flex: 1;
+  min-width: 0;
   color: var(--chat-muted);
-  font-size: 12px;
-  line-height: 18px;
-  word-break: break-word;
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .friend-search-panel {
@@ -724,7 +733,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
   background: var(--chat-field);
 }
 
-.social-dropdown-count {
+.social-menu-count {
   min-width: 18px;
   padding: 0 6px;
   border-radius: 999px;
