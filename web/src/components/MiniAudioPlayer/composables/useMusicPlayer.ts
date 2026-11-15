@@ -1,6 +1,9 @@
 // useMusicPlayer.ts
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
+/** 外部（例如文件预览切换卡片）请求暂停时派发的自定义事件 */
+export const AUDIO_PAUSE_EVENT = "mini-audio-pause";
+
 export interface SimpleTrack {
     url: string;
 }
@@ -55,6 +58,118 @@ export const useMusicPlayer = (
     const formattedCurrentTime = computed(() => formatTime(currentTime.value));
     const formattedDuration = computed(() => formatTime(duration.value));
 
+    // —— 音量过渡 ——
+    // 播放时从 0 淡到目标音量，暂停 / 切换卡片时从当前音量淡到 0：
+    // 避免直接切断音频的「咔哒」声，操作反馈也更顺滑。
+    const PLAY_FADE_MS = 280;
+    const PAUSE_FADE_MS = 220;
+    const UNMOUNT_FADE_MS = 200;
+    const FADE_INTERVAL_MS = 16;
+
+    const clampVolume = (value: number) =>
+        Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
+
+    let fadeTimer: number | null = null;
+    let fadeResolve: (() => void) | null = null;
+    // 播放 / 暂停的竞态令牌：快速连点时只让最后一次操作生效
+    let controlToken = 0;
+
+    const cancelFade = () => {
+        if (fadeTimer !== null) {
+            window.clearInterval(fadeTimer);
+            fadeTimer = null;
+        }
+        if (fadeResolve) {
+            const resolve = fadeResolve;
+            fadeResolve = null;
+            resolve();
+        }
+    };
+
+    /** 把音量线性（ease-out）过渡到目标值，取消时立即 resolve */
+    const fadeVolumeTo = (target: number, duration: number): Promise<void> => {
+        const audio = audioRef.value;
+        cancelFade();
+        if (!audio) return Promise.resolve();
+
+        const from = clampVolume(audio.volume);
+        const to = clampVolume(target);
+        if (duration <= 0 || Math.abs(from - to) < 0.005) {
+            audio.volume = to;
+            return Promise.resolve();
+        }
+
+        return new Promise<void>((resolve) => {
+            const startedAt = performance.now();
+            fadeResolve = resolve;
+            fadeTimer = window.setInterval(() => {
+                const el = audioRef.value;
+                if (!el) {
+                    cancelFade();
+                    return;
+                }
+                const progress = Math.min(
+                    1,
+                    (performance.now() - startedAt) / duration
+                );
+                // ease-out：开头快、收尾轻
+                const eased = 1 - (1 - progress) * (1 - progress);
+                el.volume = clampVolume(from + (to - from) * eased);
+                if (progress >= 1) {
+                    el.volume = to;
+                    cancelFade();
+                }
+            }, FADE_INTERVAL_MS);
+        });
+    };
+
+    const play = async (): Promise<void> => {
+        const audio = audioRef.value;
+        if (!audio) return;
+
+        const token = ++controlToken;
+        cancelFade();
+        // 先切 UI 再等浏览器真正开始播放：移动端缓冲时按钮 / 唱片不会「没反应」
+        isPlaying.value = true;
+        audio.volume = 0;
+
+        try {
+            await audio.play();
+            if (token !== controlToken) return;
+            await fadeVolumeTo(volume.value, PLAY_FADE_MS);
+        } catch (error) {
+            if (token !== controlToken) return;
+            audio.volume = clampVolume(volume.value);
+            isPlaying.value = false;
+            const name = (error as DOMException | undefined)?.name;
+            if (name !== "AbortError") {
+                console.error("播放失败", error);
+            }
+        }
+    };
+
+    const pause = async (): Promise<void> => {
+        const audio = audioRef.value;
+        if (!audio) return;
+
+        const token = ++controlToken;
+        // 先停 UI（唱片 / 图标立刻响应），声音再用 220ms 淡出
+        isPlaying.value = false;
+        await fadeVolumeTo(0, PAUSE_FADE_MS);
+        if (token !== controlToken) return;
+        audio.pause();
+        // 恢复用户设定的音量，下次播放再从头淡入
+        audio.volume = clampVolume(volume.value);
+    };
+
+    // 外部直接 pause 会「啪」地切断声音；统一走 fade-out 再暂停
+    const handlePauseRequest = (event: Event) => {
+        event.preventDefault();
+        // 已经不在播放（暂停中的淡出也算）就不用再启动一次淡出
+        if (!isPlaying.value) return;
+        void pause();
+    };
+
     // 更新音频当前时间
     const setProgressFromAudio = () => {
         const audio = audioRef.value;
@@ -80,7 +195,11 @@ export const useMusicPlayer = (
     };
 
     const handleEnded = () => {
+        controlToken += 1;
+        cancelFade();
         isPlaying.value = false;
+        const audio = audioRef.value;
+        if (audio) audio.volume = clampVolume(volume.value);
         // 单曲播放结束，不自动循环/下一首
     };
 
@@ -92,6 +211,7 @@ export const useMusicPlayer = (
         audio.addEventListener("ended", handleEnded);
         audio.addEventListener("play", handlePlay);
         audio.addEventListener("pause", handlePause);
+        audio.addEventListener(AUDIO_PAUSE_EVENT, handlePauseRequest);
     };
 
     const detachAudioEvents = () => {
@@ -102,6 +222,7 @@ export const useMusicPlayer = (
         audio.removeEventListener("ended", handleEnded);
         audio.removeEventListener("play", handlePlay);
         audio.removeEventListener("pause", handlePause);
+        audio.removeEventListener(AUDIO_PAUSE_EVENT, handlePauseRequest);
     };
 
     // 加载新的音频源（可中途更换）
@@ -114,6 +235,11 @@ export const useMusicPlayer = (
         }
 
         if (!track.value.url) return;
+
+        // 换源前中断进行中的淡入淡出，避免旧音频的操作落到新音频上
+        controlToken += 1;
+        cancelFade();
+        audio.volume = clampVolume(volume.value);
 
         isReady.value = false;
         isPlaying.value = false;
@@ -146,34 +272,20 @@ export const useMusicPlayer = (
                     audio.addEventListener('error', handleError, { once: true });
                 });
 
-                await audio.play();
-                isPlaying.value = true;
+                await play();
             } catch (error) {
                 console.error("自动播放被阻止", error);
                 // 如果自动播放失败，可以显示一个提示让用户手动点击播放
                 isPlaying.value = false;
-            } finally {
-                // 移除事件监听器，防止重复监听
-                // detachAudioEvents();
-                // attachAudioEvents();
             }
         }
     };
 
     const togglePlay = async () => {
-        const audio = audioRef.value;
-        if (!audio) return;
-
         if (isPlaying.value) {
-            audio.pause();
+            await pause();
         } else {
-            try {
-                await audio.play();
-                // 播放成功后，若 isReady 仍为 false（元数据未加载完），播放器会自动更新状态，无需额外处理
-            } catch (error) {
-                console.error("播放失败", error);
-                // 可选：若播放失败且因 src 无效，可在此尝试加载（但用户手势下 play 本身会触发加载）
-            }
+            await play();
         }
     };
 
@@ -183,10 +295,13 @@ export const useMusicPlayer = (
 
     const changeVolume = (value: number) => {
         const audio = audioRef.value;
-        volume.value = value;
+        const next = clampVolume(value);
+        // 手动拖音量时立即生效，并打断正在进行的淡入 / 淡出
+        cancelFade();
+        volume.value = next;
         if (!audio) return;
-        audio.volume = value;
-        if (muted.value && value > 0) {
+        audio.volume = next;
+        if (muted.value && next > 0) {
             audio.muted = false;
             muted.value = false;
         }
@@ -195,8 +310,13 @@ export const useMusicPlayer = (
     const toggleMute = () => {
         const audio = audioRef.value;
         if (!audio) return;
+        cancelFade();
         audio.muted = !audio.muted;
         muted.value = audio.muted;
+        if (audio.muted) {
+            // 静音期间把音量恢复成目标值，避免淡变停在中间值
+            audio.volume = clampVolume(volume.value);
+        }
     };
 
     // 重新开始播放当前音频
@@ -204,95 +324,13 @@ export const useMusicPlayer = (
         const audio = audioRef.value;
         if (!audio) return;
         audio.currentTime = 0;
-        await audio.play();
-        isPlaying.value = true;
+        await play();
     };
 
 
-    const rgbToHex = (r: number, g: number, b: number) => {
-        const toHex = (n: number) =>
-            Math.max(0, Math.min(255, Math.round(n)))
-                .toString(16)
-                .padStart(2, "0");
-        return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-    };
-
-    const mixChannel = (value: number, target: number, weight: number) =>
-        value * weight + target * (1 - weight);
-
-    const extractPalette = async (url: string) => {
-        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-            const image = new Image();
-            image.crossOrigin = "anonymous";
-            image.onload = () => resolve(image);
-            image.onerror = reject;
-            image.src = url;
-        });
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        if (!ctx) return null;
-        const sampleSize = 64;
-        const width = (canvas.width = Math.min(
-            sampleSize,
-            img.naturalWidth || img.width
-        ));
-        const height = (canvas.height = Math.min(
-            sampleSize,
-            img.naturalHeight || img.height
-        ));
-        ctx.drawImage(img, 0, 0, width, height);
-        const data = ctx.getImageData(0, 0, width, height).data;
-        let r = 0;
-        let g = 0;
-        let b = 0;
-        let count = 0;
-        for (let i = 0; i < data.length; i += 4) {
-            const alpha = data[i + 3];
-            if (alpha! < 10) continue;
-            r += data[i]!;
-            g += data[i + 1]!;
-            b += data[i + 2]!;
-            count++;
-        }
-        if (!count) return null;
-        const base = [r / count, g / count, b / count];
-
-        const darkBaseRgb = [18, 36, 62];
-        const mixWeight = 0.6;
-
-        const primaryRgb = base.map((channel, i) =>
-            mixChannel(
-                mixChannel(channel, darkBaseRgb[i]!, mixWeight),
-                0,
-                0.9
-            )
-        );
-
-        const secondaryRgb = base.map(channel =>
-            mixChannel(channel, 255, 0.4)
-        );
-
-        const textHex = "#f8fafc";
-
-
-        dominantColor.value = {
-            primary: rgbToHex(primaryRgb[0]!, primaryRgb[1]!, primaryRgb[2]!),
-            secondary: rgbToHex(
-                secondaryRgb[0]!,
-                secondaryRgb[1]!,
-                secondaryRgb[2]!
-            ),
-            text: textHex
-        }
-        // return {
-        //     primary: rgbToHex(primaryRgb[0]!, primaryRgb[1]!, primaryRgb[2]!),
-        //     secondary: rgbToHex(
-        //         secondaryRgb[0]!,
-        //         secondaryRgb[1]!,
-        //         secondaryRgb[2]!
-        //     ),
-        //     text: textHex
-        // };
+    /** 直接应用一组颜色（封面取色失败时用页面主题色兜底） */
+    const setPalette = (primary: string, secondary: string, text = "#f8fafc") => {
+        dominantColor.value = { primary, secondary, text };
     };
 
     onMounted(() => {
@@ -307,6 +345,32 @@ export const useMusicPlayer = (
 
     onBeforeUnmount(() => {
         detachAudioEvents();
+        controlToken += 1;
+        cancelFade();
+
+        const audio = audioRef.value;
+        if (!audio) return;
+        if (audio.paused) {
+            audio.volume = clampVolume(volume.value);
+            return;
+        }
+
+        // 组件即将销毁（切到别的卡片），但淡出仍要基于这个音频元素完成：
+        // 用闭包持有引用，淡到 0 后再 pause，声音不会突然被掐断。
+        const from = clampVolume(audio.volume);
+        const startedAt = performance.now();
+        const timer = window.setInterval(() => {
+            const progress = Math.min(
+                1,
+                (performance.now() - startedAt) / UNMOUNT_FADE_MS
+            );
+            audio.volume = clampVolume(from * (1 - progress));
+            if (progress >= 1) {
+                window.clearInterval(timer);
+                audio.pause();
+                audio.volume = 0;
+            }
+        }, FADE_INTERVAL_MS);
     });
 
     return {
@@ -336,7 +400,7 @@ export const useMusicPlayer = (
         restart,
         formatTime,
 
-        // 颜色转换
-        extractPalette,
+        // 颜色（封面取色见 utils/coverPalette.ts）
+        setPalette,
     };
 };

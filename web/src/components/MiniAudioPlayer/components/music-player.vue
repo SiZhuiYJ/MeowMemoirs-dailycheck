@@ -2,6 +2,13 @@
 import { computed, ref, watch } from "vue";
 import { useMusicPlayer } from "../composables/useMusicPlayer";
 import { useAudioMetadata } from "../composables/useAudioMetadata";
+import {
+    extractCoverPalette,
+    getCachedPalette,
+    setCachedPalette,
+} from "../utils/coverPalette";
+import { useTheme } from "@/composables/use-theme";
+import { buildThemePalette } from "@/composables/theme-palette";
 import SvgIcon from "@/components/SvgIcon/index.vue";
 
 const props = defineProps<{
@@ -40,7 +47,7 @@ const {
     changeVolume,
     toggleMute,
     loadTrack,
-    extractPalette,
+    setPalette,
 } = player;
 
 // 音频自带的标签信息：优先使用内嵌标签，没有再用外部传入的默认值
@@ -49,7 +56,20 @@ const { metadata, load: loadAudioMetadata } = useAudioMetadata();
 const displayTitle = computed(() => metadata.value?.title || props.title || "--");
 const displayArtist = computed(() => metadata.value?.artist || "");
 const displayAlbum = computed(() => metadata.value?.album || "");
-const coverUrl = computed(() => metadata.value?.coverUrl || props.coverUrl || "");
+
+// 文件预览会把音频地址当作 cover 传进来，这里过滤掉，
+// 避免拿音频文件当图片去加载/取色。
+const AUDIO_URL_PATTERN = /\.(?:mp3|wav|flac|m4a|aac|ogg|oga|opus|wma|weba|aiff|alac|mp4)(?:[?#]|$)/i;
+
+const coverUrl = computed(() => {
+    const tagCover = metadata.value?.coverUrl;
+    if (tagCover) return tagCover;
+
+    const fallback = props.coverUrl?.trim() ?? "";
+    if (!fallback || fallback === props.url) return "";
+    if (AUDIO_URL_PATTERN.test(fallback)) return "";
+    return fallback;
+});
 
 const vinylStyle = computed(() => (
     coverUrl.value ? { "--cover-url": `url("${coverUrl.value}")` } : {}
@@ -92,12 +112,66 @@ const onVolumeInput = (event: Event) => {
 };
 
 
-watch(coverUrl, (currentCover) => {
+const { themeColor, isDark } = useTheme();
+
+// 没有封面或取色失败时，用当前页面主题色兜底
+const applyThemeFallback = () => {
+    const palette = buildThemePalette(
+        themeColor.value,
+        isDark.value ? "dark" : "light"
+    );
+    setPalette(
+        palette["--theme-gradient-start"] ?? themeColor.value,
+        palette["--theme-color"] ?? themeColor.value
+    );
+};
+
+// 先上主题色，避免首帧闪一下旧的蓝紫默认色
+applyThemeFallback();
+
+let paletteFromCover = false;
+let paletteToken = 0;
+
+watch(coverUrl, async (currentCover) => {
+    const token = ++paletteToken;
+    const cacheKey = props.url;
+
+    // 同一首重新打开：直接用上次算好的调色板，
+    // 首帧就是正确颜色，不会再「先主题色、再跳成封面色」。
+    const cached = cacheKey ? getCachedPalette(cacheKey) : null;
+    if (cached) {
+        paletteFromCover = true;
+        setPalette(cached.primary, cached.secondary, cached.text);
+        return;
+    }
+
+    paletteFromCover = false;
+    applyThemeFallback();
     if (!currentCover) return;
-    void extractPalette(currentCover).catch(() => {
-        // 封面不可用（跨域/格式问题）时保持默认配色
-    });
+
+    try {
+        const palette = await extractCoverPalette(currentCover);
+        if (token !== paletteToken) return;
+        if (palette) {
+            if (cacheKey) setCachedPalette(cacheKey, palette);
+            paletteFromCover = true;
+            setPalette(palette.primary, palette.secondary, palette.text);
+        } else {
+            // 封面基本是灰阶 / 没有可用颜色：用页面主题色，而不是灰色
+            applyThemeFallback();
+        }
+    } catch {
+        if (token !== paletteToken) return;
+        // 跨域图片无法读像素（canvas 被污染）时退回页面主题色
+        paletteFromCover = false;
+        applyThemeFallback();
+    }
 }, { immediate: true });
+
+// 页面主题色变化时，只有没取到封面颜色才跟随
+watch([themeColor, isDark], () => {
+    if (!paletteFromCover) applyThemeFallback();
+});
 
 const heroStyle = computed((): { [key: string]: string } | undefined => {
     const palette = dominantColor.value;
@@ -114,7 +188,8 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
 
 <template>
     <div class="player-page" :style="heroStyle">
-        <section class="player-hero">
+        <!-- 变量同时挂在外层和 hero 上：hero 自己持有变量，颜色变化才会触发 @property 过渡 -->
+        <section class="player-hero" :style="heroStyle">
             <div class="glow"></div>
             <div class="hero-main">
                 <div class="vinyl-wrap">
@@ -183,11 +258,12 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
-    --hero-start: rgba(99, 102, 241, 0.32);
-    --hero-end: rgba(14, 165, 233, 0.32);
+    // 默认色使用当前页面主题色；封面取色成功后会被行内变量覆盖
+    --hero-start: rgba(var(--theme-color-rgb), 0.32);
+    --hero-end: rgba(var(--theme-color-rgb), 0.18);
     --hero-text: #e8ecf1;
-    --accent-a: #7c8bff;
-    --accent-b: #ff7a9a;
+    --accent-a: var(--theme-color);
+    --accent-b: var(--theme-gradient-start);
     color: var(--hero-text);
     height: 100%;
     box-sizing: border-box;
@@ -198,14 +274,28 @@ const heroStyle = computed((): { [key: string]: string } | undefined => {
 
 @property --hero-start {
     syntax: "<color>";
-    inherits: false;
-    initial-value: #9b9c9b;
+    // 必须继承：heroStyle 写在 .player-page 上，渐变用在子元素 .player-hero 上
+    inherits: true;
+    initial-value: #8a6a86;
 }
 
 @property --hero-end {
     syntax: "<color>";
-    inherits: false;
-    initial-value: #e0e0df;
+    inherits: true;
+    initial-value: #e3c0df;
+}
+
+// 播放按钮的渐变也注册成可过渡的颜色，换色时和背景一起渐变
+@property --accent-a {
+    syntax: "<color>";
+    inherits: true;
+    initial-value: #7c8bff;
+}
+
+@property --accent-b {
+    syntax: "<color>";
+    inherits: true;
+    initial-value: #ff7a9a;
 }
 
 .player-hero {
@@ -662,6 +752,8 @@ button svg {
     border-radius: 50%;
     background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    transition: --accent-a 0.4s ease-in-out, --accent-b 0.4s ease-in-out,
+        transform 0.22s ease, box-shadow 0.22s ease;
 }
 
 .primary:hover {

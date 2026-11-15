@@ -4,7 +4,7 @@ import { defineAsyncComponent, ref, computed, watch, nextTick, onMounted, onUnmo
 import type { ComponentPublicInstance } from 'vue'
 import type { CarouselInstance, ScrollbarInstance } from 'element-plus'
 import { ArrowDown, ArrowUp } from '@element-plus/icons-vue'
-import { MiniAudioPlayer } from '../MiniAudioPlayer/index'
+import { MiniAudioPlayer, AUDIO_PAUSE_EVENT } from '../MiniAudioPlayer/index'
 import SvgIcon from '@/components/SvgIcon/index.vue';
 
 const OfficeDocxPreview = defineAsyncComponent(() => import('./renderers/officeDocx'))
@@ -801,7 +801,17 @@ const resetPreview = () => {
 // 关闭预览
 const pausePreviewMedia = () => {
   const mediaElements = previewOverlayRef.value?.querySelectorAll('video, audio')
-  mediaElements?.forEach((media) => (media as HTMLMediaElement).pause())
+  mediaElements?.forEach((media) => {
+    if (media instanceof HTMLAudioElement) {
+      // 音频播放器会拦截该事件，先把音量淡到 0 再暂停；没有播放器接管时才直接暂停
+      const handled = !media.dispatchEvent(
+        new CustomEvent(AUDIO_PAUSE_EVENT, { cancelable: true })
+      )
+      if (!handled) media.pause()
+    } else {
+      ;(media as HTMLMediaElement).pause()
+    }
+  })
 }
 
 const handleClose = () => {
@@ -1101,8 +1111,9 @@ onUnmounted(() => {
                 </div>
 
                 <div v-else-if="getFileType(file) === 'audio'" class="audio-preview" :title="file?.url">
+                  <!-- 音频没有外部封面，封面从内嵌标签读取；file.path 是音频地址，不能再当封面用 -->
                   <MiniAudioPlayer v-if="file?.url" :key="file.url" :url="file.url" :title="file?.name"
-                    :cover-url="file.path" @loaded="handleAudioLoaded(file)" />
+                    @loaded="handleAudioLoaded(file)" />
                 </div>
 
                 <div v-else-if="getFileType(file) === 'word' && file?.url" class="document-preview">
