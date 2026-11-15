@@ -531,92 +531,102 @@ onBeforeUnmount(() => {
       <span class="muted">{{ agoText }}</span>
     </section>
 
-    <section class="diagnosis">
-      <div class="section-title">自动诊断</div>
-      <div v-for="(line, index) in diagnosis" :key="index" class="diag-line" :class="line.level">
-        {{ line.text }}
+    <!-- PC / 宽屏两栏（≥960px）：左栏「自动诊断 + 上传流程」，右栏「筛选 + 搜索 + 操作 + 事件列表」。
+         手机 / 平板仍按下面的 DOM 顺序单列展示，包裹层不改变顺序、间距与任何交互。 -->
+    <div class="layout">
+      <div class="layout-side">
+        <section class="diagnosis">
+          <div class="section-title">自动诊断</div>
+          <div v-for="(line, index) in diagnosis" :key="index" class="diag-line" :class="line.level">
+            {{ line.text }}
+          </div>
+        </section>
+
+        <section class="flows">
+          <div class="flows-head">
+            <div class="section-title">上传流程（点击 → 消息发出）</div>
+            <button class="btn tiny" type="button" @click="copyFlows">复制流程</button>
+          </div>
+          <div v-if="uploadFlows.length === 0" class="empty">
+            还没有上传流程记录。在聊天页点一下上传按钮，再回到这里。
+          </div>
+          <article v-for="flow in uploadFlows" :key="flow.id" class="flow" :class="flow.status">
+            <div class="flow-head">
+              <span class="flow-status" :class="flow.status">{{ flowStatusText(flow.status) }}</span>
+              <span class="flow-duration">{{ flowDuration(flow) }}</span>
+              <span class="flow-id">#{{ flow.id.slice(-4) }}</span>
+              <span class="flow-time">{{ timeText(flow.startedAt) }}</span>
+            </div>
+            <div class="flow-meta">
+              <span>{{ flowMetaLine(flow) }}</span>
+              <span>{{ flow.steps.length }} 步</span>
+              <span v-if="flow.endReason">结束：{{ flowEndReasonText(flow.endReason) }}</span>
+            </div>
+            <ol class="flow-steps">
+              <li v-for="step in flow.steps" :key="step.index" :class="step.level">
+                <span class="step-delta">+{{ formatMs(step.elapsedMs) }}</span>
+                <span class="step-name">{{ flowStepLabel(step) }}</span>
+                <span class="step-detail">{{ flowStepSummary(step) }}</span>
+              </li>
+            </ol>
+          </article>
+        </section>
       </div>
-    </section>
 
-    <section class="flows">
-      <div class="flows-head">
-        <div class="section-title">上传流程（点击 → 消息发出）</div>
-        <button class="btn tiny" type="button" @click="copyFlows">复制流程</button>
+      <div class="layout-main">
+        <section class="filters">
+          <button v-for="item in ([
+            { key: 'trouble', label: `异常(${counts.error + counts.warn})` },
+            { key: 'reload', label: '页面重载' },
+            { key: 'auth', label: `鉴权(${counts.auth})` },
+            { key: 'file', label: `文件(${counts.file})` },
+            { key: 'flow', label: `流程(${flowEventCount})` },
+            { key: 'error', label: `错误(${counts.error})` },
+            { key: 'all', label: '全部' },
+          ] as const)" :key="item.key" class="chip" :class="{ active: preset === item.key }" type="button"
+            @click="preset = item.key">
+            {{ item.label }}
+          </button>
+        </section>
+
+        <section class="tools">
+          <input v-model="keyword" class="search" type="search" placeholder="搜索：接口地址 / 错误内容 / 事件名" />
+          <label class="live">
+            <input v-model="liveRefresh" type="checkbox" /> 实时
+          </label>
+        </section>
+
+        <section class="actions">
+          <button class="btn" type="button" @click="copyAll">复制</button>
+          <button class="btn" type="button" @click="download">下载</button>
+          <button class="btn" type="button" @click="reportNow">上报</button>
+          <button class="btn danger" type="button" @click="clearAll">清空</button>
+        </section>
+
+        <section class="list">
+          <div v-if="filtered.length === 0" class="empty">没有符合条件的事件</div>
+          <article v-for="event in filtered" :key="event.id" class="event" :class="event.level"
+            @click="expandedId = expandedId === event.id ? null : event.id">
+            <div class="event-head">
+              <span class="dot" :class="event.level"></span>
+              <span class="event-time">{{ timeText(event.t) }}</span>
+              <span class="event-name">{{ event.category }} · {{ event.name }}</span>
+              <span v-if="event.flowStep" class="flow-badge">
+                流程 {{ event.flowIndex !== undefined ? event.flowIndex + 1 : '?' }}
+              </span>
+            </div>
+            <div class="event-summary">{{ summary(event) }}</div>
+            <pre v-if="expandedId === event.id" class="event-json">{{ JSON.stringify({ route: event.route, flow: event.flowStep ? { id: event.flowId, name: event.flowName, step: event.flowStep, index: event.flowIndex, elapsedMs: event.flowElapsedMs } : undefined, data: event.data, stack: event.stack }, null, 2) }}</pre>
+          </article>
+        </section>
       </div>
-      <div v-if="uploadFlows.length === 0" class="empty">
-        还没有上传流程记录。在聊天页点一下上传按钮，再回到这里。
-      </div>
-      <article v-for="flow in uploadFlows" :key="flow.id" class="flow" :class="flow.status">
-        <div class="flow-head">
-          <span class="flow-status" :class="flow.status">{{ flowStatusText(flow.status) }}</span>
-          <span class="flow-duration">{{ flowDuration(flow) }}</span>
-          <span class="flow-id">#{{ flow.id.slice(-4) }}</span>
-          <span class="flow-time">{{ timeText(flow.startedAt) }}</span>
-        </div>
-        <div class="flow-meta">
-          <span>{{ flowMetaLine(flow) }}</span>
-          <span>{{ flow.steps.length }} 步</span>
-          <span v-if="flow.endReason">结束：{{ flowEndReasonText(flow.endReason) }}</span>
-        </div>
-        <ol class="flow-steps">
-          <li v-for="step in flow.steps" :key="step.index" :class="step.level">
-            <span class="step-delta">+{{ formatMs(step.elapsedMs) }}</span>
-            <span class="step-name">{{ flowStepLabel(step) }}</span>
-            <span class="step-detail">{{ flowStepSummary(step) }}</span>
-          </li>
-        </ol>
-      </article>
-    </section>
-
-    <section class="filters">
-      <button v-for="item in ([
-        { key: 'trouble', label: `异常(${counts.error + counts.warn})` },
-        { key: 'reload', label: '页面重载' },
-        { key: 'auth', label: `鉴权(${counts.auth})` },
-        { key: 'file', label: `文件(${counts.file})` },
-        { key: 'flow', label: `流程(${flowEventCount})` },
-        { key: 'error', label: `错误(${counts.error})` },
-        { key: 'all', label: '全部' },
-      ] as const)" :key="item.key" class="chip" :class="{ active: preset === item.key }" type="button"
-        @click="preset = item.key">
-        {{ item.label }}
-      </button>
-    </section>
-
-    <section class="tools">
-      <input v-model="keyword" class="search" type="search" placeholder="搜索：接口地址 / 错误内容 / 事件名" />
-      <label class="live">
-        <input v-model="liveRefresh" type="checkbox" /> 实时
-      </label>
-    </section>
-
-    <section class="actions">
-      <button class="btn" type="button" @click="copyAll">复制</button>
-      <button class="btn" type="button" @click="download">下载</button>
-      <button class="btn" type="button" @click="reportNow">上报</button>
-      <button class="btn danger" type="button" @click="clearAll">清空</button>
-    </section>
-
-    <section class="list">
-      <div v-if="filtered.length === 0" class="empty">没有符合条件的事件</div>
-      <article v-for="event in filtered" :key="event.id" class="event" :class="event.level"
-        @click="expandedId = expandedId === event.id ? null : event.id">
-        <div class="event-head">
-          <span class="dot" :class="event.level"></span>
-          <span class="event-time">{{ timeText(event.t) }}</span>
-          <span class="event-name">{{ event.category }} · {{ event.name }}</span>
-          <span v-if="event.flowStep" class="flow-badge">
-            流程 {{ event.flowIndex !== undefined ? event.flowIndex + 1 : '?' }}
-          </span>
-        </div>
-        <div class="event-summary">{{ summary(event) }}</div>
-        <pre v-if="expandedId === event.id" class="event-json">{{ JSON.stringify({ route: event.route, flow: event.flowStep ? { id: event.flowId, name: event.flowName, step: event.flowStep, index: event.flowIndex, elapsedMs: event.flowElapsedMs } : undefined, data: event.data, stack: event.stack }, null, 2) }}</pre>
-      </article>
-    </section>
+    </div>
   </div>
 </template>
 
 <style scoped lang="scss">
+@use "@/styles/responsive-mixins" as rp;
+
 .telemetry-page {
   // 诊断页是独立页面，没有套 app-shell：日 / 夜两套皮肤都收敛在这里，
   // 页内规则只引用 --tp-*，不再写死 #fff / #111827 / #f6f7f9。
@@ -673,6 +683,18 @@ html[data-theme="dark"] .telemetry-page {
   --tp-chip-active-text: #111827;
   --tp-code-bg: #020617;
   --tp-code-text: #e2e8f0;
+}
+
+// —— PC / 宽屏适配：布局包裹层 ——
+// 手机端：block 容器，不产生任何额外间距，信息顺序与改前完全一致；
+// ≥960px 才切换成两栏 grid（见文件末尾的宽屏媒体查询）。
+.layout {
+  display: block;
+}
+
+.layout-side,
+.layout-main {
+  min-width: 0;
 }
 
 .bar {
@@ -1091,5 +1113,245 @@ html[data-theme="dark"] .telemetry-page {
   line-height: 16px;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+// —— 宽屏档共用字号 ——
+// 600~960 单列与 ≥960 两栏共用，避免两处各写一遍；手机档不引入。
+@mixin telemetry-wide-type {
+  .title {
+    font-size: 16px;
+  }
+
+  .btn {
+    padding: 7px 14px;
+    font-size: 13px;
+  }
+
+  .btn.tiny {
+    padding: 4px 9px;
+    font-size: 12px;
+  }
+
+  .section-title {
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+
+  .diag-line {
+    padding: 8px 10px;
+    line-height: 20px;
+  }
+
+  .flow-status {
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .flow-duration {
+    font-size: 12px;
+  }
+
+  .flow-id,
+  .flow-time {
+    font-size: 11px;
+  }
+
+  .flow-meta {
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .flow-steps li {
+    font-size: 11px;
+    line-height: 17px;
+  }
+
+  .step-delta {
+    width: 56px;
+  }
+
+  .step-detail {
+    padding-left: 62px;
+  }
+
+  .flow-badge {
+    font-size: 10px;
+  }
+
+  .chip {
+    font-size: 12px;
+  }
+
+  .search {
+    font-size: 13px;
+  }
+
+  .event-time,
+  .event-name {
+    font-size: 12px;
+  }
+
+  .event-summary {
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  .event-json {
+    max-height: 360px;
+    font-size: 11px;
+    line-height: 17px;
+  }
+}
+
+// —— 600~960：单列居中（平板竖屏 / 窗口被拉窄的电脑） ——
+// 排除手机横屏（852x393 这类高度 <480）：它们保持手机端现有布局与 12px 字号。
+// 恰好 960 时两条媒体查询同时命中，由后面的两栏规则覆盖，不会留下 0.02px 的空档。
+@media (min-width: 600.02px) and (max-width: 960px) and (min-height: 480px) {
+  .telemetry-page {
+    width: 100%;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 16px 20px calc(40px + var(--safe-bottom));
+    font-size: 12.5px;
+  }
+
+  .bar {
+    padding: 10px 0;
+  }
+
+  @include telemetry-wide-type;
+}
+
+// —— ≥960：PC 两栏 ——
+// 断点定在 960 而不是 rp.device-desktop 的 1200：用户实际 PC 视口是 980x1914，
+// 按项目三档仍属于 tablet 档；如果等 >1200 才上两栏，这台机器永远看不到 PC 布局。
+// 980 宽时：左栏 320~340px、右栏自适应，整页居中 max-width 1440。
+@media (min-width: 960px) {
+  .telemetry-page {
+    // 顶栏高度写成变量：.bar 的高度与左栏 sticky 偏移 / 可滚动高度都引用它，避免各算各的。
+    --tp-bar-h: 54px;
+
+    width: 100%;
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 0 24px calc(48px + var(--safe-bottom));
+    font-size: 13px;
+  }
+
+  // 顶栏吸顶：固定高度 + 不透明背景 + 分割线，右栏滚动时内容不会从顶栏下方透出来。
+  .bar {
+    height: var(--tp-bar-h);
+    padding: 0;
+    border-bottom: 1px solid var(--tp-border);
+    background: var(--tp-bg);
+    z-index: 3;
+  }
+
+  .meta {
+    margin-top: 8px;
+    padding: 8px 12px;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(320px, 340px) minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+    margin-top: 12px;
+  }
+
+  // 左栏自身可滚动：长事件列表在右栏滚，自动诊断 / 上传流程不会被挤走；
+  // 高度 = 视口 - 顶栏 - 上下留白，sticky 偏移 = 顶栏 + 一点缝隙。
+  .layout-side {
+    position: sticky;
+    top: calc(var(--tp-bar-h) + 12px);
+    max-height: calc(100vh - var(--tp-bar-h) - 24px);
+    padding-right: 2px;
+    padding-bottom: 2px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+
+    &::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      border-radius: 2px;
+      background: var(--tp-border-strong);
+    }
+  }
+
+  // 两栏首屏顶对齐：原来单列时的上边距交给 .layout 的 margin-top，避免右栏被顶下去。
+  .layout-side .diagnosis {
+    margin-top: 0;
+  }
+
+  .layout-main .filters {
+    margin-top: 0;
+  }
+
+  .diagnosis,
+  .flows {
+    padding: 12px;
+  }
+
+  .flows {
+    margin-top: 12px;
+  }
+
+  .list {
+    margin-top: 12px;
+  }
+
+  .event {
+    padding: 10px 12px;
+  }
+
+  @include telemetry-wide-type;
+
+  // 悬停反馈只在鼠标端生效（rp.fine-pointer），触屏不会出现「粘滞 hover」；
+  // 原有按钮 / 筛选 chip 的 :hover 保持不动，避免改变手机端交互反馈。
+  @include rp.fine-pointer {
+    .event {
+      transition: background-color 0.15s ease;
+
+      &:hover {
+        background: var(--tp-surface-soft);
+      }
+    }
+
+    .flow {
+      transition: background-color 0.15s ease;
+
+      &:hover {
+        background: var(--tp-surface);
+      }
+    }
+  }
+}
+
+// —— 大屏电脑（>1200）：再放宽左栏与留白，列表 / JSON 可读性进一步提高 ——
+@include rp.device-desktop {
+  .telemetry-page {
+    max-width: 1480px;
+    padding-right: 32px;
+    padding-left: 32px;
+  }
+
+  .layout {
+    grid-template-columns: minmax(340px, 380px) minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .diagnosis,
+  .flows {
+    padding: 14px;
+  }
+
+  .event-json {
+    max-height: 420px;
+    font-size: 11.5px;
+  }
 }
 </style>
