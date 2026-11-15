@@ -6,6 +6,7 @@ import http from '@/libs/http/config';
 import { API_BASE_URL } from '@/config';
 import { onLoad, onShow } from '@dcloudio/uni-app';
 import { notifySuccess, notifyError } from '@/utils/notification';
+import MmNavBar from '@/components/MmNavBar.vue';
 
 const authStore = useAuthStore();
 const themeStore = useThemeStore();
@@ -187,9 +188,12 @@ async function handleAvatarClick() {
 
 <template>
   <view class="container" :style="themeStore.themeStyle">
+    <!-- 毛玻璃顶栏：根容器 padding-top = 16px（--page-pad），作为内容与顶栏之间的间距 -->
+    <MmNavBar title="个人信息" />
     <NotificationSystem />
 
-    <view class="profile-header">
+    <!-- 头像卡：白卡片 + 头像 fallback 用主题浅底 -->
+    <view class="card profile-header">
       <view class="avatar-large">
         <image v-if="authStore.user?.avatarKey"
           :src="`${API_BASE_URL}/mm/Files/users/${authStore.user.userId}/${authStore.user.avatarKey}`"
@@ -198,30 +202,31 @@ async function handleAvatarClick() {
           authStore.user?.userAccount ||
           authStore.user?.email ||
           'U')[0].toUpperCase() }}</text>
-        <view class="avatar-edit-overlay" @click.stop="handleEditAvatar">
+        <view class="avatar-edit-overlay" hover-class="mm-hover" @click.stop="handleEditAvatar">
           <text class="edit-icon">✎</text>
         </view>
       </view>
       <text class="user-email">{{ authStore.user?.email }}</text>
     </view>
 
+    <!-- 菜单列表：白卡片 + 分割线 + 右侧箭头，行高 ≥ 44px -->
     <view class="card">
       <view class="list-group">
-        <view class="list-item" @click="handleNavigate('/pages/profile/update-account')">
+        <view class="list-item" hover-class="mm-hover" @click="handleNavigate('/pages/profile/update-account')">
           <text class="item-label">账号</text>
           <view class="item-value">
             <text class="value-text">{{ authStore.user?.userAccount || '未设置' }}</text>
             <image class="arrow-icon" src="/static/svg/turn-right.svg" mode="aspectFit" />
           </view>
         </view>
-        <view class="list-item" @click="handleNavigate('/pages/profile/update-nickname')">
+        <view class="list-item" hover-class="mm-hover" @click="handleNavigate('/pages/profile/update-nickname')">
           <text class="item-label">昵称</text>
           <view class="item-value">
             <text class="value-text">{{ authStore.user?.nickName || '未设置' }}</text>
             <image class="arrow-icon" src="/static/svg/turn-right.svg" mode="aspectFit" />
           </view>
         </view>
-        <view class="list-item" @click="handleNavigate('/pages/profile/update-password')">
+        <view class="list-item" hover-class="mm-hover" @click="handleNavigate('/pages/profile/update-password')">
           <text class="item-label">修改密码</text>
           <view class="item-value">
             <text class="value-text">点击修改</text>
@@ -233,7 +238,7 @@ async function handleAvatarClick() {
 
     <view class="card">
       <view class="list-group">
-        <view class="list-item" @click="handleNavigate('/pages/profile/third-party-binds')">
+        <view class="list-item" hover-class="mm-hover" @click="handleNavigate('/pages/profile/third-party-binds')">
           <text class="item-label">第三方账号绑定</text>
           <view class="item-value">
             <text class="value-text">
@@ -246,60 +251,56 @@ async function handleAvatarClick() {
       </view>
     </view>
 
+    <!-- 注销入口：danger 语义色 -->
     <view class="actions">
-      <button class="btn-deactivate" @click="handleNavigate('/pages/profile/deactivate')">注销账号</button>
+      <button class="btn-deactivate" hover-class="mm-hover" @click="handleNavigate('/pages/profile/deactivate')">注销账号</button>
     </view>
   </view>
 </template>
 
 <style scoped lang="scss">
+/* 页面容器：浅灰底 + 16px 内容边距，底部预留安全区 */
 .container {
-  min-height: 100%;
+  min-height: 100vh;
   box-sizing: border-box;
+  padding: var(--page-pad);
+  padding-bottom: calc(var(--page-pad) + var(--safe-bottom));
   background-color: var(--bg-color);
-  padding: var(--uni-container-padding);
+  color: var(--text-color);
 }
 
+/* 通用卡片：白底 + 常规描边 + 12 圆角 + 卡片阴影 */
+.card {
+  margin-bottom: 12px;
+  padding: 16px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+}
+
+/* 头像卡 */
 .profile-header {
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-bottom: 24px;
-  padding: 20px 0;
+  padding: 24px 16px 20px;
 }
 
+/* 头像：fallback 底用主题浅底，1px 常规描边 */
 .avatar-large {
+  position: relative;
   width: 80px;
   height: 80px;
-  border-radius: 50%;
-  background-color: var(--theme-primary);
-  /* Changed to theme primary */
-  border: 2px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   margin-bottom: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
-  /* Ensure image stays inside */
-  position: relative;
-}
-
-.avatar-edit-overlay {
-  position: absolute;
-  bottom: 0;
-  width: 100%;
-  height: 24px;
-  background-color: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.edit-icon {
-  color: white;
-  font-size: 14px;
-  margin-bottom: 2px;
+  overflow: hidden;
+  background-color: var(--theme-color-soft);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  box-shadow: var(--card-shadow);
 }
 
 .avatar-img {
@@ -307,70 +308,37 @@ async function handleAvatarClick() {
   height: 100%;
 }
 
+/* fallback 文字：主题强调色，与浅底保持对比 */
 .avatar-text-large {
-  font-size: 32px;
-  font-weight: bold;
-  color: #ffffff;
-  /* White text on colored background */
+  font-size: 30px;
+  font-weight: 600;
+  color: var(--theme-color-strong);
 }
 
-.user-name {
-  font-size: 20px;
-  font-weight: bold;
-  color: var(--text-color);
-  margin-bottom: 4px;
+.avatar-edit-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--mask-color);
+}
+
+.edit-icon {
+  margin-bottom: 2px;
+  font-size: 13px;
+  color: #ffffff;
 }
 
 .user-email {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
-.card {
-  background-color: var(--bg-elevated);
-  border-radius: var(--uni-card-border-radius);
-  padding: var(--uni-card-padding);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  margin-bottom: var(--uni-card-margin-bottom);
-}
-
-
-
-.field {
-  margin-bottom: 16px;
-}
-
-.field:last-child {
-  margin-bottom: 0;
-}
-
-.label {
-  display: block;
-  font-size: 14px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
-.hint-text {
-  display: block;
-  font-size: 12px;
-  color: #fa5151;
-  margin-top: 4px;
-}
-
-.input {
-  width: 100%;
-  height: 44px;
-  background-color: #f9fafb;
-  /* Keep light input background or use a slightly darker one if needed, but #f9fafb is fine */
-  border-radius: 8px;
-  padding: 0 12px;
-  font-size: 14px;
-  color: #1f2937;
-  box-sizing: border-box;
-  border: 1px solid var(--border-color);
-}
-
+/* 信息行 / 菜单项：分割线用 --divider-color，行高 ≥ 44px */
 .list-group {
   display: flex;
   flex-direction: column;
@@ -380,8 +348,9 @@ async function handleAvatarClick() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 0;
-  border-bottom: 0.5px solid rgba(0, 0, 0, 0.1);
+  min-height: 44px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--divider-color);
 }
 
 .list-item:last-child {
@@ -389,188 +358,45 @@ async function handleAvatarClick() {
 }
 
 .item-label {
-  font-size: 16px;
+  font-size: 15px;
   color: var(--text-color);
 }
 
 .item-value {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .value-text {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
+/* 右侧箭头图标保持原样，降低透明度不抢视线 */
 .arrow-icon {
   width: 16px;
   height: 16px;
-  opacity: 0.3;
+  opacity: 0.35;
 }
 
 .actions {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  margin-top: 20px;
 }
 
-.method-selector {
-  display: flex;
-  margin-bottom: 16px;
-  background-color: #f3f4f6;
-  padding: 4px;
-  border-radius: 8px;
-}
-
-.method-tab {
-  flex: 1;
-  text-align: center;
-  padding: 8px 0;
-  font-size: 14px;
-  color: #6b7280;
-  border-radius: 6px;
-  transition: all 0.2s;
-}
-
-.method-tab.active {
-  background-color: #ffffff;
-  color: #1f2937;
-  font-weight: 500;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.btn-save {
-  background-color: var(--theme-primary);
-  /* var(--accent-color) usually maps to green, making it explicit */
-  color: var(--accent-on);
-  border-radius: 8px;
-  font-size: 16px;
-  height: 44px;
-  line-height: 44px;
-  border: none;
-  font-weight: 600;
-}
-
-/* Modal Styles */
-.modal-mask {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.6);
+/* 注销入口：danger 语义色（浅底 + 描边 + 深红字） */
+.btn-deactivate {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 999;
-}
-
-.modal-content {
-  width: 80%;
-  max-width: 320px;
-  background-color: #ffffff;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.modal-header {
-  padding: 16px;
-  text-align: center;
-  font-size: 18px;
-  font-weight: 600;
-  color: #1f2937;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.modal-body {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background-color: #ffffff;
-}
-
-.code-row {
-  display: flex;
-  gap: 8px;
-}
-
-.code-input {
-  flex: 1;
-}
-
-.code-btn {
-  width: 100px;
-  height: 44px;
-  line-height: 44px;
-  text-align: center;
-  padding: 0;
-  font-size: 12px;
-  background-color: #f9fafb;
-  border: 1px solid #e5e7eb;
-  color: #1f2937;
-  border-radius: 8px;
-}
-
-.code-btn[disabled] {
-  opacity: 0.6;
-}
-
-.code-btn::after {
-  border: none;
-}
-
-.warning-text {
+  width: 100%;
+  height: var(--control-h);
+  background-color: var(--color-danger-soft);
+  border: 1px solid var(--color-danger);
+  border-radius: 10px;
+  color: var(--color-danger-text);
   font-size: 14px;
-  color: #ef4444;
-  line-height: 1.5;
-}
-
-.modal-footer {
-  display: flex;
-  border-top: 1px solid #e5e7eb;
-  background-color: #ffffff;
-}
-
-.modal-btn {
-  flex: 1;
-  height: 48px;
-  line-height: 48px;
-  text-align: center;
-  background-color: transparent;
-  font-size: 16px;
-  border-radius: 0;
-}
-
-.modal-btn::after {
-  border: none;
-}
-
-.modal-btn.cancel {
-  color: #6b7280;
-  border-right: 1px solid #e5e7eb;
-}
-
-.modal-btn.confirm {
-  color: var(--accent-color);
-}
-
-.modal-btn.danger {
-  color: #ef4444;
-}
-
-.btn-deactivate {
-  background-color: transparent;
-  color: #fa5151;
-  font-size: 14px;
-  height: 40px;
-  line-height: 40px;
-  border: none;
-  font-weight: 400;
-  margin-top: 20px;
+  font-weight: 500;
 }
 
 .btn-deactivate::after {

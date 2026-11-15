@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onShow } from '@dcloudio/uni-app';
 import { useThemeStore } from '@/stores/theme';
+import MmNavBar from '@/components/MmNavBar.vue';
 const themeStore = useThemeStore();
 
 onShow(() => {
@@ -15,8 +16,13 @@ const records = [
 </script>
 
 <template>
-  <view class="container" :style="themeStore.themeStyle">
-    <view class="record-list">
+  <view class="page-container" :style="themeStore.themeStyle">
+    <!-- 毛玻璃顶栏：page-container 顶部 padding 16px，作为内容与顶栏之间的间距 -->
+    <MmNavBar title="登录记录" />
+    <text class="group-title">登录记录</text>
+
+    <!-- 白卡片列表：每行 ≥44px，行间分割线 token -->
+    <view class="page-card record-list">
       <view v-for="(record, index) in records" :key="index" class="record-item">
         <view class="record-main">
           <text class="device">{{ record.device }}</text>
@@ -31,42 +37,63 @@ const records = [
 </template>
 
 <style scoped lang="scss">
-.container {
-  min-height: 100vh;
-  background-color: var(--bg-color);
-  padding: 20px;
+@use "@/styles/page-layouts.scss";
+
+/* 分组小标题：13px / 600 灰字 */
+.group-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  margin: 0 2px 8px;
 }
+
+/* 卡片内列表：收窄上下内边距，行高由条目撑开 */
+.record-list {
+  padding: 4px 16px;
+}
+
 .record-item {
-  background-color: var(--bg-elevated);
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 12px;
-  border: 1px solid var(--border-color);
+  min-height: 44px;
+  padding: 14px 0;
+  /* 行间分割线统一走 --divider-color */
+  border-bottom: 1px solid var(--divider-color);
 }
+
+.record-item:last-child {
+  border-bottom: none;
+}
+
 .record-main {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
+
 .device {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-color);
 }
+
+/* 状态胶囊：常规项用次级底；当前登录用主题浅底 + 强调色 */
 .status {
-  font-size: 12px;
+  font-size: 11px;
   padding: 2px 8px;
-  border-radius: 10px;
-  background-color: var(--bg-soft);
+  border-radius: 999px;
+  background-color: var(--surface-soft);
   color: var(--text-muted);
 }
+
 .status.active {
-  color: var(--theme-primary);
-  background-color: var(--theme-primary-light);
+  color: var(--theme-color-strong);
+  background-color: var(--theme-color-soft);
 }
+
 .info {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 </style>

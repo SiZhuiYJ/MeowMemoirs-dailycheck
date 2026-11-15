@@ -2,6 +2,7 @@
 import { ref, reactive } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useThemeStore } from '@/stores/theme';
+import MmNavBar from '@/components/MmNavBar.vue';
 import http from '@/libs/http/config';
 import { onShow } from '@dcloudio/uni-app';
 import { notifySuccess, notifyError } from '@/utils/notification';
@@ -69,8 +70,13 @@ async function handleSave() {
 
 <template>
   <view class="page-container" :style="themeStore.themeStyle">
+    <!-- 毛玻璃顶栏：page-container 顶部 padding 16px，作为内容与顶栏之间的间距 -->
+    <MmNavBar title="修改账号名" />
     <NotificationSystem />
-    
+
+    <!-- 分组小标题：13px 灰色，与全站设置页一致 -->
+    <text class="group-title">账号信息</text>
+
     <view class="page-card">
       <view class="form-field">
         <text class="label">账号名 (全局唯一)</text>
@@ -84,7 +90,8 @@ async function handleSave() {
     </view>
 
     <view class="page-actions">
-      <button class="btn-primary" :loading="loading" :disabled="!!authStore.user?.userAccount && !accountStatus.canUpdate" @click="handleSave">保存</button>
+      <button class="btn-primary" hover-class="mm-hover" :loading="loading"
+        :disabled="!!authStore.user?.userAccount && !accountStatus.canUpdate" @click="handleSave">保存</button>
     </view>
   </view>
 </template>
@@ -92,10 +99,33 @@ async function handleSave() {
 <style scoped lang="scss">
 @use "@/styles/page-layouts.scss";
 
+/* 分组小标题：13px / 600 灰字，用于卡片上方分组 */
+.group-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  margin: 0 2px 8px;
+}
+
+/* 输入框聚焦：主题色描边（:focus-within 兼容 H5 的 uni-input 包裹层） */
+.input:focus,
+.input:focus-within {
+  border-color: var(--theme-primary);
+}
+
+/* 不可修改时的禁用态：次级底色 + 更淡文字 */
+.input[disabled] {
+  background-color: var(--surface-soft);
+  color: var(--text-faint);
+}
+
+/* 频繁修改提示：danger 语义色（不再写死红色） */
 .hint-text {
   display: block;
   font-size: 12px;
-  color: #fa5151;
+  color: var(--color-danger-text);
   margin-top: 8px;
 }
 </style>

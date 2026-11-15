@@ -6,6 +6,7 @@ import { useCheckinsStore, type CheckinDetail } from '@/stores/checkins';
 import { useThemeStore } from '@/stores/theme';
 import { notifyWarning } from '@/utils/notification';
 import { toLocalDateOnlyString, parseDateOnly, getMonthDays } from '@/utils/date';
+import MmNavBar from '@/components/MmNavBar.vue';
 
 const plansStore = usePlansStore();
 const checkinsStore = useCheckinsStore();
@@ -327,22 +328,27 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
 
 <template>
   <view class="container" :style="themeStore.themeStyle">
+    <MmNavBar title="计划详情" />
     <NotificationSystem />
 
     <!-- Card 1: Title Bar -->
     <view class="title-card">
       <view class="title-row">
         <text class="title">{{ currentPlan?.title }}</text>
-        <text class="edit-icon" @click="handleEdit">✎</text>
+        <view class="edit-icon" hover-class="mm-hover" @click="handleEdit">✎</view>
       </view>
     </view>
 
     <!-- Card 2: Calendar Bar -->
     <view class="calendar-card">
       <view class="month-selector">
-        <image class="arrow-icon is-left" src="/static/svg/turn-left.svg" mode="aspectFit" @click="prevMonth" />
+        <view class="arrow-btn" hover-class="mm-hover" @click="prevMonth">
+          <image class="arrow-icon is-left" src="/static/svg/turn-left.svg" mode="aspectFit" />
+        </view>
         <text class="month-label">{{ currentYear }}年{{ currentMonth }}月</text>
-        <image class="arrow-icon" src="/static/svg/turn-right.svg" mode="aspectFit" @click="nextMonth" />
+        <view class="arrow-btn" hover-class="mm-hover" @click="nextMonth">
+          <image class="arrow-icon" src="/static/svg/turn-right.svg" mode="aspectFit" />
+        </view>
       </view>
 
       <view class="weekdays">
@@ -351,13 +357,14 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
 
       <view class="mini-calendar">
         <view v-for="(cell, index) in calendarCells" :key="index" :class="getCellClass(cell)"
-          @click="cell ? handleDateClick(cell) : null">
+          hover-class="mm-hover" @click="cell ? handleDateClick(cell) : null">
           <text v-if="cell" class="mini-day-text">{{ cell.getDate() }}</text>
         </view>
       </view>
     </view>
 
-    <view class="checkin-action-area">
+    <!-- 无分时段计划时，打卡按钮固定在底部操作栏；有分时段则跟随页面滚动 -->
+    <view class="checkin-action-area" :class="{ 'is-fixed': slotStatuses.length === 0 }">
       <!-- Time Slot List -->
       <view v-if="slotStatuses.length > 0" class="slot-list">
         <view v-for="slot in slotStatuses" :key="slot.id" class="slot-row">
@@ -369,7 +376,7 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
           <view class="slot-action">
             <template v-if="slot.status === 'done'">
               <view class="status-tag" :class="slot.checkinStatus === 2 ? 'retro' : 'success'"
-                @click="handleCheckinAction(slot)">
+                hover-class="mm-hover" @click="handleCheckinAction(slot)">
                 {{ slot.checkinStatus === 2 ? '已补签' : '已打卡' }}
               </view>
             </template>
@@ -420,68 +427,99 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
         <text>错过</text>
       </view>
     </view>
+
+    <!-- 为底部固定操作栏留出滚动空间（含手势条安全区） -->
+    <view v-if="slotStatuses.length === 0" class="checkin-fixed-spacer"></view>
   </view>
 </template>
 
 <style scoped lang="scss">
 @use "@/styles/status-colors.scss";
 
+/* 计划详情：单色卡片 + 语义状态色（成功 / 补签 / 漏签）+ 底部固定打卡操作栏 */
 .container {
-  padding: var(--uni-container-padding);
+  min-height: 100vh;
+  padding: var(--page-pad) var(--page-pad) calc(12px + var(--safe-bottom));
   background-color: var(--bg-color);
-  min-height: 100%;
   box-sizing: border-box;
 }
 
-/* Card 1: Title Card */
+/* Card 1: 计划标题卡 */
 .title-card {
-  margin-bottom: var(--uni-header-margin-bottom);
-  padding: var(--uni-header-padding);
+  margin-bottom: 12px;
+  padding: 12px 16px;
   background-color: var(--bg-elevated);
-  border-radius: var(--uni-header-border-radius);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  box-sizing: border-box;
 }
 
 .title {
-  font-size: 20px;
-  font-weight: bold;
+  font-size: 18px;
+  font-weight: 600;
   color: var(--text-color);
+  min-width: 0;
 }
 
 .title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 }
 
+/* 编辑入口：44px 点击区 + 主题浅底 */
 .edit-icon {
-  font-size: 20px;
-  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background-color: var(--theme-color-soft);
+  color: var(--theme-color-strong);
+  font-size: 18px;
 }
 
-/* Card 2: Calendar Card */
+/* Card 2: 日历卡 */
 .calendar-card {
   background-color: var(--bg-elevated);
-  border-radius: var(--uni-card-border-radius);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
   padding: 16px;
-
+  margin-bottom: 12px;
+  box-sizing: border-box;
 }
 
 .month-selector {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 4px 8px;
   background-color: var(--surface-soft);
-  padding: 8px 16px;
-  border-radius: 20px;
-  margin-bottom: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+}
+
+.arrow-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
 }
 
 .arrow-icon {
-  width: 24px;
-  height: 24px;
-  padding: 8px;
-  opacity: 0.6;
+  width: 20px;
+  height: 20px;
+  opacity: 0.7;
 }
 
 .arrow-icon.is-left {
@@ -489,8 +527,9 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
 }
 
 .month-label {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
+  color: var(--text-color);
 }
 
 .weekdays {
@@ -505,11 +544,11 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
   font-size: 12px;
 }
 
-/* Grid & Cells matching index.vue style */
+/* 日历网格：状态色由 status-colors.scss 提供（success / warning / danger） */
 .mini-calendar {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
+  gap: 4px;
 }
 
 .mini-day {
@@ -517,71 +556,126 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  background-color: transparent;
+  border-radius: 8px;
   border: 1px solid transparent;
+  background-color: transparent;
 }
 
 .mini-day-text {
-  font-size: 14px;
-  /* Kept 14px for detail view readability, though index uses 12px */
+  font-size: 13px;
   color: var(--text-color);
   font-weight: 500;
 }
 
 .mini-day-today {
   border: 1px solid var(--theme-primary) !important;
-  font-weight: bold;
+  font-weight: 600;
 }
 
-/* Legend & Action Area */
+/* 图例：颜色沿用 status-colors.scss 的语义色 */
 .legend {
-  margin-top: 20px;
+  margin-top: 16px;
   display: flex;
   gap: 16px;
   justify-content: center;
 }
 
-/* Action Area */
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* 打卡操作区：有分时段时跟随滚动；无分时段时固定在底部并预留安全区 */
 .checkin-action-area {
   display: flex;
   justify-content: center;
   margin-top: 12px;
 }
 
+.checkin-action-area.is-fixed {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  margin-top: 0;
+  padding: 12px var(--page-pad) calc(12px + var(--safe-bottom));
+  background-color: var(--bg-elevated);
+  border-top: 1px solid var(--border-color);
+  box-shadow: var(--theme-outer-glow-lighter);
+  box-sizing: border-box;
+}
+
+/* 固定操作栏占位，避免遮挡页面最后一段内容（12+140+12 按钮 + 安全区） */
+.checkin-fixed-spacer {
+  height: calc(164px + var(--safe-bottom));
+}
+
+/* 无分时段计划的主打卡按钮 */
 .checkin-btn {
-  width: 140px;
-  height: 140px;
-  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-  transition: transform 0.2s;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
   border: none;
+  background: var(--theme-gradient);
+  box-shadow: var(--theme-outer-glow-soft);
+  color: var(--theme-action-contrast);
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .checkin-btn:active {
-  transform: scale(0.95);
-}
-
-.checkin-btn.checked {
-  background: linear-gradient(135deg, #10b981, #059669);
-  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
-}
-
-.checkin-btn.retro {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);
+  transform: scale(0.96);
+  opacity: 0.9;
 }
 
 .checkin-btn-text {
   font-size: 18px;
-  font-weight: bold;
-  color: white;
+  font-weight: 600;
 }
 
+/* 已打卡 / 已补签 / 未到时间 / 不可打卡：单色卡片 + 语义状态色 */
+.checkin-btn.checked {
+  background: var(--color-success-soft);
+  border: 2px solid var(--color-success);
+  color: var(--color-success-text);
+  box-shadow: none;
+}
+
+.checkin-btn.retro {
+  background: var(--color-warning-soft);
+  border: 2px solid var(--color-warning);
+  color: var(--color-warning-text);
+  box-shadow: none;
+}
+
+.checkin-btn.future {
+  background: var(--theme-color-soft);
+  border: 1px solid var(--theme-color-muted);
+  color: var(--theme-color-strong);
+  box-shadow: none;
+}
+
+.checkin-btn.not_started,
+.checkin-btn.ended {
+  background: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+/* 分时段打卡列表 */
 .slot-list {
   width: 100%;
   display: flex;
@@ -593,19 +687,23 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
   padding: 12px 16px;
-  border-radius: var(--uni-card-border-radius);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-sizing: border-box;
 }
 
 .slot-info {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .slot-name {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-color);
 }
@@ -618,153 +716,52 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
 .slot-action {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
+/* 状态标签：底色 / 文字由 status-colors.scss 语义色决定，这里只统一胶囊形状 */
 .status-tag {
-  padding: 4px 8px;
-  border-radius: var(--uni-card-border-radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
   font-size: 12px;
-  color: white;
+  font-weight: 500;
 }
 
 .status-text {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-muted);
-}
-
-.action-btn {
-  font-size: 14px;
-  padding: 4px 8px;
-  line-height: normal;
-  border-radius: var(--uni-card-border-radius);
-  color: white;
-  background-color: #3b82f6;
-  border: none;
-}
-
-.action-btn.retro {
-  background-color: #f59e0b;
-}
-
-.action-btn.primary {
-  background-color: #3b82f6;
-}
-
-/* Removed duplicate checkin-action-area styles */
-
-
-// 动画波动
-@keyframes shake-pending {
-
-  0%,
-  100% {
-    box-shadow: 0 0 12px 0px rgba(239, 68, 68, 0.25);
-  }
-
-  25% {
-    box-shadow: 0 0 12px 10px rgba(239, 68, 68, 0.25);
-  }
-
-  50% {
-    box-shadow: 0 0 12px 15px rgba(239, 68, 68, 0.25);
-  }
-
-  75% {
-    box-shadow: 0 0 12px 10px rgba(239, 68, 68, 0.25);
-  }
-}
-
-@keyframes shake-checked {
-
-  0%,
-  100% {
-    box-shadow: 0 0 12px 0px var(--theme-primary);
-  }
-
-  25% {
-    box-shadow: 0 0 12px 10px var(--theme-primary);
-  }
-
-  50% {
-    box-shadow: 0 0 12px 15px var(--theme-primary);
-  }
-
-  75% {
-    box-shadow: 0 0 12px 10px var(--theme-primary);
-  }
-}
-
-@keyframes shake-retro {
-
-  0%,
-  100% {
-    box-shadow: 0 0 12px 0px rgba(234, 179, 8, .25);
-  }
-
-  25% {
-    box-shadow: 0 0 12px 10px rgba(234, 179, 8, .25);
-  }
-
-  50% {
-    box-shadow: 0 0 12px 15px rgba(234, 179, 8, .25);
-  }
-
-  75% {
-    box-shadow: 0 0 12px 10px rgba(234, 179, 8, .25);
-  }
-}
-
-
-.checkin-btn::after {
-  border: none;
-}
-
-.checkin-btn.pending {
-  background: linear-gradient(135deg, #ef4444, #dc2626);
-  color: white;
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.6);
-}
-
-.checkin-btn.checked {
-  background: linear-gradient(135deg, var(--theme-primary), var(--theme-secondary));
-  color: white;
-}
-
-.checkin-btn.retro {
-  background: linear-gradient(135deg, #eab308, #ca8a04);
-  color: white;
-}
-
-.checkin-btn.future {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-}
-
-.checkin-btn.not_started,
-.checkin-btn.ended {
-  background: linear-gradient(135deg, #9ca3af, #6b7280);
-  box-shadow: 0 4px 12px rgba(107, 114, 128, 0.3);
-}
-
-.checkin-btn-text {
-  font-size: 18px;
-  font-weight: bold;
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .status-text.muted {
-  color: var(--text-muted);
-  opacity: 0.8;
+  color: var(--text-faint);
 }
 
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+/* 行内操作按钮：打卡用主题渐变，补签用 warning 语义色 */
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 80px;
+  height: 44px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--theme-gradient);
+  color: var(--theme-action-contrast);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
 }
+
+.action-btn.retro {
+  background: var(--color-warning-soft);
+  border: 1px solid var(--color-warning);
+  color: var(--color-warning-text);
+}
+
+
 </style>

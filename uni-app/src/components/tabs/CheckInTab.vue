@@ -4,7 +4,7 @@ import { usePlansStore } from '@/stores/plans';
 import { useCheckinsStore } from '@/stores/checkins';
 import ProgressRing from '@/components/ProgressRing.vue';
 import { toLocalDateOnlyString, parseDateOnly, getMonthDays } from '@/utils/date';
-import { useNavbar } from '@/utils/useNavbar';
+import MmNavBar from '@/components/MmNavBar.vue';
 
 const props = defineProps<{
   isActive: boolean;
@@ -12,7 +12,6 @@ const props = defineProps<{
 
 const plansStore = usePlansStore();
 const checkinsStore = useCheckinsStore();
-const { paddingTop, height, paddingLeft, navbarHeight } = useNavbar();
 
 const today = new Date();
 const currentYear = ref(today.getFullYear());
@@ -204,15 +203,8 @@ function getPlanStatus(plan: any) {
   <view class="tab-content">
     <NotificationSystem />
 
-    <view class="tab-header-fixed"
-      :style="{ paddingTop: paddingTop + 'px', paddingLeft: paddingLeft + 'px', paddingRight: paddingLeft + 'px' }">
-      <view class="header-info-inner" :style="{ height: height + 'px' }">
-        <text class="title">我的计划</text>
-      </view>
-    </view>
-
-    <!-- 撑开固定头部的内容区域 -->
-    <view :style="{ height: `calc(${navbarHeight}px - var(--uni-container-padding))` }"></view>
+    <!-- 毛玻璃顶栏：内容与顶栏之间保留 .tab-content 的 16px 顶部内边距作为间距 -->
+    <MmNavBar title="我的计划" :show-back="false" align="left" />
 
     <view class="plan-list">
       <template v-if="isLoading">
@@ -230,7 +222,8 @@ function getPlanStatus(plan: any) {
       </template>
 
       <template v-else>
-        <view v-for="plan in plansStore.items" :key="plan.id" class="plan-card" @click="handlePlanClick(plan.id)">
+        <view v-for="plan in plansStore.items" :key="plan.id" class="plan-card" hover-class="mm-hover"
+          @click="handlePlanClick(plan.id)">
           <view class="card-header-row">
             <view class="card-title-group">
               <text class="card-title">{{ plan.title }}</text>
@@ -255,8 +248,9 @@ function getPlanStatus(plan: any) {
 
             <view class="stats-wrapper">
               <view class="progress-ring">
+                <!-- 进度环颜色改为默认主题强调色，不再传旧绿色 -->
                 <ProgressRing :progress="monthStatsByPlan(plan.id).percentage / 100" :size="50" :radius="65"
-                  color="#8EA88E" :strokeWidth="12">
+                  :strokeWidth="12">
                   <text class="ring-text">{{ monthStatsByPlan(plan.id).totalCheckins }}</text>
                 </ProgressRing>
               </view>
@@ -284,7 +278,7 @@ function getPlanStatus(plan: any) {
           </view>
         </view>
 
-        <view class="create-plan-card" @click="handleCreatePlan">
+        <view class="create-plan-card" hover-class="mm-hover" @click="handleCreatePlan">
           <text class="create-icon">+</text>
         </view>
 
@@ -299,28 +293,13 @@ function getPlanStatus(plan: any) {
 <style scoped lang="scss">
 @use "@/styles/status-colors.scss";
 
+/* 打卡 tab 根节点：左右 16px 页面留白，min-height 用 100% 避免在 100vh 容器内再套 100vh */
 .tab-content {
-  padding: var(--uni-container-padding);
+  padding: var(--page-pad);
+  padding-bottom: 4px;
   box-sizing: border-box;
-  padding-bottom: 10px;
   background-color: var(--bg-color);
-  min-height: 100vh;
-}
-
-.tab-header-fixed {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  background-color: rgba(var(--bg-color), 0.01);
-}
-
-.header-info-inner {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  color: var(--text-color);
+  min-height: 100%;
 }
 
 .header {
@@ -328,13 +307,8 @@ function getPlanStatus(plan: any) {
 }
 
 .plan-list {
-  margin-bottom: 80px;
-}
-
-.title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-color);
+  /* 底部 tabBar 空间已由 pages/main/index.vue 的滚动容器统一预留，这里不再叠加 80px */
+  padding-bottom: 4px;
 }
 
 /* Skeleton Loading */
@@ -351,7 +325,7 @@ function getPlanStatus(plan: any) {
   .skeleton-title {
     width: 40%;
     height: 24px;
-    background: #f0f0f0;
+    background-color: var(--surface-soft);
     border-radius: 4px;
     position: relative;
     overflow: hidden;
@@ -362,7 +336,7 @@ function getPlanStatus(plan: any) {
       left: 0;
       width: 100%;
       height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+      background: linear-gradient(90deg, transparent, var(--divider-color), transparent);
       animation: skeleton-loading 1.5s infinite;
     }
   }
@@ -370,14 +344,14 @@ function getPlanStatus(plan: any) {
   .skeleton-desc {
     flex: 1;
     height: 16px;
-    background: #f5f5f5;
+    background-color: var(--divider-color);
     border-radius: 4px;
   }
   
   .skeleton-date {
     width: 60%;
     height: 14px;
-    background: #f5f5f5;
+    background-color: var(--divider-color);
     border-radius: 4px;
     margin-bottom: 20px;
   }
@@ -390,14 +364,14 @@ function getPlanStatus(plan: any) {
   .skeleton-calendar {
     flex: 1;
     height: 120px;
-    background: #f5f5f5;
+    background-color: var(--divider-color);
     border-radius: 8px;
   }
   
   .skeleton-stats {
     width: 80px;
     height: 120px;
-    background: #f5f5f5;
+    background-color: var(--divider-color);
     border-radius: 8px;
   }
 }
@@ -407,29 +381,39 @@ function getPlanStatus(plan: any) {
   100% { transform: translateX(100%); }
 }
 
-/* Plan Card */
+/* Plan Card：统一为单色卡片语言（白底 + token 描边/阴影） */
 .plan-card {
   background-color: var(--bg-elevated);
-  border-radius: var(--uni-card-border-radius);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
   padding: var(--uni-card-padding);
   margin-bottom: var(--uni-card-margin-bottom);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--card-shadow);
   position: relative;
   overflow: hidden;
 }
 
+/* 未开始 / 已结束计划的遮罩：透明底 + 背景模糊（毛玻璃），卡片内容仍隐约可见；
+   不支持 backdrop-filter 的环境回退到 --overlay-bg-fallback（更实的半透明底） */
 .card-overlay {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(255, 255, 255, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(1px);
   z-index: 10;
+  background-color: var(--overlay-bg-fallback);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .card-overlay {
+    background-color: var(--overlay-bg);
+    -webkit-backdrop-filter: blur(10px) saturate(150%);
+    backdrop-filter: blur(10px) saturate(150%);
+  }
 }
 
 .overlay-text {
@@ -458,35 +442,39 @@ function getPlanStatus(plan: any) {
 }
 
 .card-title {
-  font-size: 18px;
-  font-weight: bold;
+  font-size: 17px;
+  font-weight: 600;
   color: var(--text-color);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
+/* 状态徽标：只用中性 / 语义 token，不再写死蓝 / 灰 / 橙 */
 .status-badge {
    font-size: 10px;
-   padding: 1px 6px;
-   border-radius: 4px;
+   padding: 1px 8px;
+   border-radius: 999px;
    font-weight: 500;
    flex-shrink: 0;
    white-space: nowrap;
  }
- 
- .status-pending {
-   background-color: #E3F2FD;
-   color: #1976D2;
+
+/* 未开始：中性浅底 */
+.status-pending {
+   background-color: var(--surface-soft);
+   color: var(--text-muted);
  }
- 
- .status-ended {
-   background-color: #EEEEEE;
-   color: #757575;
+
+/* 已结束：更弱的灰 */
+.status-ended {
+   background-color: var(--divider-color);
+   color: var(--text-faint);
  }
- 
- .status-inactive {
-   background-color: #FFF3E0;
-   color: #EF6C00;
+
+/* 已停用：语义警告色（补签黄同族） */
+.status-inactive {
+   background-color: var(--color-warning-soft);
+   color: var(--color-warning-text);
  }
 
 .card-desc {
@@ -539,8 +527,8 @@ function getPlanStatus(plan: any) {
 }
 
 .mini-day-today {
-  border: 1px solid var(--accent-color) !important;
-  font-weight: bold;
+  border: 1px solid var(--theme-primary) !important;
+  font-weight: 600;
 }
 
 /* Stats Wrapper */
@@ -576,16 +564,18 @@ function getPlanStatus(plan: any) {
   color: var(--text-muted);
 }
 
+/* 新建计划入口：虚线描边卡片，与白卡片同一套 token */
 .create-plan-card {
   background-color: var(--bg-elevated);
-  border-radius: var(--uni-card-border-radius);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--card-radius);
   height: 56px;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: var(--uni-card-margin-bottom);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  transition: all 0.2s;
+  box-sizing: border-box;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .create-plan-card:active {

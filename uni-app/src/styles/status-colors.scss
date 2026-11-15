@@ -1,53 +1,62 @@
-/* Status Colors for Days and Indicators */
+/**
+ * 打卡状态色（与 web 日历完全一致：成功绿 / 补签黄 / 漏签红）
+ * 只使用主题变量，日/夜模式自动切换，避免页面里再写死 App 端不一致的色值。
+ */
 
-.day, .mini-day, .dot, .status-tag {
+.day,
+.mini-day,
+.dot,
+.status-tag {
   &.success {
-    border-color: #10b981;
-    background-color: rgba(16, 185, 129, 0.1);
-    color: #10b981;
-    
-    &.dot, &.status-tag {
-      background-color: #10b981;
-      color: white;
+    border-color: var(--color-success);
+    background-color: var(--color-success-soft);
+    color: var(--color-success-text);
+
+    &.dot,
+    &.status-tag {
+      background-color: var(--color-success);
+      color: #ffffff;
     }
 
     .mini-day-text {
-      color: #10b981;
+      color: var(--color-success-text);
     }
   }
 
   &.retro {
-    border-color: #eab308;
-    background-color: rgba(234, 179, 8, 0.2);
-    color: #a16207;
+    border-color: var(--color-warning);
+    background-color: var(--color-warning-soft);
+    color: var(--color-warning-text);
 
-    &.dot, &.status-tag {
-      background-color: #f59e0b;
-      color: white;
+    &.dot,
+    &.status-tag {
+      background-color: var(--color-warning);
+      color: #ffffff;
     }
 
     .mini-day-text {
-      color: #a16207;
+      color: var(--color-warning-text);
     }
   }
 
   &.missed {
-    border-color: #ef4444;
-    background-color: rgba(239, 68, 68, 0.1);
-    color: #b91c1c;
+    border-color: var(--color-danger);
+    background-color: var(--color-danger-soft);
+    color: var(--color-danger-text);
 
-    &.dot, &.status-tag {
-      background-color: #ef4444;
-      color: white;
+    &.dot,
+    &.status-tag {
+      background-color: var(--color-danger);
+      color: #ffffff;
     }
 
     .mini-day-text {
-      color: #b91c1c;
+      color: var(--color-danger-text);
     }
   }
 }
 
 .mini-day-today {
   border: 1px solid var(--theme-primary) !important;
-  font-weight: bold;
+  font-weight: 600;
 }

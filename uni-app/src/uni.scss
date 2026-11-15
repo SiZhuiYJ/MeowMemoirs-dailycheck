@@ -14,34 +14,34 @@
 
 /* 颜色变量 */
 
-/* 行为相关颜色 */
-$uni-color-primary: #8EA88E;
-$uni-color-success: #8EA88E;
-$uni-color-warning: #fa9d3b;
-$uni-color-error: #fa5151;
+/* 行为相关颜色：与 web 单色主题一致（强调色只保留一个种子色色阶） */
+$uni-color-primary: #9a4f8d;
+$uni-color-success: #22c55e;
+$uni-color-warning: #eab308;
+$uni-color-error: #ef4444;
 
 /* 文字基本颜色 */
-$uni-text-color: #191919; // 基本色
+$uni-text-color: #111827; // 基本色
 $uni-text-color-inverse: #fff; // 反色
-$uni-text-color-grey: #666666; // 辅助灰色，如加载更多的提示信息
-$uni-text-color-placeholder: #b2b2b2;
-$uni-text-color-disable: #c0c0c0;
+$uni-text-color-grey: #6b7280; // 辅助灰色，如加载更多的提示信息
+$uni-text-color-placeholder: #9ca3af;
+$uni-text-color-disable: #d1d5db;
 
 /* 背景颜色 */
-$uni-bg-color: #F1F1EB;
-$uni-bg-color-grey: #ECE7DA;
-$uni-bg-color-hover: #f1f1f1; // 点击状态颜色
-$uni-bg-color-mask: rgba(0, 0, 0, 0.4); // 遮罩颜色
+$uni-bg-color: #f3f4f6;
+$uni-bg-color-grey: #f9fafb;
+$uni-bg-color-hover: #eef0f3; // 点击状态颜色
+$uni-bg-color-mask: rgba(17, 24, 39, 0.32); // 遮罩颜色
 
 /* 边框颜色 */
-$uni-border-color: #d9d9d9;
+$uni-border-color: #e5e7eb;
 
 /* 尺寸变量 */
 
-/* 文字尺寸 */
+/* 文字尺寸（与 web 一致：正文 14，标题 17，说明 12） */
 $uni-font-size-sm: 12px;
 $uni-font-size-base: 14px;
-$uni-font-size-lg: 16;
+$uni-font-size-lg: 17px;
 
 /* 图片尺寸 */
 $uni-img-size-sm: 20px;
@@ -49,9 +49,9 @@ $uni-img-size-base: 26px;
 $uni-img-size-lg: 40px;
 
 /* Border Radius */
-$uni-border-radius-sm: 2px;
-$uni-border-radius-base: 3px;
-$uni-border-radius-lg: 6px;
+$uni-border-radius-sm: 8px;
+$uni-border-radius-base: 10px;
+$uni-border-radius-lg: 16px;
 $uni-border-radius-circle: 50%;
 
 /* UI Card Configuration */
@@ -77,10 +77,10 @@ $uni-spacing-col-lg: 12px;
 $uni-opacity-disabled: 0.3; // 组件禁用态的透明度
 
 /* 文章场景相关 */
-$uni-color-title: #2c405a; // 文章标题颜色
-$uni-font-size-title: 20px;
-$uni-color-subtitle: #555; // 二级标题颜色
-$uni-font-size-subtitle: 18px;
-$uni-color-paragraph: #3f536e; // 文章段落颜色
-$uni-font-size-paragraph: 15px;
+$uni-color-title: #111827; // 文章标题颜色
+$uni-font-size-title: 18px;
+$uni-color-subtitle: #6b7280; // 二级标题颜色
+$uni-font-size-subtitle: 16px;
+$uni-color-paragraph: #374151; // 文章段落颜色
+$uni-font-size-paragraph: 14px;
 

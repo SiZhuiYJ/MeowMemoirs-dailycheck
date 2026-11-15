@@ -30,15 +30,15 @@
 		<slot />
 		<view class="fixed-bottom safe-area-inset-bottom" :style="{ zIndex: initData.area.zIndex + 99 }">
 			<view v-if="(rotatable || reverseRotatable) && !!imgSrc" class="action-bar">
-				<view v-if="reverseRotatable" class="rotate-icon" @click="cropper.rotateImage270"></view>
-				<view v-if="rotatable" class="rotate-icon is-reverse" @click="cropper.rotateImage90"></view>
+				<view v-if="reverseRotatable" class="rotate-icon" hover-class="mm-hover" @click="cropper.rotateImage270"></view>
+				<view v-if="rotatable" class="rotate-icon is-reverse" hover-class="mm-hover" @click="cropper.rotateImage90"></view>
 			</view>
-			<view v-if="!choosable" class="choose-btn" @click="cropClick">确定</view>
+			<view v-if="!choosable" class="choose-btn" hover-class="mm-hover" @click="cropClick">确定</view>
 			<block v-else-if="!!imgSrc">
-				<view class="rechoose" @click="chooseImage">重选</view>
-				<button class="button" size="mini" @click="cropClick">确定</button>
+				<view class="rechoose" hover-class="mm-hover" @click="chooseImage">重选</view>
+				<button class="button" size="mini" hover-class="mm-hover" @click="cropClick">确定</button>
 			</block>
-			<view v-else class="choose-btn" @click="chooseImage">选择图片</view>
+			<view v-else class="choose-btn" hover-class="mm-hover" @click="chooseImage">选择图片</view>
 		</view>
 	</view>
 </template>
@@ -634,6 +634,7 @@
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
+		/* 裁剪器固定深色画布：保证任意图片上的裁剪框可辨识（非主题色，语义需要） */
 		background-color: #000;
 		.img-canvas {
 			position: absolute !important;
@@ -644,8 +645,9 @@
 			flex: 1;
 			position: relative;
 
+			/* 裁剪区外遮罩：深色半透明，统一各主题下的对比度 */
 			.crop-mask-block {
-				background-color: rgba(51, 51, 51, 0.8);
+				background-color: rgba(2, 6, 23, 0.66);
 				z-index: 2;
 				position: fixed;
 				box-sizing: border-box;
@@ -701,7 +703,10 @@
 			z-index: 99;
 			display: flex;
 			flex-direction: row;
-			background-color: $uni-bg-color-grey;
+			padding: 8px 16px;
+			/* 底部操作栏：跟随主题（白底卡片 + 1px 描边 + 安全区），不再用固定浅灰 */
+			background-color: var(--bg-elevated);
+			border-top: 1px solid var(--border-color);
 
 			.action-bar {
 				position: absolute;
@@ -721,31 +726,67 @@
 				}
 			}
 			 
+			/* 重选：次按钮（主题浅底 + 描边 + 强调色文字） */
 			.rechoose {
-				color: $uni-color-primary;
-				padding: 0 $uni-spacing-row-lg;
-				line-height: 100rpx;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				min-height: var(--control-h);
+				padding: 0 20px;
+				font-size: 14px;
+				font-weight: 600;
+				color: var(--theme-color-strong);
+				background-color: var(--theme-color-soft);
+				border: 1px solid var(--theme-color-muted);
+				border-radius: 10px;
+				box-sizing: border-box;
 			}
 
+			/* 主操作（选择图片 / 确定）：主题渐变按钮，高度对齐 44px */
 			.choose-btn {
-				color: $uni-color-primary;
-				text-align: center;
-				line-height: 100rpx;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				height: var(--control-h);
 				flex: 1;
+				font-size: 15px;
+				font-weight: 600;
+				color: var(--theme-action-contrast);
+				background: var(--theme-gradient);
+				border-radius: 10px;
+				box-sizing: border-box;
 			}
 
+			/* 确定（choosable 时为 mini button）：对齐主题渐变主按钮，靠右放置 */
 			.button {
-				margin: auto $uni-spacing-row-lg auto auto;
-				background-color: $uni-color-primary;
-				color: #fff;
+				margin: 0 0 0 auto;
+				height: var(--control-h);
+				line-height: var(--control-h);
+				padding: 0 28px;
+				font-size: 15px;
+				font-weight: 600;
+				color: var(--theme-action-contrast);
+				background-color: var(--theme-action-bg);
+				border-radius: 10px;
+				box-sizing: border-box;
+
+				&::after {
+					border: none;
+				}
 			}
 		}
 
+		/* 底部安全区：8px 基础内边距 + 设备安全区 */
 		.safe-area-inset-bottom {
-			padding-bottom: 0;  
-			padding-bottom: constant(safe-area-inset-bottom); // 兼容 IOS<11.2
-			padding-bottom: env(safe-area-inset-bottom); // 兼容 IOS>=11.2
+			padding-bottom: 8px;
+			padding-bottom: calc(8px + constant(safe-area-inset-bottom)); // 兼容 IOS<11.2
+			padding-bottom: calc(8px + env(safe-area-inset-bottom)); // 兼容 IOS>=11.2
 		}
  
+	}
+
+	/* 组件启用 styleIsolation 隔离，点按反馈需在组件内定义（与全局 .mm-hover 一致） */
+	.mm-hover {
+		opacity: 0.72;
 	}
 </style>

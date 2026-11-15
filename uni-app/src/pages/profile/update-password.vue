@@ -3,6 +3,7 @@ import { ref, reactive } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
 import { useAuthStore } from '@/stores/auth';
 import { useThemeStore } from '@/stores/theme';
+import MmNavBar from '@/components/MmNavBar.vue';
 import http from '@/libs/http/config';
 import { notifySuccess, notifyError } from '@/utils/notification';
 
@@ -114,15 +115,21 @@ async function handleChangePassword() {
 
 <template>
   <view class="page-container" :style="themeStore.themeStyle">
+    <!-- 毛玻璃顶栏：page-container 顶部 padding 16px，作为内容与顶栏之间的间距 -->
+    <MmNavBar title="修改密码" />
     <NotificationSystem />
-    
+
+    <!-- 分组小标题：13px 灰色，与全站设置页一致 -->
+    <text class="group-title">安全设置</text>
+
     <view class="page-card">
       <view class="form-field">
         <text class="label">验证方式</text>
+        <!-- 分段选择器：选中态用主题浅底 + 深色字（单色语言，不做多色高亮） -->
         <view class="method-selector">
-          <view :class="['method-tab', verificationMethod === 'password' ? 'active' : '']"
+          <view :class="['method-tab', verificationMethod === 'password' ? 'active' : '']" hover-class="mm-hover"
             @click="verificationMethod = 'password'">旧密码验证</view>
-          <view :class="['method-tab', verificationMethod === 'code' ? 'active' : '']"
+          <view :class="['method-tab', verificationMethod === 'code' ? 'active' : '']" hover-class="mm-hover"
             @click="verificationMethod = 'code'">验证码验证</view>
         </view>
       </view>
@@ -138,7 +145,7 @@ async function handleChangePassword() {
         <view class="code-row">
           <input class="input code-input" v-model="pwdForm.code" 
             placeholder="请输入验证码" />
-          <button class="code-btn" :disabled="sendingCode || codeCountdown > 0"
+          <button class="code-btn" hover-class="mm-hover" :disabled="sendingCode || codeCountdown > 0"
             @click="handleSendVerificationCode">
             {{ codeCountdown > 0 ? `${codeCountdown}s` : (sendingCode ? '发送中...' : '获取验证码') }}
           </button>
@@ -159,7 +166,7 @@ async function handleChangePassword() {
     </view>
 
     <view class="page-actions">
-      <button class="btn-primary" :loading="loading" @click="handleChangePassword">保存</button>
+      <button class="btn-primary" hover-class="mm-hover" :loading="loading" @click="handleChangePassword">保存</button>
     </view>
   </view>
 </template>
@@ -167,29 +174,57 @@ async function handleChangePassword() {
 <style scoped lang="scss">
 @use "@/styles/page-layouts.scss";
 
+/* 分组小标题：13px / 600 灰字 */
+.group-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  margin: 0 2px 8px;
+}
+
+/* 输入框聚焦：主题色描边（:focus-within 兼容 H5 的 uni-input 包裹层） */
+.input:focus,
+.input:focus-within {
+  border-color: var(--theme-primary);
+}
+
+/* 验证方式分段选择器：整体 44px 热区，浅灰底 + 1px 描边 */
 .method-selector {
   display: flex;
-  margin-bottom: 16px;
-  background-color: #f3f4f6;
+  gap: 4px;
   padding: 4px;
-  border-radius: 8px;
+  background-color: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-sizing: border-box;
 }
 
 .method-tab {
   flex: 1;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
-  padding: 8px 0;
-  font-size: 14px;
-  color: #6b7280;
-  border-radius: 6px;
-  transition: all 0.2s;
+  font-size: 13px;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease,
+    opacity 0.2s ease;
 }
 
+/* 选中态：白底 + 主题强调色文字 + 1px 描边，保持单色克制 */
 .method-tab.active {
-  background-color: #ffffff;
-  color: #1f2937;
-  font-weight: 500;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background-color: var(--bg-elevated);
+  border-color: var(--border-color);
+  color: var(--theme-color-strong);
+  font-weight: 600;
+  box-shadow: var(--theme-outer-glow-lighter);
 }
 
 .code-row {
@@ -201,21 +236,24 @@ async function handleChangePassword() {
   flex: 1;
 }
 
+/* 获取验证码：次级按钮（主题浅底 + 描边），高度对齐 44px 控规范 */
 .code-btn {
-  width: 100px;
-  height: 44px;
-  line-height: 44px;
-  text-align: center;
-  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 112px;
+  height: var(--control-h);
+  padding: 0 8px;
   font-size: 12px;
-  background-color: #f9fafb;
-  border: 1px solid #e5e7eb;
-  color: #1f2937;
-  border-radius: 8px;
+  background-color: var(--theme-color-soft);
+  border: 1px solid var(--theme-color-muted);
+  color: var(--theme-color-strong);
+  border-radius: 10px;
+  box-sizing: border-box;
 }
 
 .code-btn[disabled] {
-  opacity: 0.6;
+  opacity: 0.55;
 }
 
 .code-btn::after {

@@ -41,7 +41,7 @@ export const notify = (options: NotificationOptions) => {
 export const notifySuccess = (content: string, duration?: number) => {
   notify({
     content,
-    color: '#10b981', // Emerald 500
+    color: '#22c55e', // 语义成功色，与 --color-success 一致
     direction: 'rtl',
     duration,
   });
@@ -53,7 +53,7 @@ export const notifySuccess = (content: string, duration?: number) => {
 export const notifyError = (content: string, duration?: number) => {
   notify({
     content,
-    color: '#ef4444', // Red 500
+    color: '#ef4444', // 语义错误色，与 --color-danger 一致
     direction: 'rtl', // Default to rtl or another style
     duration,
   });
@@ -65,7 +65,7 @@ export const notifyError = (content: string, duration?: number) => {
 export const notifyWarning = (content: string, duration?: number) => {
   notify({
     content,
-    color: '#f59e0b', // Amber 500
+    color: '#eab308', // 语义警告色，与 --color-warning 一致
     direction: 'rtl',
     duration,
   });
@@ -77,7 +77,7 @@ export const notifyWarning = (content: string, duration?: number) => {
 export const notifyInfo = (content: string, duration?: number) => {
   notify({
     content,
-    color: '#3b82f6', // Blue 500
+    color: '#6b7280', // 语义信息色，与 --color-info 一致
     direction: 'rtl',
     duration,
   });

@@ -7,6 +7,7 @@ import { useThemeStore } from '@/stores/theme';
 import { usePlansStore } from '@/stores/plans';
 import { API_BASE_URL } from '@/config';
 import { compressImageToWebP } from '@/utils/image';
+import MmNavBar from '@/components/MmNavBar.vue';
 
 const checkinsStore = useCheckinsStore();
 const authStore = useAuthStore();
@@ -28,6 +29,28 @@ const currentPlan = computed(() => {
     return plansStore.items.find(p => p.id === planId.value);
 });
 
+/**
+ * 是否为补签场景（日期已过，或当天但所选时段已结束）。
+ * 仅用于顶部提示条展示，不参与提交流程判断（提交逻辑保持不变）。
+ */
+const retroHint = computed(() => {
+    if (!dateStr.value) return false;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const today = `${y}-${m}-${d}`;
+    if (dateStr.value < today) return true;
+    if (dateStr.value === today && selectedTimeSlotId.value) {
+        const slot = currentPlan.value?.timeSlots?.find(s => s.id === selectedTimeSlotId.value);
+        if (slot) {
+            const nowTimeStr = now.toTimeString().split(' ')[0] ?? '';
+            return nowTimeStr > slot.endTime;
+        }
+    }
+    return false;
+});
+
 const isSlotLocked = ref(false);
 
 onLoad(async (options: any) => {
@@ -39,33 +62,8 @@ onLoad(async (options: any) => {
         isSlotLocked.value = true;
     }
 
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    const today = `${y}-${m}-${d}`;
-    const isRetro = dateStr.value < today;
-
-    // Wait for plans to be loaded
+    // 拉取计划数据：顶栏标题（打卡 / 补卡）与补签提示由 retroHint 计算属性自动推导
     await plansStore.fetchMyPlans();
-
-    // Re-evaluate retro status if needed based on slot time
-    if (dateStr.value === today && selectedTimeSlotId.value) {
-         const slot = currentPlan.value?.timeSlots?.find(s => s.id === selectedTimeSlotId.value);
-         if (slot) {
-              const now = new Date();
-              const nowTimeStr = now.toTimeString().split(' ')[0];
-              if (nowTimeStr > slot.endTime) {
-                  uni.setNavigationBarTitle({ title: '补卡' });
-              } else {
-                  uni.setNavigationBarTitle({ title: '打卡' });
-              }
-         } else {
-             uni.setNavigationBarTitle({ title: isRetro ? '补卡' : '打卡' });
-         }
-    } else {
-        uni.setNavigationBarTitle({ title: isRetro ? '补卡' : '打卡' });
-    }
   }
 });
 
@@ -206,9 +204,16 @@ async function handleSubmit() {
 
 <template>
   <view class="container" :style="themeStore.themeStyle">
+    <!-- 毛玻璃顶栏：根容器 padding-top = 16px（--page-pad），作为内容与顶栏之间的间距 -->
+    <MmNavBar :title="retroHint ? '补卡' : '打卡'" />
     <NotificationSystem />
+
+    <!-- 头部：日期 + 补签提示（提示条仅做展示，不改提交逻辑） -->
     <view class="header">
       <text class="date-label">日期：{{ dateStr }}</text>
+      <view v-if="retroHint" class="retro-hint">
+        <text class="retro-hint-text">补签模式：该时段已结束，提交后将记为补签</text>
+      </view>
     </view>
 
     <view class="card">
@@ -219,6 +224,7 @@ async function handleSubmit() {
                 <view
                     v-if="selectedTimeSlotId === slot.id"
                     class="slot-item active"
+                    hover-class="mm-hover"
                     @click="isSlotLocked ? null : (selectedTimeSlotId = slot.id || null)"
                     :style="{ 
                         opacity: 1,
@@ -233,6 +239,7 @@ async function handleSubmit() {
                 <view
                     v-else-if="!isSlotLocked"
                     class="slot-item"
+                    hover-class="mm-hover"
                     :class="{ active: selectedTimeSlotId === slot.id }"
                     @click="selectedTimeSlotId = slot.id || null"
                 >
@@ -253,133 +260,168 @@ async function handleSubmit() {
         <view class="image-grid">
           <view v-for="(img, index) in images" :key="index" class="image-item">
             <image :src="img.path" mode="aspectFill" class="image" @click="handlePreviewImage(img.path)" />
-            <view class="remove-btn" @click.stop="handleRemoveImage(index)">×</view>
+            <view class="remove-btn" hover-class="mm-hover" @click.stop="handleRemoveImage(index)">×</view>
           </view>
-          <view v-if="images.length < 3" class="add-btn" @click="handleChooseImage">
+          <view v-if="images.length < 3" class="add-btn" hover-class="mm-hover" @click="handleChooseImage">
             <text>+</text>
           </view>
         </view>
       </view>
     </view>
 
-    <button class="submit-btn" :disabled="loading" @click="handleSubmit">提交</button>
+    <!-- 底部提交栏：预留 iOS / 小程序底部安全区 -->
+    <view class="submit-bar">
+      <button class="submit-btn" :disabled="loading" @click="handleSubmit">提交</button>
+    </view>
   </view>
 </template>
 
 <style scoped lang="scss">
+/* 页面容器：浅灰底 + 16px 内容边距，底部再预留安全区 */
 .container {
-  padding: var(--uni-container-padding);
-  background-color: var(--bg-color);
   min-height: 100vh;
   box-sizing: border-box;
-}
-
-.header {
-  margin-bottom: var(--uni-header-margin-bottom);
-  padding: var(--uni-header-padding);
-  background-color: var(--bg-elevated);
-  border-radius: var(--uni-header-border-radius);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-.date-label {
-  font-size: 16px;
-  font-weight: bold;
+  padding: var(--page-pad);
+  padding-bottom: calc(var(--page-pad) + var(--safe-bottom));
+  background-color: var(--bg-color);
   color: var(--text-color);
 }
 
-.card {
+/* 头部卡片（白底 + 常规描边 + 卡片阴影） */
+.header {
+  margin-bottom: 12px;
+  padding: 16px;
   background-color: var(--bg-elevated);
-  border-radius: var(--uni-card-border-radius);
-  padding: var(--uni-card-padding);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  margin-bottom: var(--uni-card-margin-bottom);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+}
+
+.date-label {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+/* 补签提示：主题浅底 + 强调色文字 */
+.retro-hint {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background-color: var(--theme-color-soft);
+  border: 1px solid var(--theme-color-muted);
+  border-radius: 8px;
+}
+
+.retro-hint-text {
+  font-size: 12px;
+  color: var(--theme-color-strong);
+  line-height: 1.5;
+}
+
+/* 表单卡片 */
+.card {
+  padding: 16px;
+  margin-bottom: 12px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
 }
 
 .form-group {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .form-group:last-child {
   margin-bottom: 0;
 }
 
+/* 区块小标题：13px 灰色 */
+.label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
 .slots-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-top: 10px;
 }
 
+/* 时段选项：次级底 + 描边 + 10 圆角，最小 44px 点击热区 */
 .slot-item {
   width: calc(50% - 5px);
-  background-color: var(--bg-color);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 10px;
+  min-height: var(--control-h);
+  padding: 10px 12px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  background-color: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  transition: opacity 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
 }
 
+/* 选中态：主题浅底 + 强调描边 */
 .slot-item.active {
-  background-color: var(--primary-color-light, #e0f2fe);
-  border-color: var(--primary-color, #0284c7);
+  background-color: var(--theme-color-soft);
+  border-color: var(--theme-color-muted);
 }
 
 .slot-name {
   font-size: 14px;
-  font-weight: bold;
+  font-weight: 600;
   color: var(--text-color);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .slot-item.active .slot-name {
-  color: var(--primary-color, #0284c7);
+  color: var(--theme-color-strong);
 }
 
 .slot-time {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
 }
 
 .slot-item.active .slot-time {
-  color: var(--primary-color, #0284c7);
+  color: var(--theme-color-strong);
 }
 
-.label {
-  display: block;
-  font-size: 14px;
-  color: var(--text-muted);
-  margin-bottom: 12px;
-}
-
+/* 备注输入：最小 44px 热区、10 圆角、白底描边 */
 .textarea {
   width: 100%;
-  min-height: 100px;
-  background-color: var(--bg-color); /* Slightly different from elevated if possible, or just transparent/grey */
-  border-radius: 8px;
-  padding: 12px;
-  font-size: 16px;
-  color: var(--text-color);
+  min-height: var(--control-h);
   box-sizing: border-box;
+  padding: 12px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-color);
 }
 
 .image-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
 }
 
+/* 已选图片：白底 + 描边 + 10 圆角 */
 .image-item {
+  position: relative;
   width: 80px;
   height: 80px;
-  position: relative;
-  border-radius: 8px;
   overflow: hidden;
+  background-color: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
 }
 
 .image {
@@ -387,51 +429,66 @@ async function handleSubmit() {
   height: 100%;
 }
 
+/* 删除按钮：danger 语义色，圆形小热区 */
 .remove-btn {
   position: absolute;
-  top: 0;
-  right: 0;
-  width: 20px;
-  height: 20px;
-  background-color: rgba(0, 0, 0, 0.5);
-  color: white;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
-  border-bottom-left-radius: 8px;
+  background-color: var(--color-danger);
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 50%;
 }
 
+/* 添加入口：--surface-soft 底 + 虚线 --border-strong 描边 + 10 圆角 */
 .add-btn {
   width: 80px;
   height: 80px;
-  background-color: var(--bg-color);
-  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
+  background-color: var(--surface-soft);
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
 }
 
 .add-btn text {
-  font-size: 32px;
-  color: var(--text-muted);
+  font-size: 30px;
   font-weight: 300;
+  line-height: 1;
+  color: var(--text-faint);
 }
 
+/* 底部提交栏：padding-bottom 叠加 --safe-bottom（即 env(safe-area-inset-bottom)） */
+.submit-bar {
+  margin-top: 20px;
+  padding-bottom: calc(12px + var(--safe-bottom));
+}
+
+/* 主提交按钮：主题渐变 + 44px 高 + 10 圆角 */
 .submit-btn {
-  background-color: var(--theme-primary);
-  color: #fff;
-  border-radius: 24px;
-  height: 48px;
-  line-height: 48px;
-  font-size: 16px;
-  font-weight: bold;
-  margin-top: 32px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: var(--control-h);
+  background: var(--theme-gradient);
+  color: var(--theme-action-contrast);
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 10px;
+  box-shadow: var(--theme-outer-glow-lighter);
+  transition: opacity 0.2s ease;
 }
 
 .submit-btn[disabled] {
-  opacity: 0.7;
+  opacity: 0.55;
 }
 
 .submit-btn::after {

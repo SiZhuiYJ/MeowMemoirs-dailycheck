@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import { useAuthStore } from '@/stores/auth';
-import { useThemeStore, PRESET_PALETTES } from '@/stores/theme';
+import { useThemeStore, PRESET_SEEDS, normalizeHexColor } from '@/stores/theme';
 import { API_BASE_URL } from '@/config';
-import { computed, ref, reactive, watch } from 'vue';
-import { useNavbar } from '@/utils/useNavbar';
+import { computed, ref, watch } from 'vue';
+import MmNavBar from '@/components/MmNavBar.vue';
 
 const props = defineProps<{ isActive: boolean }>();
 const authStore = useAuthStore();
 const themeStore = useThemeStore();
-const { paddingTop, height, paddingLeft, navbarHeight } = useNavbar();
 const isLoading = ref(true);
 
 watch(() => props.isActive, async (newVal) => {
@@ -22,82 +21,71 @@ watch(() => props.isActive, async (newVal) => {
   }
 }, { immediate: true });
 
-const palettes = PRESET_PALETTES;
+// —— 主题设置（单色风格：用户只选一个「强调色」种子，其余色阶自动推导）——
 
-const isExpanded = ref(false);
-
-const toggleExpand = () => {
-  isExpanded.value = !isExpanded.value;
-};
-
-function getActivePaletteIndex() {
-  const idx = palettes.findIndex(p => isCurrentPalette(p.colors));
-  return idx;
+/** 预设强调色是否处于选中态（currentSeed 已是归一化小写 hex）。 */
+function isSeedActive(seed: string): boolean {
+  return themeStore.currentSeed === seed;
 }
 
-const itemHeight = 62; // px, matching the CSS padding + content
-
-const listStyle = computed(() => {
-  if (isExpanded.value) {
-    return {
-      transform: 'translateY(0)',
-    };
+/** 点击预设圆点：切换强调色种子。 */
+function handleSelectSeed(seed: string) {
+  if (!themeStore.setSeed(seed)) {
+    uni.showToast({ title: '颜色应用失败，请重试', icon: 'none' });
   }
-  const idx = getActivePaletteIndex();
-  // If not found (custom), it's the item after presets (index = palettes.length)
-  const offset = idx !== -1 ? idx : palettes.length;
-  return {
-    transform: `translateY(-${offset * itemHeight}px)`,
-  };
-});
-
-const containerStyle = computed(() => {
-  // Total items: presets (palettes.length) + custom (1) + collapse trigger (1)
-  const totalItems = palettes.length + 2;
-  const expandedHeight = totalItems * itemHeight;
-  return {
-    height: isExpanded.value ? `${expandedHeight}px` : `${itemHeight}px`,
-  };
-});
-
-function handleSelectAndCollapse(colors: string[]) {
-  handlePaletteSelect(colors);
-  isExpanded.value = false;
 }
 
-// Custom Theme Logic
-const customModalVisible = ref(false);
-const customForm = reactive({
-  colors: ['#8EA88E', '#B3C6AB', '#ECE7DA', '#F1F1EB'] // Default
-});
+// 自定义强调色输入（#RRGGBB）
+const customSeed = ref(themeStore.currentSeed);
+
+/** 输入框左侧色块预览：合法时显示当前输入色，非法时回退到浅色底。 */
+const customPreviewStyle = computed(() => ({
+  backgroundColor: normalizeHexColor(customSeed.value) ?? 'var(--surface-soft)',
+}));
+
+/**
+ * 深色模式开关：switch 的 change 事件在 uni 类型里是原生 Event、没有 detail，
+ * 这里用 any 取 detail.value，避免 vue-tsc 报 TS2339。
+ */
+function handleDarkModeChange(event: any) {
+  themeStore.setDarkMode(!!event?.detail?.value);
+}
+
+/** 主题设置是否展开（默认收起，只显示当前强调色摘要，点击标题行展开）。 */
+const themeExpanded = ref(false);
+
+function toggleThemeExpanded() {
+  themeExpanded.value = !themeExpanded.value;
+}
+
+/** 应用自定义强调色：先归一并校验 hex，非法值给出 toast 提示。 */
+function applyCustomSeed() {
+  const normalized = normalizeHexColor(customSeed.value);
+  if (!normalized) {
+    uni.showToast({ title: '请输入正确的颜色值，如 #e3c0df', icon: 'none' });
+    return;
+  }
+  if (!themeStore.setSeed(normalized)) {
+    uni.showToast({ title: '颜色应用失败，请重试', icon: 'none' });
+    return;
+  }
+  customSeed.value = normalized;
+  uni.showToast({ title: '已应用自定义颜色', icon: 'none' });
+}
+
+// 功能菜单（顺序与改版前保持一致）
+const menuItems = [
+  { label: '更新日志', path: '/pages/settings/changelog' },
+  { label: '重要提醒', path: '/pages/settings/reminders' },
+  { label: '意见反馈', path: '/pages/settings/feedback' },
+  { label: '数据隐私', path: '/pages/settings/privacy' },
+  { label: '登录记录', path: '/pages/settings/login-records' },
+];
 
 function handleNavigateToProfile() {
   uni.navigateTo({
     url: '/pages/profile/index'
   });
-}
-
-function handlePaletteSelect(colors: string[]) {
-  themeStore.setPalette(colors);
-}
-
-function openCustomTheme() {
-  customForm.colors = [...themeStore.customColors];
-  customModalVisible.value = true;
-}
-
-function applyCustomTheme() {
-  themeStore.setCustomPalette([...customForm.colors]);
-  themeStore.setPalette([...customForm.colors]);
-  customModalVisible.value = false;
-}
-
-function handleCustomSelect() {
-  if (isExpanded.value) {
-    handleSelectAndCollapse(themeStore.customColors);
-  } else {
-    toggleExpand();
-  }
 }
 
 function handleLogout() {
@@ -116,29 +104,19 @@ function handleLogout() {
 function navigateTo(path: string) {
   uni.navigateTo({ url: path });
 }
-
-function isCurrentPalette(pColors: string[]) {
-  return JSON.stringify(pColors) === JSON.stringify(themeStore.currentColors);
-}
 </script>
 
 <template>
   <view class="tab-content" :style="themeStore.themeStyle">
 
-    <view class="tab-header-fixed"
-      :style="{ paddingTop: paddingTop + 'px', paddingLeft: paddingLeft + 'px', paddingRight: paddingLeft + 'px' }">
-      <view class="header-info-inner" :style="{ height: height + 'px' }">
-        <text class="title">设置</text>
-      </view>
-    </view>
-
-    <!-- 撑开固定头部的内容区域 -->
-    <view :style="{ height: `calc(${navbarHeight}px - var(--uni-container-padding))` }"></view>
+    <!-- 毛玻璃顶栏：内容与顶栏之间保留 16px 间距（tab-content 顶部内边距） -->
+    <MmNavBar title="设置" :show-back="false" align="left" />
 
     <view class="settings-container">
-      <!-- User Profile (Avatar + nickName) -->
-      <view class="settings-group profile-group" :class="{ skeleton: isLoading }" @click="!isLoading && handleNavigateToProfile()">
-        <view class="settings-item profile-item">
+      <!-- 账号卡片：白卡片 + 轻描边 + 轻阴影，点击进入个人主页 -->
+      <view class="mm-card profile-card" :class="{ skeleton: isLoading }" hover-class="mm-hover"
+        @click="!isLoading && handleNavigateToProfile()">
+        <view class="profile-item">
           <view class="item-left">
             <view class="avatar-container">
               <template v-if="isLoading">
@@ -171,210 +149,130 @@ function isCurrentPalette(pColors: string[]) {
         </view>
       </view>
 
-      <!-- Theme Color -->
-      <view class="settings-section theme-section-container">
-        <view class="theme-section">
-          <view class="section-left">
-            <text class="section-title">主题颜色</text>
+      <!-- 主题设置卡片（可折叠）：标题行常驻显示当前强调色摘要，点击展开配置 -->
+      <view class="mm-card theme-card">
+        <view class="theme-card-head" hover-class="mm-hover" @click="toggleThemeExpanded">
+          <text class="mm-section-title card-section-title">主题</text>
+          <view class="theme-summary">
+            <view class="theme-summary-dot" :style="{ backgroundColor: themeStore.currentSeed }"></view>
+            <text class="theme-summary-hex">{{ themeStore.currentSeed.toUpperCase() }}</text>
+            <image class="theme-chevron" :class="{ expanded: themeExpanded }" src="/static/svg/turn-right.svg"
+              mode="aspectFit" />
           </view>
-          <view class="section-right">
-            <view class="palette-list" :class="{ expanded: isExpanded }">
-              <view class="palette-viewport" :style="containerStyle">
-                <view class="palette-inner" :style="listStyle">
-                  <!-- Preset Palettes -->
-                  <view v-for="(palette, idx) in palettes" :key="idx" class="palette-row"
-                    @click="isExpanded ? handleSelectAndCollapse(palette.colors) : toggleExpand()">
-                    <view class="row-content">
-                      <view class="color-blocks">
-                        <view v-for="(c, cIdx) in palette.colors" :key="cIdx" class="color-block"
-                          :style="{ backgroundColor: c }"></view>
-                      </view>
-                    </view>
-                    <view class="row-right">
-                      <image v-if="isExpanded && isCurrentPalette(palette.colors)" class="check-mark-svg"
-                        src="/static/svg/check_mark.svg" mode="aspectFit" />
-                      <image v-if="!isExpanded" class="expand-arrow" src="/static/svg/turn-right.svg"
-                        mode="aspectFit" />
-                    </view>
-                  </view>
+        </view>
 
-                  <!-- Custom Option -->
-                  <view class="palette-row" @click="handleCustomSelect">
-                    <view class="row-content">
-                      <view class="color-blocks custom-preview">
-                        <view v-for="(c, cIdx) in themeStore.customColors" :key="cIdx" class="color-block"
-                          :style="{ backgroundColor: c }"></view>
-                      </view>
-
-                      <image v-if="isExpanded" class="config-icon" src="/static/svg/colour_configuration.svg"
-                        mode="aspectFit" @click.stop="openCustomTheme" />
-                    </view>
-                    <view class="row-right">
-                      <image v-if="isExpanded && getActivePaletteIndex() === -1" class="check-mark-svg"
-                        src="/static/svg/check_mark.svg" mode="aspectFit" />
-                      <image v-if="!isExpanded" class="expand-arrow" src="/static/svg/turn-right.svg"
-                        mode="aspectFit" />
-                    </view>
-                  </view>
-
-                  <!-- Collapse Trigger at the bottom -->
-                  <view v-if="isExpanded" class="collapse-trigger" @click.stop="toggleExpand">
-                    <image class="expand-arrow up" src="/static/svg/turn-right.svg" mode="aspectFit" />
+        <!-- 折叠区：强调色 / 自定义颜色 / 深色模式 -->
+        <view class="theme-body" :class="{ expanded: themeExpanded }">
+          <!-- 强调色：8 个单色圆点（选中项加主题色描边 + check 图标） -->
+          <view class="theme-block">
+            <view class="block-head">
+              <text class="block-label">强调色</text>
+              <text class="block-value">{{ themeStore.currentSeed.toUpperCase() }}</text>
+            </view>
+            <view class="seed-grid">
+              <view v-for="seed in PRESET_SEEDS" :key="seed" class="seed-swatch-cell"
+                :class="{ selected: isSeedActive(seed) }" hover-class="mm-hover" @click="handleSelectSeed(seed)">
+                <view class="seed-dot" :style="{ backgroundColor: seed }">
+                  <view v-if="isSeedActive(seed)" class="seed-check">
+                    <image class="seed-check-icon" src="/static/svg/check_mark.svg" mode="aspectFit" />
                   </view>
                 </view>
               </view>
             </view>
           </view>
-        </view>
-      </view>
 
-      <!-- Functional Blocks -->
-      <view class="settings-group">
-        <view class="settings-item" @click="navigateTo('/pages/settings/changelog')">
-          <text class="item-label">更新日志</text>
-          <image class="arrow-icon" src="/static/svg/turn-right.svg" mode="aspectFit" />
-        </view>
-        <view class="settings-item" @click="navigateTo('/pages/settings/reminders')">
-          <text class="item-label">重要提醒</text>
-          <image class="arrow-icon" src="/static/svg/turn-right.svg" mode="aspectFit" />
-        </view>
-        <view class="settings-item" @click="navigateTo('/pages/settings/feedback')">
-          <text class="item-label">意见反馈</text>
-          <image class="arrow-icon" src="/static/svg/turn-right.svg" mode="aspectFit" />
-        </view>
-        <view class="settings-item" @click="navigateTo('/pages/settings/privacy')">
-          <text class="item-label">数据隐私</text>
-          <image class="arrow-icon" src="/static/svg/turn-right.svg" mode="aspectFit" />
-        </view>
-        <view class="settings-item" @click="navigateTo('/pages/settings/login-records')">
-          <text class="item-label">登录记录</text>
-          <image class="arrow-icon" src="/static/svg/turn-right.svg" mode="aspectFit" />
-        </view>
-      </view>
-    </view>
+          <!-- 自定义颜色：输入 #RRGGBB + 应用按钮（normalizeHexColor 校验） -->
+          <view class="theme-block">
+            <text class="block-label">自定义颜色</text>
+            <view class="custom-row">
+              <view class="custom-preview" :style="customPreviewStyle"></view>
+              <input class="custom-input" v-model="customSeed" placeholder="#RRGGBB" maxlength="7"
+                placeholder-class="custom-input-placeholder" @confirm="applyCustomSeed" />
+              <button class="custom-apply-btn" hover-class="mm-hover" @click="applyCustomSeed">应用</button>
+            </view>
+            <text class="block-hint">输入 16 进制颜色值，如 #e3c0df</text>
+          </view>
 
-    <view class="actions">
-      <button class="btn-logout" @click="handleLogout">退出登录</button>
-    </view>
-
-    <!-- Custom Theme Modal -->
-    <view class="modal-mask" v-if="customModalVisible">
-      <view class="modal-content">
-        <view class="modal-header">自定义主题</view>
-        <view class="modal-body">
-          <view class="color-input-row" v-for="(c, idx) in customForm.colors" :key="idx">
-            <text class="color-label">颜色 {{ idx + 1 }}</text>
-            <input class="input-color-text" v-model="customForm.colors[idx]" placeholder="#RRGGBB" maxlength="7" />
-            <view class="color-preview" :style="{ backgroundColor: customForm.colors[idx] }"></view>
+          <!-- 深色模式开关 -->
+          <view class="theme-block dark-block">
+            <view class="dark-text">
+              <text class="block-label">深色模式</text>
+              <text class="block-hint">切换日间 / 夜间主题</text>
+            </view>
+            <switch class="dark-switch" :checked="themeStore.isDark" @change="handleDarkModeChange"
+              :color="themeStore.themeStyle['--theme-primary']" />
           </view>
         </view>
-        <view class="modal-footer">
-          <button class="modal-btn cancel" @click="customModalVisible = false">取消</button>
-          <button class="modal-btn confirm" @click="applyCustomTheme">应用</button>
+      </view>
+
+      <!-- 功能菜单：白卡片分组 + 分割线 -->
+      <view class="mm-card menu-card">
+        <view v-for="item in menuItems" :key="item.path" class="settings-item" hover-class="mm-hover"
+          @click="navigateTo(item.path)">
+          <text class="item-label">{{ item.label }}</text>
+          <image class="arrow-icon" src="/static/svg/turn-right.svg" mode="aspectFit" />
         </view>
       </view>
+    </view>
+
+    <!-- 退出登录：危险操作使用 danger token -->
+    <view class="actions">
+      <button class="btn-logout" hover-class="mm-hover" @click="handleLogout">退出登录</button>
     </view>
 
   </view>
 </template>
 
 <style scoped lang="scss">
+/* ============================================================
+   设置页：单色风格（浅灰底 + 白卡片 + 单一强调色）
+   —— 所有颜色均来自 App.vue / themeStore 的 CSS 变量
+   ============================================================ */
+
 .tab-content {
-  padding: var(--uni-container-padding);
+  /* 底部安全区由 pages/main 的 .tab-page 统一预留，这里只留模块间距 */
+  padding: var(--page-pad) var(--page-pad) 16px;
   box-sizing: border-box;
   background-color: var(--bg-color);
   min-height: 100vh;
 }
 
-.tab-header-fixed {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  background-color: rgba(var(--bg-color), 0.01);
-}
-
-.header-info-inner {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  color: var(--text-color);
-}
-
-.title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-color);
-}
-
 .settings-container {
-  padding-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 4px;
 }
 
-
-.profile-group {
-  margin-top: 0;
+/* ---------- 账号卡片 ---------- */
+.profile-card {
+  cursor: pointer;
 }
 
-.settings-item {
+.profile-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
-  border-bottom: 1px solid var(--border-color);
-  background-color: transparent;
-}
-
-.settings-item:last-child {
-  border-bottom: none;
-}
-
-.settings-item:active {
-  background-color: rgba(255, 255, 255, 0.2);
+  min-height: 56px;
 }
 
 .item-left {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.item-icon {
-  font-size: 20px;
-}
-
-.item-text {
-  font-size: 16px;
-  color: var(--text-color);
-}
-
-.arrow-icon {
-  width: 16px;
-  height: 16px;
-  opacity: 0.3;
-}
-
-.settings-section {
-  padding: 16px;
-  background-color: transparent;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.profile-item {
-  padding: 20px 16px;
+  min-width: 0;
 }
 
 .avatar-container {
-  width: 60px;
-  height: 60px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   overflow: hidden;
-  background-color: #eee;
+  background-color: var(--surface-soft);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-right: 16px;
+  flex-shrink: 0;
   border: 1px solid var(--border-color);
 }
 
@@ -386,63 +284,282 @@ function isCurrentPalette(pColors: string[]) {
 .avatar-placeholder {
   width: 100%;
   height: 100%;
-  background-color: var(--theme-primary);
+  background-color: var(--theme-color-soft);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .avatar-text {
-  font-size: 24px;
-  color: #fff;
-  font-weight: bold;
+  font-size: 22px;
+  color: var(--theme-color-strong);
+  font-weight: 600;
 }
 
 .user-info {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .nickName {
-  font-size: 18px;
-  font-weight: bold;
+  font-size: 17px;
+  font-weight: 600;
   color: var(--text-color);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .userAccount {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
-.section-header {
+.arrow-icon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.35;
+  flex-shrink: 0;
+}
+
+/* ---------- 主题设置卡片（可折叠） ---------- */
+/* 标题行：整行可点击，高度 ≥44px；右侧显示当前强调色摘要与展开箭头 */
+.theme-card-head {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  margin: -6px 0;
 }
 
-.theme-section-container {
-  padding: 16px;
-  background-color: var(--bg-soft);
-  border-radius: 12px;
-  margin: 12px 0;
-  border: 1px solid var(--border-color);
+.card-section-title {
+  display: block;
 }
 
-.settings-group {
-  background-color: var(--bg-soft);
-  border-radius: 12px;
+.theme-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.theme-summary-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  box-sizing: border-box;
+}
+
+.theme-summary-hex {
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+/* 展开箭头：收起时朝下，展开时朝上 */
+.theme-chevron {
+  width: 16px;
+  height: 16px;
+  opacity: 0.35;
+  transform: rotate(90deg);
+  transition: transform 0.25s ease;
+}
+
+.theme-chevron.expanded {
+  transform: rotate(-90deg);
+}
+
+/* 折叠区：max-height + 透明度过渡；收起时不占高度 */
+.theme-body {
   overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.28s ease, opacity 0.2s ease;
+}
+
+.theme-body.expanded {
+  max-height: 760px;
+  opacity: 1;
+}
+
+.theme-block {
+  padding: 14px 0;
+}
+
+.theme-block + .theme-block {
+  border-top: 1px solid var(--divider-color);
+}
+
+.block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.block-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.block-value {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.block-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* 强调色圆点：4 列网格，每个热区 46px（≥44px 移动端规范） */
+.seed-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.seed-swatch-cell {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+.seed-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* 选中态：主题色描边外扩，不改变圆点尺寸 */
+.seed-swatch-cell.selected .seed-dot {
+  border-color: var(--theme-color-strong);
+  box-shadow: 0 0 0 2px var(--theme-color-strong);
+}
+
+/* check 徽标固定白底：深色模式下黑色图标也能看清 */
+.seed-check {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: #ffffff;
+  border: 1px solid var(--theme-color-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.seed-check-icon {
+  width: 11px;
+  height: 11px;
+}
+
+/* 自定义颜色输入行 */
+.custom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.custom-preview {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  flex-shrink: 0;
+}
+
+.custom-input {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-h);
+  padding: 0 12px;
+  background-color: var(--bg-elevated);
   border: 1px solid var(--border-color);
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--text-color);
+  box-sizing: border-box;
+}
+
+.custom-input-placeholder {
+  color: var(--text-faint);
+}
+
+.custom-apply-btn {
+  flex-shrink: 0;
+  height: var(--control-h);
+  padding: 0 16px;
+  border-radius: 10px;
+  background-color: var(--theme-color-soft);
+  border: 1px solid var(--theme-color-muted);
+  color: var(--theme-color-strong);
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.custom-apply-btn::after {
+  border: none;
+}
+
+/* 深色模式行 */
+.dark-block {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dark-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dark-text .block-hint {
+  margin-top: 2px;
+}
+
+.dark-switch {
+  flex-shrink: 0;
+  transform: scale(0.9);
+  transform-origin: right center;
+}
+
+/* ---------- 功能菜单 ---------- */
+.menu-card {
+  padding: 0;
+  overflow: hidden;
 }
 
 .settings-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
-  border-bottom: 1px solid var(--border-color);
+  min-height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--divider-color);
   background-color: transparent;
 }
 
@@ -451,288 +568,45 @@ function isCurrentPalette(pColors: string[]) {
 }
 
 .item-label {
-  font-size: 16px;
+  font-size: 15px;
   color: var(--text-color);
 }
 
-.theme-section {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  background-color: transparent;
-  padding: 0;
-}
-
-.section-left {
-  height: 62px;
-  /* Same as row height */
-  display: flex;
-  align-items: center;
-  white-space: nowrap;
-  margin-right: 12px;
-}
-
-.section-right {
-  flex: 1;
-  display: flex;
-  justify-content: flex-end;
-  /* Align list content to right */
-}
-
-.section-title {
-  font-size: 14px;
-  color: var(--text-muted);
-  font-weight: bold;
-}
-
-.palette-list {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.palette-viewport {
-  overflow: hidden;
-  transition: height 0.4s cubic-bezier(0.25, 0.1, 0.25, 1);
-}
-
-.palette-inner {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  transition: transform 0.4s cubic-bezier(0.25, 0.1, 0.25, 1);
-}
-
-.palette-row {
-  display: flex;
-  justify-content: flex-end;
-  /* Align content to right */
-  align-items: center;
-  gap: 12px;
-  height: 62px;
-  box-sizing: border-box;
-  background-color: transparent;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-  /* Subtle divider */
-  transition: background-color 0.2s;
-}
-
-.palette-row:last-child {
-  border-bottom: none;
-}
-
-.palette-row:active {
-  background-color: rgba(255, 255, 255, 0.1);
-}
-
-.row-content {
-  display: flex;
-  align-items: center;
-}
-
-.row-right {
-  width: 24px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.color-blocks {
-  display: flex;
-  gap: 8px;
-}
-
-.color-block {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  border: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-.check-mark-svg {
-  width: 20px;
-  height: 20px;
-  filter: opacity(0.6);
-  /* Muted look */
-}
-
-.expand-arrow {
-  width: 14px;
-  height: 14px;
-  opacity: 0.3;
-  transition: transform 0.3s;
-}
-
-.expand-arrow.up {
-  transform: rotate(-90deg);
-}
-
-.custom-text {
-  font-size: 14px;
-  color: var(--text-color);
-  font-weight: 500;
-}
-
-.custom-preview {
-  margin-right: 12px;
-}
-
-.custom-preview {
-  margin-right: 8px;
-}
-
-.custom-text {
-  font-size: 14px;
-  color: var(--text-color);
-  flex: 1;
-}
-
-.config-icon {
-  width: 20px;
-  height: 20px;
-  margin-left: 8px;
-  opacity: 0.6;
-}
-
-.config-icon:active {
-  opacity: 1;
-  transform: scale(1.1);
-}
-
-.collapse-trigger {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 62px;
-  border-top: 1px solid rgba(0, 0, 0, 0.05);
-}
-
+/* ---------- 退出登录 ---------- */
 .actions {
-  margin-bottom: 80px;
+  margin-top: 16px;
 }
 
 .btn-logout {
-  background-color: var(--bg-elevated);
-  color: #fa5151;
-  border-radius: 8px;
-  font-size: 16px;
-  height: 44px;
-  line-height: 44px;
-  border: 1px solid #e5e7eb;
-  font-weight: 500;
   width: 100%;
-}
-
-/* Modal Styles */
-.modal-mask {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.6);
+  height: var(--control-h);
+  border-radius: 10px;
+  background-color: var(--color-danger-soft);
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger-text);
+  font-size: 15px;
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 999;
+  box-sizing: border-box;
 }
 
-.modal-content {
-  width: 80%;
-  max-width: 320px;
-  background-color: #ffffff;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.modal-header {
-  padding: 16px;
-  text-align: center;
-  font-size: 18px;
-  font-weight: 600;
-  color: #1f2937;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.modal-body {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background-color: #ffffff;
-}
-
-.color-input-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.color-label {
-  font-size: 14px;
-  color: #666;
-  width: 50px;
-}
-
-.input-color-text {
-  flex: 1;
-  height: 36px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  padding: 0 8px;
-  font-size: 14px;
-}
-
-.color-preview {
-  width: 36px;
-  height: 36px;
-  border-radius: 4px;
-  border: 1px solid #eee;
-}
-
-.modal-footer {
-  display: flex;
-  border-top: 1px solid #e5e7eb;
-  background-color: #ffffff;
-}
-
-.modal-btn {
-  flex: 1;
-  height: 48px;
-  line-height: 48px;
-  text-align: center;
-  background-color: transparent;
-  font-size: 16px;
-  border-radius: 0;
-}
-
-.modal-btn::after {
+.btn-logout::after {
   border: none;
 }
 
-.modal-btn.cancel {
-  color: #6b7280;
-  border-right: 1px solid #e5e7eb;
-}
-
-.modal-btn.confirm {
-  color: var(--theme-primary);
-}
-
-/* Skeleton Loader */
+/* ---------- 骨架屏（用 token，避免写死灰阶） ---------- */
 .skeleton {
   pointer-events: none;
-  
+
   .skeleton-avatar {
     width: 100%;
     height: 100%;
-    background: #f0f0f0;
-    border-radius: 50%;
+    background-color: var(--surface-soft);
     position: relative;
     overflow: hidden;
+
     &::after {
       content: "";
       position: absolute;
@@ -740,19 +614,20 @@ function isCurrentPalette(pColors: string[]) {
       left: 0;
       width: 100%;
       height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+      background: linear-gradient(90deg, transparent, var(--border-color), transparent);
       animation: skeleton-loading 1.5s infinite;
     }
   }
-  
+
   .skeleton-nickname {
     width: 120px;
-    height: 20px;
-    background: #f0f0f0;
+    height: 18px;
+    background-color: var(--surface-soft);
     border-radius: 4px;
     margin-bottom: 8px;
     position: relative;
     overflow: hidden;
+
     &::after {
       content: "";
       position: absolute;
@@ -760,21 +635,26 @@ function isCurrentPalette(pColors: string[]) {
       left: 0;
       width: 100%;
       height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+      background: linear-gradient(90deg, transparent, var(--border-color), transparent);
       animation: skeleton-loading 1.5s infinite;
     }
   }
-  
+
   .skeleton-account {
     width: 80px;
     height: 14px;
-    background: #f5f5f5;
+    background-color: var(--surface-soft);
     border-radius: 4px;
   }
 }
 
 @keyframes skeleton-loading {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
 }
 </style>

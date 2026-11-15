@@ -2,7 +2,8 @@
 import { ref, computed, watch } from 'vue';
 import useClass from '@/features/Curriculum/useClass';
 import type { Class } from '@/libs/api/class/type';
-import { useNavbar } from '@/utils/useNavbar';
+import MmNavBar from '@/components/MmNavBar.vue';
+import { useThemeStore } from '@/stores/theme';
 import { padNumber } from '@/utils/date';
 
 
@@ -12,7 +13,8 @@ const props = defineProps<{
 }>();
 
 const { classes, initializeData, getClass, isLoading } = useClass();
-const { paddingTop, height, paddingLeft, navbarHeight } = useNavbar();
+// 主题变量绑定到页面根节点，保证日/夜切换时课程页配色跟随
+const themeStore = useThemeStore();
 
 watch(() => props.isActive, (newVal) => {
   if (newVal) {
@@ -193,32 +195,37 @@ function jumpToToday() {
 </script>
 
 <template>
-  <view class="class-tab-container">
-    <!-- 顶部标题栏（集成背景色和安全区域适配） -->
-    <view class="tab-header-fixed"
-      :style="{ paddingTop: paddingTop + 'px', paddingLeft: paddingLeft + 'px', paddingRight: paddingLeft + 'px' }">
-      <view class="header-info-inner" :style="{ height: height + 'px' }">
+  <view class="class-tab-container" :style="themeStore.themeStyle">
+    <!-- 毛玻璃顶栏：左侧周次、右侧「今天」按钮（由 MmNavBar 的左右插槽承载） -->
+    <MmNavBar :show-back="false" align="left">
+      <template #left>
         <view class="week-display">
           <text class="value highlight">第{{ currentWeek }}/{{ totalWeeks }}周</text>
-          <view class="today-btn" @click="jumpToToday" :style="{ width: height + 'px', height: height + 'px' }">
-            <image src="/static/svg/to.svg" class="arrow-icon" />
-          </view>
         </view>
-      </view>
+      </template>
+      <template #right>
+        <view class="today-btn" hover-class="mm-hover" @click="jumpToToday">
+          <image src="/static/svg/to.svg" class="arrow-icon" />
+        </view>
+      </template>
+    </MmNavBar>
+
+    <!-- 空态：白卡片 + 轻描边，避免整页空白 -->
+    <view v-if="!isLoading && classes.length === 0" class="empty-state">
+      <text class="empty-title">暂无课程</text>
+      <text class="empty-desc">当前学期还没有课程安排</text>
     </view>
 
-    <!-- 撑开固定头部的内容区域 -->
-    <view :style="{ height: `calc(${navbarHeight}px - var(--uni-container-padding))` }"></view>
-
     <!-- 课程表 -->
-    <view class="class-table" :class="{ 'skeleton-container': isLoading }">
+    <view v-else class="class-table" :class="{ 'skeleton-container': isLoading }">
       <scroll-view scroll-x="true" class="table-scroll">
         <view class="class-grid">
           <view class="time-column">
             <view class="time-header">
               <text>{{ padNumber(getDateForDay(currentWeek, 0).month, 2) }}月</text>
             </view>
-            <view class="time-slot" v-for="slot in displayedTimeSlots" :key="slot.number" @click="openTimeTable">
+            <view class="time-slot" v-for="slot in displayedTimeSlots" :key="slot.number" hover-class="mm-hover"
+              @click="openTimeTable">
               <text class="time-slot-number">{{ slot.number }}</text>
             </view>
           </view>
@@ -238,8 +245,8 @@ function jumpToToday() {
                 <view class="skeleton-course-item" v-if="(dayIndex + slotIndex) % 3 === 0"></view>
               </template>
               <template v-else-if="getClass(currentWeek, dayIndex + 1, slotIndex + 1)">
-                <view class="course-item"
-                  :style="{ '--text-color': getClass(currentWeek, dayIndex + 1, slotIndex + 1)!.color, '--text-muted': getClass(currentWeek, dayIndex + 1, slotIndex + 1)!.color, backgroundColor: getClass(currentWeek, dayIndex + 1, slotIndex + 1)!.color + '15' }"
+                <!-- 课程卡统一走单一强调色，不再按接口返回色值多色混用 -->
+                <view class="course-item" hover-class="mm-hover"
                   @click="showClassDetail(currentWeek, dayIndex, slotIndex)">
                   <text class="course-name">{{ getClass(currentWeek, dayIndex + 1, slotIndex + 1)?.name }}</text>
                   <text class="course-details">{{ getClass(currentWeek, dayIndex + 1,
@@ -254,7 +261,8 @@ function jumpToToday() {
         </view>
 
         <!-- 展开/折叠控制（仅在没有晚间课程时显示） -->
-        <view v-if="!hasNightClasses" class="fold-toggle" @click="toggleFold" :class="{ 'is-expanded': !isFolded }">
+        <view v-if="!hasNightClasses" class="fold-toggle" hover-class="mm-hover" @click="toggleFold"
+          :class="{ 'is-expanded': !isFolded }">
           <view class="fold-btn">
             <text>{{ isFolded ? '展开晚间课程' : '收起晚间课程' }}</text>
             <image src="/static/svg/arrow-right.svg" class="toggle-icon" />
@@ -263,24 +271,28 @@ function jumpToToday() {
       </scroll-view>
     </view>
 
-    <!-- 周数选择器 -->
+    <!-- 周数选择器：上方周次 chip + 下方翻页按钮，保证每个热区 ≥44px -->
     <view class="week-selector" :class="{ 'skeleton-selector': isLoading }">
-      <view class="week-btn" @click="jumpToFirstWeek" :class="{ disabled: currentWeek <= 1 || isLoading }">
-        <image src="/static/svg/arrow-double-left.svg" class="arrow-icon" />
-      </view>
-      <view class="week-btn" @click="changeWeek(-1)" :class="{ disabled: currentWeek <= 1 || isLoading }">
-        <image src="/static/svg/arrow-left.svg" class="arrow-icon" />
-      </view>
       <view class="week-list">
         <view v-for="week in weekRange" :key="week" class="week-item" :class="{ active: week === currentWeek }"
-          @click="!isLoading && (currentWeek = week)">
+          hover-class="mm-hover" @click="!isLoading && (currentWeek = week)">
           {{ week }}
         </view>
       </view>
-      <view class="week-btn" @click="changeWeek(1)" :class="{ disabled: currentWeek >= totalWeeks || isLoading }">
+      <view class="week-btn" hover-class="mm-hover" @click="jumpToFirstWeek"
+        :class="{ disabled: currentWeek <= 1 || isLoading }">
+        <image src="/static/svg/arrow-double-left.svg" class="arrow-icon" />
+      </view>
+      <view class="week-btn" hover-class="mm-hover" @click="changeWeek(-1)"
+        :class="{ disabled: currentWeek <= 1 || isLoading }">
+        <image src="/static/svg/arrow-left.svg" class="arrow-icon" />
+      </view>
+      <view class="week-btn" hover-class="mm-hover" @click="changeWeek(1)"
+        :class="{ disabled: currentWeek >= totalWeeks || isLoading }">
         <image src="/static/svg/arrow-right.svg" class="arrow-icon" />
       </view>
-      <view class="week-btn" @click="jumpToLastWeek" :class="{ disabled: currentWeek >= totalWeeks || isLoading }">
+      <view class="week-btn" hover-class="mm-hover" @click="jumpToLastWeek"
+        :class="{ disabled: currentWeek >= totalWeeks || isLoading }">
         <image src="/static/svg/arrow-double-right.svg" class="arrow-icon" />
       </view>
     </view>
@@ -288,15 +300,14 @@ function jumpToToday() {
     <!-- 时间表弹窗 -->
     <view v-if="showTimeTable" class="detail-overlay" @click="closeTimeTable">
       <view class="detail-content time-table-content" @click.stop>
-        <view class="detail-header"
-          :style="{ background: `linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-secondary) 100%)` }">
+        <view class="detail-header">
           <text class="detail-title">作息时间表</text>
           <text class="detail-close" @click="closeTimeTable">✕</text>
         </view>
 
         <view class="detail-body time-table-body">
           <view class="time-table-list">
-            <view class="time-table-item" v-for="slot in timeSlots" :key="slot.number">
+            <view class="time-table-item" v-for="slot in timeSlots" :key="slot.number" hover-class="mm-hover">
               <view class="time-table-number">
                 <text class="number-badge">{{ slot.number }}</text>
                 <text class="number-text">第{{ slot.number }}节</text>
@@ -309,7 +320,7 @@ function jumpToToday() {
         </view>
 
         <view class="detail-footer">
-          <button class="detail-btn" @click="closeTimeTable">关闭</button>
+          <button class="detail-btn" hover-class="mm-hover" @click="closeTimeTable">关闭</button>
         </view>
       </view>
     </view>
@@ -317,8 +328,8 @@ function jumpToToday() {
     <!-- 课程详情弹窗 -->
     <view v-if="showDetail" class="detail-overlay" @click="closeDetail">
       <view class="detail-content" @click.stop>
-        <view class="detail-header"
-          :style="{ background: selectedClass?.color ? `linear-gradient(135deg, ${selectedClass.color} 0%, ${selectedClass.color} 100%)` : `linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-secondary) 100%)` }">
+        <!-- 弹窗头统一用主题渐变（不再按课程色渲染） -->
+        <view class="detail-header">
           <text class="detail-title">{{ selectedClass?.name }}</text>
           <text class="detail-close" @click="closeDetail">✕</text>
         </view>
@@ -381,7 +392,7 @@ function jumpToToday() {
         </view>
 
         <view class="detail-footer">
-          <button class="detail-btn" @click="closeDetail">关闭</button>
+          <button class="detail-btn" hover-class="mm-hover" @click="closeDetail">关闭</button>
         </view>
       </view>
     </view>
@@ -389,94 +400,93 @@ function jumpToToday() {
 </template>
 
 <style scoped lang="scss">
+/* ============================================================
+   课程页：单色风格（浅灰底 + 白卡片 + 单一强调色）
+   —— 所有颜色来自 CSS 变量，统一使用主题色阶，不再按课程色多色渲染
+   ============================================================ */
+
 .class-tab-container {
-  padding: var(--uni-container-padding);
+  /* 底部安全区由 pages/main 的 .tab-page 统一预留，这里只留模块间距 */
+  padding: var(--page-pad) var(--page-pad) 16px;
   box-sizing: border-box;
   background-color: var(--bg-color);
   min-height: 100vh;
 }
 
-.header {
-  margin-bottom: 20px;
-}
-
-.title {
-  font-size: 24px;
-  font-weight: 800;
-  color: var(--text-color);
-}
-
-// 头部信息
-.tab-header-fixed {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  background-color: rgba(var(--bg-color), 0.01);
-}
-
-.header-info-inner {
+// 顶栏内的周次与「今天」按钮（由 MmNavBar 的左右插槽承载，这里只保留控件样式）
+.week-display {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  color: var(--text-color);
+  gap: 12px;
 
-  .today-btn {
-    background-color: var(--bg-elevated);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
-    border: 1px solid var(--border-color);
+  .value {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-color);
 
-    &:active {
-      background-color: var(--bg-soft);
-      transform: scale(0.95);
-    }
-
-    .arrow-icon {
-      width: 60%;
-      height: 60%;
+    &.highlight {
+      background-color: var(--bg-elevated);
+      padding: 2px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border-color);
     }
   }
+}
 
-  .date-display,
-  .week-display {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+.today-btn {
+  width: 32px;
+  height: 32px;
+  background-color: var(--bg-elevated);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  border: 1px solid var(--border-color);
 
-    .label {
-      font-size: 14px;
-      color: var(--text-muted);
-    }
+  &:active {
+    background-color: var(--surface-soft);
+    transform: scale(0.95);
+  }
 
-    .value {
-      font-size: 16px;
-      font-weight: 600;
+  .arrow-icon {
+    width: 16px;
+    height: 16px;
+  }
+}
 
-      &.primary {
-        color: var(--theme-primary);
-      }
+// 空态
+.empty-state {
+  padding: 48px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
 
-      &.highlight {
-        background-color: var(--bg-elevated);
-        padding: 2px 12px;
-        border-radius: 20px;
-        border: 1px solid var(--border-color);
-      }
-    }
+  .empty-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-color);
+  }
+
+  .empty-desc {
+    font-size: 12px;
+    color: var(--text-faint);
   }
 }
 
 // 课程表
 .class-table {
-  background-color: #fff;
-  border-radius: 12px;
+  margin-top: 12px;
+  background-color: var(--bg-elevated);
+  border-radius: var(--card-radius);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--card-shadow);
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
 }
 
 .table-scroll {
@@ -485,44 +495,46 @@ function jumpToToday() {
 
 .class-grid {
   display: grid;
-  grid-template-columns: 40px repeat(7, minmax(0, 1fr));
+  grid-template-columns: 44px repeat(7, minmax(0, 1fr));
   gap: 1px;
-  background-color: #eef2f7;
+  background-color: var(--divider-color);
 
   .time-column,
   .day-column {
-    background-color: #fff;
+    background-color: var(--bg-elevated);
     display: grid;
     grid-template-rows: 45px;
     grid-auto-rows: 1fr;
 
     .time-header,
     .day-header {
-      background: var(--theme-secondary);
-      color: #fff;
-      padding: 8px 2px;
+      background-color: var(--surface-soft);
+      color: var(--text-muted);
+      padding: 6px 2px;
       text-align: center;
       font-weight: 600;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      font-size: 13px;
+      font-size: 12px;
       position: relative;
       overflow: hidden;
 
+      // 今天：浅强调色底 + 强调色文字，保持克制
       &.today-header {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        background-color: var(--theme-color-soft);
+        color: var(--theme-color-strong);
 
         .today-badge {
           position: absolute;
           top: 2px;
           right: 4px;
-          background-color: #fff;
-          color: #f5576c;
+          background-color: var(--theme-color-strong);
+          color: var(--theme-action-contrast);
           font-size: 10px;
           padding: 1px 4px;
-          border-radius: 8px;
+          border-radius: 999px;
           font-weight: 600;
         }
       }
@@ -535,45 +547,40 @@ function jumpToToday() {
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      cursor: pointer;
-      transition: all 0.2s;
-      min-height: 60px;
+      transition: background-color 0.2s ease;
+      min-height: 64px;
 
       &:active {
-        background: linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-secondary) 100%);
-        transform: scale(0.95);
+        background-color: var(--surface-soft);
 
         .time-slot-number {
-          color: #fff;
-          -webkit-text-fill-color: #fff;
+          color: var(--theme-color-strong);
         }
       }
 
       .time-slot-number {
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 600;
-        color: var(--theme-primary);
-        background: linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-secondary) 100%);
-        background-clip: text;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: var(--text-muted);
       }
     }
 
     .course-slot {
-      min-height: 100px;
-      padding: 1px;
+      min-height: 104px;
+      padding: 2px;
       position: relative;
 
       .course-item {
-        border-radius: 4px;
+        background-color: var(--theme-color-softer);
+        border: 1px solid var(--theme-color-soft);
+        border-left: 3px solid var(--theme-color-muted);
+        border-radius: 8px;
         padding: 6px 4px;
-        height: calc(100% - 2px);
+        height: calc(100% - 4px);
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        transition: all 0.3s;
+        transition: transform 0.2s ease;
 
         &:active {
           transform: scale(0.98);
@@ -617,89 +624,75 @@ function jumpToToday() {
 // 周数选择器
 .week-selector {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   margin-top: 12px;
-  margin-bottom: 80px;
-  padding: 15px 10px;
-  background-color: #fff;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  gap: 8px;
+  padding: 12px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  gap: 10px;
+
+  .week-list {
+    order: -1;
+    flex: 0 0 100%;
+    display: flex;
+    gap: 6px;
+
+    .week-item {
+      flex: 1;
+      min-width: 0;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--surface-soft);
+      border: 1px solid transparent;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-color);
+      transition: background-color 0.2s ease, color 0.2s ease;
+
+      &.active {
+        background-color: var(--theme-color-soft);
+        border-color: var(--theme-color-muted);
+        color: var(--theme-color-strong);
+        font-weight: 600;
+      }
+    }
+  }
 
   .week-btn {
-    width: 32px;
-    height: 32px;
+    width: 44px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: var(--bg-elevated);
-    border-radius: 50%;
-    cursor: pointer;
-    transition: all 0.3s;
+    background-color: var(--surface-soft);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    transition: transform 0.2s ease, opacity 0.2s ease;
 
     &:active {
-      transform: scale(0.9);
+      transform: scale(0.94);
     }
 
     &.disabled {
-      opacity: 0.3;
-      cursor: not-allowed;
+      opacity: 0.35;
+      pointer-events: none;
     }
 
     .arrow-icon {
       width: 20px;
       height: 20px;
     }
-
-    .arrow {
-      font-size: 24px;
-      color: var(--theme-primary);
-      font-weight: bold;
-    }
-
-    .arrow-double {
-      font-size: 20px;
-      color: var(--theme-primary);
-      font-weight: bold;
-    }
-  }
-
-  .week-list {
-    display: flex;
-    gap: 8px;
-    flex: 1;
-    justify-content: center;
-
-    .week-item {
-      min-width: 32px;
-      height: 32px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background-color: var(--bg-elevated);
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--text-color);
-      cursor: pointer;
-      transition: all 0.3s;
-
-      &:active {
-        transform: scale(0.95);
-      }
-
-      &.active {
-        background: linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-secondary) 100%);
-        color: #fff;
-        font-weight: 600;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-      }
-    }
   }
 }
 
-/* ========== 课程详情弹窗 ========== */
+/* ========== 加载骨架 ========== */
 .skeleton-container {
   pointer-events: none;
 
@@ -707,8 +700,8 @@ function jumpToToday() {
     width: calc(100% - 8px);
     height: calc(100% - 8px);
     margin: 4px;
-    background: #f0f0f0;
-    border-radius: 4px;
+    background-color: var(--surface-soft);
+    border-radius: 8px;
     position: relative;
     overflow: hidden;
 
@@ -719,14 +712,14 @@ function jumpToToday() {
       left: 0;
       width: 100%;
       height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+      background: linear-gradient(90deg, transparent, var(--border-color), transparent);
       animation: skeleton-loading 1.5s infinite;
     }
   }
 }
 
 .skeleton-selector {
-  opacity: 0.7;
+  opacity: 0.6;
   pointer-events: none;
 }
 
@@ -740,34 +733,36 @@ function jumpToToday() {
   }
 }
 
+/* ========== 弹层通用 ========== */
 .detail-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.6);
+  background-color: var(--mask-color);
   backdrop-filter: blur(4px);
   z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 40rpx;
+  padding: 20px;
 }
 
 .detail-content {
   width: 100%;
-  max-width: 600rpx;
-  background-color: #fff;
-  border-radius: 20rpx;
+  max-width: 320px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 10rpx 40rpx rgba(0, 0, 0, 0.3);
-  animation: slideUp 0.3s ease-out;
+  box-shadow: var(--theme-outer-glow);
+  animation: slideUp 0.25s ease-out;
 }
 
 /* 时间表弹窗特殊样式 */
 .time-table-content {
-  max-width: 500rpx;
+  max-width: 300px;
 }
 
 .time-table-body {
@@ -775,7 +770,7 @@ function jumpToToday() {
 }
 
 .time-table-list {
-  max-height: 600rpx;
+  max-height: 320px;
   overflow-y: auto;
 }
 
@@ -783,9 +778,10 @@ function jumpToToday() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 25rpx 30rpx;
-  border-bottom: 1rpx solid #f0f0f0;
-  transition: all 0.2s;
+  min-height: 52px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--divider-color);
+  transition: background-color 0.2s ease;
 }
 
 .time-table-item:last-child {
@@ -793,31 +789,32 @@ function jumpToToday() {
 }
 
 .time-table-item:active {
-  background-color: #f8f9fa;
+  background-color: var(--surface-soft);
 }
 
 .time-table-number {
   display: flex;
   align-items: center;
-  gap: 15rpx;
+  gap: 8px;
 }
 
 .number-badge {
-  width: 50rpx;
-  height: 50rpx;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-secondary) 100%);
-  color: #fff;
+  background-color: var(--theme-color-soft);
+  border: 1px solid var(--theme-color-muted);
+  color: var(--theme-color-strong);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28rpx;
-  font-weight: bold;
-  box-shadow: 0 4rpx 8rpx rgba(0, 0, 0, 0.2);
+  font-size: 13px;
+  font-weight: 600;
+  box-sizing: border-box;
 }
 
 .number-text {
-  font-size: 30rpx;
+  font-size: 14px;
   color: var(--text-color);
   font-weight: 500;
 }
@@ -827,19 +824,15 @@ function jumpToToday() {
 }
 
 .time-text {
-  font-size: 32rpx;
-  color: var(--theme-primary);
+  font-size: 14px;
+  color: var(--theme-color-strong);
   font-weight: 600;
-  background: linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-secondary) 100%);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
 
 @keyframes slideUp {
   from {
     opacity: 0;
-    transform: translateY(100rpx);
+    transform: translateY(24px);
   }
 
   to {
@@ -849,65 +842,62 @@ function jumpToToday() {
 }
 
 .detail-header {
-  padding: 40rpx 30rpx 30rpx;
+  padding: 20px 16px 16px;
   position: relative;
-  background: linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-secondary) 100%);
+  background: var(--theme-gradient);
 }
 
 .detail-title {
-  font-size: 40rpx;
-  font-weight: bold;
-  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--theme-action-contrast);
   display: block;
-  margin-bottom: 8rpx;
+  margin-bottom: 4px;
 }
 
 .detail-close {
   position: absolute;
-  top: 30rpx;
-  right: 30rpx;
-  font-size: 44rpx;
-  color: rgba(255, 255, 255, 0.9);
-  width: 60rpx;
-  height: 60rpx;
+  top: 14px;
+  right: 14px;
+  font-size: 18px;
+  color: var(--theme-action-contrast);
+  opacity: 0.9;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  transition: all 0.2s;
+  transition: opacity 0.2s ease;
 }
 
 .detail-close:active {
-  background-color: rgba(255, 255, 255, 0.2);
-  transform: scale(0.9);
+  opacity: 0.6;
 }
 
 .detail-body {
-  padding: 30rpx;
+  padding: 16px;
 }
 
 .detail-item {
   display: flex;
   align-items: flex-start;
-  margin-bottom: 30rpx;
-  padding: 25rpx;
-  background: linear-gradient(135deg, var(--bg-soft) 0%, var(--bg-elevated) 100%);
-  border-radius: 16rpx;
-  border-left: 6rpx solid var(--theme-primary);
-  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
-  transition: all 0.2s;
+  margin-bottom: 10px;
+  padding: 12px;
+  background-color: var(--surface-soft);
+  border-radius: 10px;
+  border-left: 3px solid var(--theme-color-muted);
 }
 
-.detail-item:active {
-  transform: scale(0.98);
-  box-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.1);
+.detail-item:last-child {
+  margin-bottom: 0;
 }
 
 .detail-icon {
-  font-size: 40rpx;
-  margin-right: 20rpx;
+  font-size: 18px;
+  margin-right: 10px;
   flex-shrink: 0;
-  line-height: 1;
+  line-height: 1.4;
 }
 
 .detail-info {
@@ -916,15 +906,15 @@ function jumpToToday() {
 }
 
 .detail-label {
-  font-size: 26rpx;
+  font-size: 12px;
   color: var(--text-muted);
   display: block;
-  margin-bottom: 10rpx;
+  margin-bottom: 2px;
   font-weight: 500;
 }
 
 .detail-value {
-  font-size: 30rpx;
+  font-size: 14px;
   color: var(--text-color);
   display: block;
   line-height: 1.5;
@@ -932,63 +922,56 @@ function jumpToToday() {
 }
 
 .detail-footer {
-  padding: 20rpx 30rpx 30rpx;
+  padding: 12px 16px 16px;
   display: flex;
   justify-content: center;
-  border-top: 1rpx solid var(--border-color);
+  border-top: 1px solid var(--divider-color);
 }
 
 .detail-btn {
   width: 100%;
-  height: 88rpx;
-  line-height: 88rpx;
+  height: var(--control-h);
   text-align: center;
-  background: linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-secondary) 100%);
-  color: #fff;
+  background: var(--theme-gradient);
+  color: var(--theme-action-contrast);
   border: none;
-  border-radius: 16rpx;
-  font-size: 32rpx;
-  font-weight: bold;
-  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.2);
-  transition: all 0.2s;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
 
-.detail-btn:active {
-  transform: scale(0.96);
-  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.1);
+.detail-btn::after {
+  border: none;
 }
 
 /* 折叠控制样式 */
 .fold-toggle {
-  padding: 20rpx 0;
-  background-color: #fff;
+  padding: 14px 0;
+  background-color: transparent;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  border-top: 1rpx solid #f0f0f0;
+  border-top: 1px solid var(--divider-color);
 }
 
 .fold-btn {
   display: flex;
   align-items: center;
-  gap: 10rpx;
-  color: var(--theme-primary);
-  font-size: 24rpx;
+  gap: 6px;
+  color: var(--theme-color-strong);
+  font-size: 12px;
   font-weight: 500;
-  transition: all 0.2s;
-
-  &:active {
-    opacity: 0.7;
-    transform: scale(0.95);
-  }
 }
 
 .toggle-icon {
-  width: 24rpx;
-  height: 24rpx;
-  transition: transform 0.3s ease;
+  width: 14px;
+  height: 14px;
+  transition: transform 0.25s ease;
   transform: rotate(90deg);
   /* 默认向下 */
 }

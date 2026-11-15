@@ -22,43 +22,45 @@ const messages = ref<NotificationMessage[]>([]);
 // Uni-app: active messages limit
 const activeMessages = computed(() => messages.value.slice(0, 5));
 
-const getLuminance = (hex: string) => {
-  // Simple hex to rgb conversion
-  let r = 0, g = 0, b = 0;
-  if (hex.startsWith('#')) {
-    hex = hex.slice(1);
+/**
+ * 通知条单色改造：统一为「白卡片 + 语义强调色细条」的语言。
+ *
+ * 调用方（utils/notification.ts 的 notifySuccess / notifyError / notifyWarning / notifyInfo）
+ * 历史上会直接传绿 / 红 / 黄 / 蓝的写死色值。项目规范要求颜色只能来自主题 token，
+ * 因此这里按 RGB 色相把传入颜色归类到 --color-success / -danger / -warning / -info，
+ * 样式里不直出旧色值；无法识别的颜色（含默认的 var(--theme-primary)）用主题强调色。
+ */
+const resolveAccentColor = (color?: string): string => {
+  const value = (color || '').trim();
+  if (value.startsWith('var(')) return value;
+  const hex = value.replace('#', '');
+  if (!/^[\da-f]{6}$/i.test(hex)) return 'var(--theme-primary)';
+
+  const r = Number.parseInt(hex.slice(0, 2), 16);
+  const g = Number.parseInt(hex.slice(2, 4), 16);
+  const b = Number.parseInt(hex.slice(4, 6), 16);
+
+  // 绿 → 成功；红 → 危险；黄/橙 → 警告；蓝 → 信息；其余 → 主题强调色
+  if (g > r * 1.15 && g > b * 1.15) return 'var(--color-success)';
+  if (r > g * 1.15 && r > b * 1.15) {
+    return r > 200 && g > 140 ? 'var(--color-warning)' : 'var(--color-danger)';
   }
-  if (hex.length === 3) {
-    r = parseInt(hex[0] + hex[0], 16);
-    g = parseInt(hex[1] + hex[1], 16);
-    b = parseInt(hex[2] + hex[2], 16);
-  } else if (hex.length === 6) {
-    r = parseInt(hex.slice(0, 2), 16);
-    g = parseInt(hex.slice(2, 4), 16);
-    b = parseInt(hex.slice(4, 6), 16);
-  }
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  if (b > r * 1.15 && b > g * 1.05) return 'var(--color-info)';
+  return 'var(--theme-primary)';
 };
 
-const getDynamicTextColor = (msg: NotificationMessage) => {
-  const luminance = getLuminance(msg.color);
-  return luminance < 0.6 ? '#ffffff' : '#1e293b';
-};
-
-const getBadgeBg = (msg: NotificationMessage) => {
-  return getDynamicTextColor(msg) === '#ffffff' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.06)';
-};
-
+/** 卡片只负责层级；强调色通过左侧 3px 描边体现（颜色由语义变量决定）。 */
 const getItemBaseStyle = (msg: NotificationMessage, index: number) => ({
-  color: msg.color,
-  zIndex: 9999 - index
+  zIndex: 9999 - index,
+  borderLeftColor: resolveAccentColor(msg.color),
 });
 
-const getProgressStyle = (msg: NotificationMessage) => {
+const getProgressStyle = (msg: NotificationMessage): any => {
   let style: any = {
     transform: 'scale(1)',
     transformOrigin: 'left center',
     opacity: 1,
+    backgroundColor: resolveAccentColor(msg.color),
   };
 
   switch (msg.direction) {
@@ -103,7 +105,7 @@ const addMessage = (options: {
 }) => {
   const {
     content,
-    color = '#3b82f6',
+    color = 'var(--theme-primary)',
     duration = 3000,
     closable = true,
     direction = 'vSplit'
@@ -133,7 +135,7 @@ const addMessage = (options: {
     isRemoving: false,
     tween: null
   });
-  
+
   messages.value.unshift(newMessage);
   startCountdown(newMessage, duration);
 };
@@ -157,8 +159,8 @@ const removeMessage = (id: number) => {
 
   message.isRemoving = true;
   if (message.tween) message.tween.kill();
-  
-  // Simple timeout to allow for leave animation if we added one, 
+
+  // Simple timeout to allow for leave animation if we added one,
   // but for now we just remove it to keep it simple in Uni-app
   messages.value = messages.value.filter(m => m.id !== id);
 };
@@ -176,26 +178,23 @@ defineExpose(instance);
 </script>
 
 <template>
-  <view class="notification-container" :style="{ pointerEvents: 'none' }">
-    <view 
-      v-for="(msg, index) in activeMessages" 
-      :key="msg.id" 
-      class="notification-item" 
+  <view class="notification-container">
+    <view
+      v-for="(msg, index) in activeMessages"
+      :key="msg.id"
+      class="notification-item"
       :style="getItemBaseStyle(msg, index)"
     >
-      <!-- Background Layer -->
-      <view class="bg-layer-persistent"></view>
-
-      <!-- Progress Layer -->
-      <view class="fg-layer-progress" :style="getProgressStyle(msg)"></view>
+      <!-- 进度层：底部细条按剩余时间收缩，颜色跟随语义强调色 -->
+      <view class="progress-layer" :style="getProgressStyle(msg)"></view>
 
       <!-- Content -->
-      <view class="content-wrapper" :style="{ color: getDynamicTextColor(msg) }">
+      <view class="content-wrapper">
         <text class="text-content">{{ msg.content }}</text>
-        <view v-if="msg.count > 1" class="count-badge" :style="{ backgroundColor: getBadgeBg(msg) }">
+        <view v-if="msg.count > 1" class="count-badge">
           <text class="count-text">{{ msg.count }}</text>
         </view>
-        <view v-if="msg.closable" @click.stop="removeMessage(msg.id)" class="close-btn">
+        <view v-if="msg.closable" @click.stop="removeMessage(msg.id)" class="close-btn" hover-class="mm-hover">
           <text class="close-text">×</text>
         </view>
       </view>
@@ -204,11 +203,12 @@ defineExpose(instance);
 </template>
 
 <style scoped>
+/* 通知容器：顶部固定、居中、不拦截页面点击 */
 .notification-container {
   position: fixed;
-  top: var(--status-bar-height);
-  /* Add some offset from top */
-  padding-top: 40px; 
+  /* 顶栏下方：状态栏 + 自定义导航栏 44px + 8px 间距（与 MmNavBar 保持一致） */
+  top: calc(var(--status-bar-height, 0px) + var(--navbar-h, 44px) + 8px);
+  padding-top: 0;
   left: 0;
   right: 0;
   z-index: 9999;
@@ -218,45 +218,36 @@ defineExpose(instance);
   pointer-events: none;
 }
 
+/* 单色卡片语言：白底 + 1px 描边 + 左侧语义强调条 */
 .notification-item {
   position: relative;
   margin-bottom: 10px;
-  padding: 8px 20px;
-  border-radius: 22px;
-  min-width: 140px;
-  max-width: 80%;
-  height: 44px;
+  padding: 10px 16px;
+  border-radius: var(--card-radius);
+  min-width: 160px;
+  max-width: 88%;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  background-color: #fff;
+  box-sizing: border-box;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--theme-primary);
+  box-shadow: var(--card-shadow);
   overflow: hidden;
   pointer-events: auto;
-  border: 2px solid currentColor;
 }
 
-.bg-layer-persistent {
+/* 倒计时进度层：贴底 3px 细条，只做透明度/缩放过渡 */
+.progress-layer {
   position: absolute;
-  top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  opacity: 0.15;
-  background-color: currentColor;
-  border-radius: 22px;
-  z-index: 1;
-}
-
-.fg-layer-progress {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: currentColor;
-  border-radius: 22px;
-  z-index: 2;
+  height: 3px;
+  opacity: 0.72;
+  background-color: var(--theme-primary);
 }
 
 .content-wrapper {
@@ -267,36 +258,46 @@ defineExpose(instance);
   align-items: center;
   justify-content: center;
   gap: 8px;
+  color: var(--text-color);
 }
 
 .text-content {
   font-size: 14px;
-  font-weight: 700;
-  lines: 1;
+  font-weight: 600;
+  color: var(--text-color);
+  white-space: nowrap;
+  overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 320px;
 }
 
+/* 重复计数徽标：中性浅底，保持单色语言 */
 .count-badge {
-  padding: 1px 6px;
-  border-radius: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
   display: flex;
   align-items: center;
   justify-content: center;
+  background-color: var(--surface-soft);
+  border: 1px solid var(--divider-color);
 }
 
 .count-text {
-  font-size: 10px;
-  font-weight: 900;
-  color: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
+/* 关闭按钮：行内小控件，热区 36px，避免误触 */
 .close-btn {
-  width: 20px;
-  height: 20px;
+  width: 36px;
+  height: 36px;
+  margin-right: -8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0.6;
+  border-radius: 50%;
+  color: var(--text-faint);
 }
 
 .close-text {

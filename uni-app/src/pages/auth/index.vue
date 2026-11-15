@@ -1,26 +1,15 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { onShow } from '@dcloudio/uni-app';
 import { useAuthStore } from '@/stores/auth';
 import { useThemeStore } from '@/stores/theme';
 import http from '@/libs/http/config';
 import { notifyError, notifySuccess, notifyWarning } from '@/utils/notification';
 import { APP_TITLE } from '@/config';
 import { useCountdown } from '@/composables/useCountdown';
+import MmNavBar from '@/components/MmNavBar.vue';
 
 const themeStore = useThemeStore();
 type Mode = 'login' | 'register' | 'wechat';
-onShow(() => {
-  // themeStore.updateNavBarColor();
-  uni.setNavigationBarColor({
-    frontColor: '#000000',
-    backgroundColor: '#F1F1EB',
-    animation: {
-      duration: 300,
-      timingFunc: 'easeIn'
-    }
-  });
-});
 
 const mode = ref<Mode>('wechat'); // 添加微信模式
 const loginMethod = ref<'email' | 'account'>('email');
@@ -215,84 +204,92 @@ async function handleWechatLogin() {
 </script>
 
 <template>
-  <view class="auth-container">
+  <!-- 页面根节点绑定当前主题变量表，卡片 / 文字 / 强调色都跟随用户主题 -->
+  <view class="auth-container" :style="themeStore.themeStyle">
+    <MmNavBar title="登录/注册" />
     <NotificationSystem />
-    <view class="auth-card">
-      <view class="title">{{ APP_TITLE }}</view>
-      <view class="tabs">
-        <view :class="['tab', mode === 'wechat' ? 'active' : '']" @click="switchMode('wechat')">
-          微信
-        </view>
-        <view :class="['tab', mode === 'login' ? 'active' : '']" @click="switchMode('login')">
-          登录
-        </view>
-        <view :class="['tab', mode === 'register' ? 'active' : '']" @click="switchMode('register')">
-          注册
-        </view>
-      </view>
-
-      <view class="form">
-        <view class="login-methods" v-if="mode === 'login'">
-          <view :class="['method-tab', loginMethod === 'email' ? 'active' : '']" @click="loginMethod = 'email'">邮箱登录
+    <view class="auth-body">
+      <view class="auth-card">
+        <view class="title">{{ APP_TITLE }}</view>
+        <view class="tabs">
+          <view :class="['tab', mode === 'wechat' ? 'active' : '']" hover-class="mm-hover"
+            @click="switchMode('wechat')">
+            微信
           </view>
-          <view :class="['method-tab', loginMethod === 'account' ? 'active' : '']" @click="loginMethod = 'account'">账号登录
+          <view :class="['tab', mode === 'login' ? 'active' : '']" hover-class="mm-hover" @click="switchMode('login')">
+            登录
+          </view>
+          <view :class="['tab', mode === 'register' ? 'active' : '']" hover-class="mm-hover"
+            @click="switchMode('register')">
+            注册
           </view>
         </view>
 
-        <view class="field" v-if="mode === 'login' && loginMethod === 'email' || mode === 'register'">
-          <text>邮箱</text>
-          <input class="input" v-model="email" type="text" placeholder="请输入邮箱" placeholder-class="input-placeholder" />
-        </view>
-        <view v-if="mode === 'register'" class="field code-field">
-          <text>邮箱验证码</text>
-          <view class="code-row">
-            <input class="input" v-model="code" type="number" maxlength="6" placeholder="验证码"
+        <view class="form">
+          <view class="login-methods" v-if="mode === 'login'">
+            <view :class="['method-tab', loginMethod === 'email' ? 'active' : '']" hover-class="mm-hover"
+              @click="loginMethod = 'email'">邮箱登录
+            </view>
+            <view :class="['method-tab', loginMethod === 'account' ? 'active' : '']" hover-class="mm-hover"
+              @click="loginMethod = 'account'">账号登录
+            </view>
+          </view>
+
+          <view class="field" v-if="mode === 'login' && loginMethod === 'email' || mode === 'register'">
+            <text>邮箱</text>
+            <input class="input" v-model="email" type="text" placeholder="请输入邮箱" placeholder-class="input-placeholder" />
+          </view>
+          <view v-if="mode === 'register'" class="field code-field">
+            <text>邮箱验证码</text>
+            <view class="code-row">
+              <input class="input" v-model="code" type="number" maxlength="6" placeholder="验证码"
+                placeholder-class="input-placeholder" />
+              <button class="code-button" :disabled="sendingCode || countdown > 0" @click="handleSendCode">
+                <text v-if="countdown > 0">{{ countdown }}s</text>
+                <text v-else-if="sendingCode">发送中...</text>
+                <text v-else>获取验证码</text>
+              </button>
+            </view>
+          </view>
+
+          <view class="field" v-if="mode === 'login' && loginMethod === 'account' || mode === 'register'">
+            <text>账号</text>
+            <view class="input-row">
+              <input class="input" :class="{ 'input-error': userAccountError }" v-model="userAccount" type="text"
+                placeholder="账号" placeholder-class="input-placeholder" @blur="validateuserAccount"
+                @input="userAccountError = ''" />
+              <button v-if="mode === 'register'" class="mini-btn" @click="generateRandomuserAccount">随机</button>
+            </view>
+            <text v-if="userAccountError" class="error-msg">{{ userAccountError }}</text>
+          </view>
+
+          <view class="field"
+            v-if="(mode === 'login' && loginMethod === 'account') || (mode === 'login' && loginMethod === 'email')">
+            <text>密码</text>
+            <input class="input" v-model="password" type="password" password placeholder="请输入密码"
               placeholder-class="input-placeholder" />
-            <button class="code-button" :disabled="sendingCode || countdown > 0" @click="handleSendCode">
-              <text v-if="countdown > 0">{{ countdown }}s</text>
-              <text v-else-if="sendingCode">发送中...</text>
-              <text v-else>获取验证码</text>
-            </button>
           </view>
-        </view>
 
-        <view class="field" v-if="mode === 'login' && loginMethod === 'account' || mode === 'register'">
-          <text>账号</text>
-          <view class="input-row">
-            <input class="input" :class="{ 'input-error': userAccountError }" v-model="userAccount" type="text"
-              placeholder="账号" placeholder-class="input-placeholder" @blur="validateuserAccount"
-              @input="userAccountError = ''" />
-            <button v-if="mode === 'register'" class="mini-btn" @click="generateRandomuserAccount">随机</button>
+          <view v-if="mode === 'register'" class="field">
+            <text>确认密码</text>
+            <input class="input" v-model="confirmPassword" type="password" password placeholder="再次输入密码"
+              placeholder-class="input-placeholder" />
           </view>
-          <text v-if="userAccountError" class="error-msg">{{ userAccountError }}</text>
+
+          <view v-if="mode === 'register'" class="field">
+            <text>昵称（可选）</text>
+            <input class="input" v-model="nickName" type="text" placeholder="您的昵称"
+              placeholder-class="input-placeholder" />
+          </view>
+
+          <button class="submit" :loading="loading" @click="handleSubmit" v-if="mode !== 'wechat'">
+            {{ mode === 'login' ? '登录' : '注册并登录' }}
+          </button>
+
+          <button class="submit" :loading="loading" @click="handleWechatLogin" v-if="mode === 'wechat'">
+            微信一键登录
+          </button>
         </view>
-
-        <view class="field"
-          v-if="(mode === 'login' && loginMethod === 'account') || (mode === 'login' && loginMethod === 'email')">
-          <text>密码</text>
-          <input class="input" v-model="password" type="password" password placeholder="请输入密码"
-            placeholder-class="input-placeholder" />
-        </view>
-
-        <view v-if="mode === 'register'" class="field">
-          <text>确认密码</text>
-          <input class="input" v-model="confirmPassword" type="password" password placeholder="再次输入密码"
-            placeholder-class="input-placeholder" />
-        </view>
-
-        <view v-if="mode === 'register'" class="field">
-          <text>昵称（可选）</text>
-          <input class="input" v-model="nickName" type="text" placeholder="您的昵称"
-            placeholder-class="input-placeholder" />
-        </view>
-
-        <button class="submit" :loading="loading" @click="handleSubmit" v-if="mode !== 'wechat'">
-          {{ mode === 'login' ? '登录' : '注册并登录' }}
-        </button>
-
-        <button class="submit" :loading="loading" @click="handleWechatLogin" v-if="mode === 'wechat'">
-          微信一键登录
-        </button>
       </view>
     </view>
 
@@ -301,84 +298,106 @@ async function handleWechatLogin() {
 </template>
 
 <style scoped lang="scss">
+/*
+  登录 / 注册页：对齐 web 端登录页的单色视觉
+  · 浅灰底 + 顶部主题色径向微光（用 seed 的 rgb 通道做低透明度渐变，避免 color-mix）；
+  · 白色圆角卡片：16 圆角 + 1px 描边 + 主题外发光阴影；
+  · 输入框 44px 高 / 10 圆角 / 聚焦主题色描边；
+  · 提交按钮使用 --theme-gradient，错误提示使用 --color-danger 系列。
+  页面颜色全部来自根节点 :style="themeStore.themeStyle" 注入的 token，这里不再覆盖任何变量。
+*/
 .auth-container {
-  /* Override global theme variables for this page to keep it non-themed */
-  --bg-color: #ECE7DA;
-  --bg-elevated: #F1F1EB;
-  --text-color: #191919;
-  --text-muted: #666666;
-  --accent-color: #8EA88E;
-  --border-color: #d9d9d9;
-  --surface-soft: #F1F1EB;
+  min-height: 100vh;
+  /* 顶栏固定在顶部：根容器改为纵向布局，卡片区域用 .auth-body 占满剩余高度并居中 */
+  display: flex;
+  flex-direction: column;
+  padding: 16px var(--page-pad) calc(16px + var(--safe-bottom));
+  background-color: var(--bg-color);
+  background-image: radial-gradient(
+    circle at top,
+    rgba(var(--theme-color-rgb), 0.16),
+    var(--bg-color) 62%
+  );
+  box-sizing: border-box;
+}
 
-  min-height: 100%;
+/* 卡片区：顶栏占位之后剩余高度内保持原来的水平 / 垂直居中 */
+.auth-body {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: var(--bg-color);
-  /* fallback */
-  background: radial-gradient(circle at top, var(--surface-soft), var(--bg-color));
 }
 
 .auth-card {
-  width: 80%;
+  width: 100%;
   max-width: 400px;
   background-color: var(--bg-elevated);
-  padding: 32px;
-  border-radius: var(--uni-card-border-radius);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--theme-outer-glow);
+  box-sizing: border-box;
 }
 
 .title {
   text-align: center;
-  margin-bottom: 24px;
-  font-size: 24px;
+  margin-bottom: 20px;
+  font-size: 20px;
   font-weight: 600;
   color: var(--text-color);
 }
 
+/* 页内 tab：胶囊形分段控件，选中项用主题色强化，未选中弱化为 muted */
 .tabs {
   display: flex;
-  margin-bottom: 24px;
-  background-color: var(--bg-color);
+  gap: 4px;
+  margin-bottom: 20px;
   padding: 4px;
-  border-radius: 8px;
+  background-color: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
 }
 
 .tab {
   flex: 1;
-  text-align: center;
-  padding: 8px;
-  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border-radius: 8px;
   color: var(--text-muted);
   font-size: 14px;
-  transition: all 0.2s;
+  transition: opacity 0.2s ease, color 0.2s ease;
 }
 
 .tab.active {
   background-color: var(--bg-elevated);
-  color: var(--text-color);
-  font-weight: 500;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  color: var(--theme-color-strong);
+  font-weight: 600;
+  box-shadow: var(--theme-outer-glow-lighter);
 }
 
 .login-methods {
   display: flex;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: 20px;
+  margin-bottom: 12px;
 }
 
+/* 登录方式（邮箱 / 账号）小切换：选中态主题色文字 + 下划线 */
 .method-tab {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
   font-size: 14px;
   color: var(--text-muted);
-  padding-bottom: 4px;
   border-bottom: 2px solid transparent;
 }
 
 .method-tab.active {
-  color: var(--text-color);
-  border-bottom-color: var(--accent-color);
-  font-weight: 500;
+  color: var(--theme-color-strong);
+  border-bottom-color: var(--theme-primary);
+  font-weight: 600;
 }
 
 .form {
@@ -394,25 +413,32 @@ async function handleWechatLogin() {
 }
 
 .field text {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
+/* 输入框：44px 高、10 圆角；H5 用 focus-within（uni-input 内层 input 获焦） */
 .input {
   width: 100%;
-  height: 44px;
-  padding: 0 10px;
-  border-radius: 8px;
+  height: var(--control-h);
+  padding: 0 12px;
+  border-radius: 10px;
   border: 1px solid var(--border-color);
   background-color: var(--bg-color);
   color: var(--text-color);
   font-size: 14px;
   box-sizing: border-box;
+  transition: border-color 0.2s ease;
 }
 
-.input-placeholder {
-  color: var(--text-muted);
-  opacity: 0.5;
+.input:focus,
+.input:focus-within {
+  border-color: var(--theme-primary);
+  outline: none;
+}
+
+:deep(.input-placeholder) {
+  color: var(--text-faint);
 }
 
 .input-row {
@@ -420,21 +446,31 @@ async function handleWechatLogin() {
   gap: 8px;
 }
 
-.mini-btn {
-  width: 60px;
-  height: 44px;
-  line-height: 44px;
-  text-align: center;
-  padding: 0;
+/* 次要按钮（随机 / 获取验证码）：主题浅底 + 主题色描边 + 主题色文字 */
+.mini-btn,
+.code-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  height: var(--control-h);
+  padding: 0 12px;
+  border-radius: 10px;
+  background-color: var(--theme-color-soft);
+  border: 1px solid var(--theme-color-muted);
+  color: var(--theme-color-strong);
   font-size: 12px;
-  border-radius: 8px;
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-color);
-  color: var(--text-color);
+  font-weight: 600;
+  line-height: 1;
+  box-sizing: border-box;
 }
 
-.mini-btn::after {
-  border: none;
+.mini-btn {
+  width: 64px;
+}
+
+.code-button {
+  width: 104px;
 }
 
 .code-field .code-row {
@@ -442,20 +478,9 @@ async function handleWechatLogin() {
   gap: 8px;
 }
 
-.code-button {
-  width: 100px;
-  height: 44px;
-  line-height: 44px;
-  text-align: center;
-  padding: 0;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-elevated);
-  color: var(--text-color);
-  font-size: 12px;
-}
-
-.code-button::after {
+.mini-btn::after,
+.code-button::after,
+.submit::after {
   border: none;
 }
 
@@ -463,30 +488,30 @@ async function handleWechatLogin() {
   opacity: 0.5;
 }
 
+/* 主提交按钮：主题渐变底 + 44px 点击高度 */
 .submit {
-  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 8px;
   width: 100%;
-  height: 44px;
-  line-height: 44px;
-  border-radius: 8px;
-  background-color: var(--accent-color);
-  color: var(--accent-on);
+  height: var(--control-h);
+  border-radius: 10px;
+  border: none;
+  background: var(--theme-gradient);
+  color: var(--theme-action-contrast);
+  font-size: 15px;
   font-weight: 600;
-  font-size: 16px;
-  border: none;
-}
-
-.submit::after {
-  border: none;
+  line-height: 1;
 }
 
 .input-error {
-  border-color: #ef4444 !important;
+  border-color: var(--color-danger) !important;
 }
 
 .error-msg {
-  font-size: 12px;
-  color: #ef4444;
   margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-danger-text);
 }
 </style>

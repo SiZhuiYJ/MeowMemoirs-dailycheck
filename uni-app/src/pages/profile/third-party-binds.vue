@@ -1,5 +1,7 @@
 <template>
   <view class="page-container" :style="themeStore.themeStyle">
+    <!-- 毛玻璃顶栏：page-container 顶部 padding 16px，作为内容与顶栏之间的间距 -->
+    <MmNavBar title="第三方账号绑定" />
     <NotificationSystem />
 
     <view class="page-card">
@@ -22,7 +24,7 @@
             </view>
           </view>
           <button class="bind-btn" :class="hasProviderBind(binding.provider) ? 'unbind-btn' : 'bind-btn-primary'"
-            @click="binding.toggleBind(binding.name)">
+            hover-class="mm-hover" @click="binding.toggleBind(binding.name)">
             {{ hasProviderBind(binding.provider) ? '解绑' : '绑定' }}
           </button>
         </view>
@@ -35,6 +37,7 @@
 import { onShow } from '@dcloudio/uni-app';
 import { useAuthStore } from '@/stores/auth';
 import { useThemeStore } from '@/stores/theme';
+import MmNavBar from '@/components/MmNavBar.vue';
 import http from '@/libs/http/config';
 import { notifySuccess, notifyError } from '@/utils/notification';
 import { toLocalDateOnlyString, parseDateOnly } from "@/utils/date";
@@ -374,19 +377,29 @@ async function toggleBind(bindName: string) {
 <style scoped lang="scss">
 @use "@/styles/page-layouts.scss";
 
+/* 卡片头部说明 */
+.desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
 .bind-list {
-  margin-top: 20px;
+  margin-top: 12px;
 }
 
 .bind-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 0;
-  border-bottom: 0.5px solid rgba(0, 0, 0, 0.1);
+  min-height: 44px;
+  padding: 12px 0;
+  /* 统一列表分割线 token（不再写死半透明黑） */
+  border-bottom: 1px solid var(--divider-color);
 
   &:last-child {
     border-bottom: none;
+    padding-bottom: 0;
   }
 }
 
@@ -394,53 +407,65 @@ async function toggleBind(bindName: string) {
   display: flex;
   align-items: center;
   flex: 1;
+  min-width: 0;
 }
 
+/* 图标：次级底 + 1px 描边 + 10 圆角 */
 .bind-icon {
   width: 40px;
   height: 40px;
   margin-right: 12px;
-  border-radius: 8px;
+  border-radius: 10px;
+  background-color: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  box-sizing: border-box;
 }
 
 .bind-details {
   flex: 1;
+  min-width: 0;
 }
 
 .bind-name {
   display: block;
-  font-size: 16px;
+  font-size: 15px;
+  font-weight: 500;
   color: var(--text-color);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .bind-desc {
   display: block;
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
+/* 行内按钮：36px 高（列表内按钮按规范 36–40px）+ 10 圆角 */
 .bind-btn {
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 14px;
-  border: none;
-  margin-left: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  margin-left: 12px;
+  box-sizing: border-box;
 }
 
+/* 绑定：次按钮（主题浅底 + 描边 + 强调色文字） */
 .bind-btn-primary {
-  background-color: var(--theme-primary);
-  color: white;
+  background-color: var(--theme-color-soft);
+  border: 1px solid var(--theme-color-muted);
+  color: var(--theme-color-strong);
 }
 
+/* 解绑：危险按钮（danger soft 底 + danger 描边 + danger 文字） */
 .unbind-btn {
-  background-color: #f0f0f0;
-  color: #ff4757;
-}
-
-.desc {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin-top: 8px;
+  background-color: var(--color-danger-soft);
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger-text);
 }
 </style>

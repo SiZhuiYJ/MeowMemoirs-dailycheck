@@ -116,10 +116,12 @@ function handleTabChange(index: number) {
 <style scoped lang="scss">
 .main-container {
   width: 100vw;
+  min-height: 100vh;
   height: 100vh;
   overflow: hidden;
   position: relative;
   background-color: var(--bg-color);
+  color: var(--text-color);
 }
 
 .content-area {
@@ -136,7 +138,10 @@ function handleTabChange(index: number) {
   left: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
   background-color: var(--bg-color);
+  /* 滚动内容底部为固定 tabBar + 底部安全区预留空间，防止最后一个卡片被遮挡 */
+  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 12px);
   /* Default state is visible at 0,0 */
 }
 

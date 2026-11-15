@@ -4,6 +4,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app';
 import { usePlansStore, type TimeSlotDto } from '@/stores/plans';
 import { useThemeStore } from '@/stores/theme';
 import { notifyError, notifySuccess, notifyWarning } from '@/utils/notification';
+import MmNavBar from '@/components/MmNavBar.vue';
 
 const plansStore = usePlansStore();
 const themeStore = useThemeStore();
@@ -39,7 +40,6 @@ onLoad((options: any) => {
         enableTimeSlots.value = true;
         timeSlots.value = JSON.parse(JSON.stringify(plan.timeSlots));
       }
-      uni.setNavigationBarTitle({ title: '编辑计划' });
     }
   }
 });
@@ -206,22 +206,24 @@ async function handleSubmit() {
 
 <template>
   <view class="container" :style="themeStore.themeStyle">
+    <MmNavBar :title="isEdit ? '编辑计划' : '新建计划'" />
     <NotificationSystem />
     <view class="card">
       <view class="form-group">
         <view class="label">计划标题</view>
-        <input class="input" v-model="title" placeholder="请输入标题" />
+        <input class="input" v-model="title" placeholder="请输入标题" placeholder-class="input-placeholder" />
       </view>
 
       <view class="form-group">
         <view class="label">计划描述</view>
-        <textarea class="textarea" v-model="description" placeholder="请输入描述" auto-height />
+        <textarea class="textarea" v-model="description" placeholder="请输入描述" auto-height
+          placeholder-class="input-placeholder" />
       </view>
 
       <view class="form-group">
         <view class="label">开始日期（默认今天）</view>
         <picker mode="date" :value="startDate" :start="today" @change="handleStartDateChange">
-          <view class="picker-view">
+          <view class="picker-view" hover-class="mm-hover">
             <text v-if="startDate">{{ startDate }}</text>
             <text v-else class="placeholder">点击选择</text>
           </view>
@@ -231,7 +233,7 @@ async function handleSubmit() {
       <view class="form-group">
         <view class="label">结束日期（可选）</view>
         <picker mode="date" :value="endDate" :start="startDate || today" @change="handleEndDateChange">
-          <view class="picker-view">
+          <view class="picker-view" hover-class="mm-hover">
             <text v-if="endDate">{{ endDate }}</text>
             <text v-else class="placeholder">点击选择</text>
           </view>
@@ -241,31 +243,34 @@ async function handleSubmit() {
       <view class="form-group">
         <view class="label-row">
           <view class="label">开启分时段打卡</view>
-          <switch :checked="enableTimeSlots" @change="handleEnableTimeSlotsChange" color="var(--accent-color)" />
+          <!-- 小程序 switch 的 color 需要真实色值，直接取当前主题的 --theme-primary -->
+          <switch :checked="enableTimeSlots" @change="handleEnableTimeSlotsChange"
+            :color="themeStore.themeStyle['--theme-primary']" />
         </view>
 
         <view v-if="enableTimeSlots" class="time-slots-list">
           <view v-for="(slot, index) in timeSlots" :key="index" class="time-slot-item">
             <view class="slot-header">
               <text>时间段 {{ index + 1 }}</text>
-              <text class="delete-text" @click="removeTimeSlot(index)">删除</text>
+              <view class="delete-text" hover-class="mm-hover" @click="removeTimeSlot(index)">删除</view>
             </view>
             <view class="slot-content">
-              <input class="input slot-name" v-model="slot.slotName" placeholder="名称 (如: 早晨)" />
+              <input class="input slot-name" v-model="slot.slotName" placeholder="名称 (如: 早晨)"
+                placeholder-class="input-placeholder" />
               <view class="time-range">
                 <picker mode="time" :value="slot.startTime.substring(0, 5)"
-                  @change="(e) => handleTimeChange(index, 'startTime', e)">
-                  <view class="time-picker">{{ slot.startTime.substring(0, 5) }}</view>
+                  @change="(e: any) => handleTimeChange(index, 'startTime', e)">
+                  <view class="time-picker" hover-class="mm-hover">{{ slot.startTime.substring(0, 5) }}</view>
                 </picker>
                 <text class="separator">至</text>
                 <picker mode="time" :value="slot.endTime.substring(0, 5)"
-                  @change="(e) => handleTimeChange(index, 'endTime', e)">
-                  <view class="time-picker">{{ slot.endTime.substring(0, 5) }}</view>
+                  @change="(e: any) => handleTimeChange(index, 'endTime', e)">
+                  <view class="time-picker" hover-class="mm-hover">{{ slot.endTime.substring(0, 5) }}</view>
                 </picker>
               </view>
             </view>
           </view>
-          <view class="add-slot-btn" @click="addTimeSlot">
+          <view class="add-slot-btn" hover-class="mm-hover" @click="addTimeSlot">
             <text>+ 添加打卡时间段</text>
           </view>
         </view>
@@ -273,72 +278,141 @@ async function handleSubmit() {
 
       <view class="form-group" v-if="isEdit">
         <view class="label">是否启用</view>
-        <switch :checked="isActive" @change="handleIsActiveChange" color="var(--accent-color)" />
+        <switch :checked="isActive" @change="handleIsActiveChange" :color="themeStore.themeStyle['--theme-primary']" />
       </view>
     </view>
 
-    <button class="submit-btn" @click="handleSubmit">{{ isEdit ? '保存修改' : '创建计划' }}</button>
-    <button v-if="isEdit" class="delete-btn" @click="handleDelete">删除计划</button>
+    <!-- 底部操作栏：主按钮渐变，删除按钮使用 danger token，底部留出手势条安全区 -->
+    <view class="action-bar">
+      <button class="submit-btn" @click="handleSubmit">{{ isEdit ? '保存修改' : '创建计划' }}</button>
+      <button v-if="isEdit" class="delete-btn" @click="handleDelete">删除计划</button>
+    </view>
   </view>
 </template>
 
 <style scoped lang="scss">
+/* 计划新建 / 编辑：单色卡片表单（中性灰 + 单一强调色，与 web 端表单一致） */
 .container {
-  padding: var(--uni-container-padding);
-  background-color: var(--bg-color);
   min-height: 100vh;
+  padding: var(--page-pad) var(--page-pad) 0;
+  background-color: var(--bg-color);
   box-sizing: border-box;
 }
 
+/* 表单卡片：白底 + 细描边 + 主题微光阴影 */
 .card {
   background-color: var(--bg-elevated);
-  border-radius: var(--uni-card-border-radius);
-  padding: var(--uni-card-padding);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  margin-bottom: var(--uni-card-margin-bottom);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  padding: 16px;
+  margin-bottom: 12px;
+  box-sizing: border-box;
 }
 
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .label-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 
   .label {
     margin-bottom: 0;
   }
 }
 
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+/* 输入框 / 文本域 / 日期选择：统一 token 化控件，输入框 44px 高 */
+.input,
+.textarea,
+.picker-view {
+  width: 100%;
+  background-color: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0 12px;
+  color: var(--text-color);
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.input {
+  height: var(--control-h);
+}
+
+.textarea {
+  min-height: 88px;
+  padding: 10px 12px;
+  line-height: 1.5;
+}
+
+:deep(.input-placeholder) {
+  color: var(--text-faint);
+}
+
+/* 解决 H5 下 uni-input 选中问题 */
+:deep(input),
+:deep(textarea) {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+.picker-view {
+  min-height: var(--control-h);
+  display: flex;
+  align-items: center;
+}
+
+.placeholder {
+  color: var(--text-faint);
+}
+
+/* 分时段打卡：次级底卡片 + 主题色时间 chip */
 .time-slots-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 .time-slot-item {
-  background-color: var(--bg-color);
-  border-radius: 8px;
+  background-color: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
   padding: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .slot-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-height: 44px;
+  margin-bottom: 4px;
   font-size: 13px;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
+  color: var(--text-muted);
 }
 
+/* 删除时间段：危险操作用 danger token */
 .delete-text {
-  color: #ff4d4f;
-  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background-color: var(--color-danger-soft);
+  color: var(--color-danger-text);
+  font-size: 12px;
 }
 
 .slot-content {
@@ -348,7 +422,6 @@ async function handleSubmit() {
 }
 
 .slot-name {
-  font-size: 14px;
   background-color: var(--bg-elevated);
 }
 
@@ -358,19 +431,25 @@ async function handleSubmit() {
   gap: 10px;
 }
 
+/* 时间 chip 选中态 = 主题浅底 + 主题色字 + 主题色描边 */
 .time-picker {
-  background-color: var(--bg-elevated);
-  padding: 8px 12px;
-  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background-color: var(--theme-color-soft);
+  border: 1px solid var(--theme-color-muted);
+  color: var(--theme-color-strong);
   font-size: 14px;
-  color: var(--text-primary);
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  min-width: 80px;
-  text-align: center;
+  font-weight: 500;
+  box-sizing: border-box;
 }
 
 .separator {
-  color: var(--text-secondary);
+  color: var(--text-faint);
   font-size: 12px;
 }
 
@@ -378,85 +457,53 @@ async function handleSubmit() {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 12px;
-  border: 1px dashed var(--border-color);
-  border-radius: 8px;
-  color: var(--text-secondary);
+  min-height: var(--control-h);
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  color: var(--theme-color-strong);
   font-size: 14px;
-
-  &:active {
-    background-color: rgba(0, 0, 0, 0.02);
-  }
+  transition: opacity 0.2s ease;
 }
 
 .form-group:last-child {
   margin-bottom: 0;
 }
 
-
-.label {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
-.input,
-.textarea,
-.picker-view {
-  background-color: var(--bg-color);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 10px;
-  color: var(--text-color);
-  font-size: 14px;
-  width: 100%;
-  box-sizing: border-box;
-  /* Ensure padding doesn't affect width */
-}
-
-.input {
-  height: 44px;
-  line-height: 24px;
-  /* content height */
-}
-
-.textarea {
-  min-height: 80px;
-  line-height: 1.5;
-}
-
-/* 解决H5下uni-input选中问题 */
-:deep(input),
-:deep(textarea) {
-  user-select: text !important;
-  -webkit-user-select: text !important;
-}
-
-.picker-view {
-  min-height: 40px;
+/* 底部操作栏：主按钮主题渐变；删除计划用 danger token；底部安全区适配 */
+.action-bar {
   display: flex;
-  align-items: center;
-}
-
-.placeholder {
-  color: var(--text-muted);
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: calc(12px + var(--safe-bottom));
 }
 
 .submit-btn {
-  background-color: var(--theme-primary);
-  color: #fff;
-  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: var(--control-h);
   border: none;
+  border-radius: 10px;
+  background: var(--theme-gradient);
+  color: var(--theme-action-contrast);
+  font-size: 15px;
   font-weight: 600;
-  margin-bottom: var(--uni-card-margin-bottom);
+  line-height: 1;
 }
 
-
 .delete-btn {
-  background-color: #ef4444;
-  color: white;
-  border-radius: 999px;
-  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: var(--control-h);
+  border: 1px solid var(--color-danger);
+  border-radius: 10px;
+  background-color: var(--color-danger-soft);
+  color: var(--color-danger-text);
+  font-size: 15px;
   font-weight: 600;
+  line-height: 1;
 }
 </style>
