@@ -9,6 +9,8 @@
 @use "./chat-theme.scss";
 // 日间 / 夜间切换的中心扩散波纹动画
 @use "./theme-transition.scss";
+// 全局鼠标点击波纹：按下即在点击位置扩散一圈主题色圆环
+@use "./click-ripple.scss";
 // 设置页共享骨架 + 表单控件：设置子页与顶栏的「修改密码 / 注销」弹窗共用
 @use "@/features/setting/style/index.scss" as setting;
 // 图片上传入口（头像 / 打卡共用）

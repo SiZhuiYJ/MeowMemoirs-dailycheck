@@ -1,6 +1,7 @@
 import { createApp } from 'vue';
 import App from "./App.vue";
 import { setupMikuCursor } from "./libs/mikuCursor";
+import { setupClickRipple } from "./libs/clickRipple";
 import { installDeviceLayout } from "./composables/use-device-layout";
 import { initTelemetry, telemetry } from "./libs/telemetry";
 import { initTheme } from "./composables/use-theme";
@@ -68,6 +69,9 @@ window.addEventListener("error", (event) => {
 });
 
 setupMikuCursor();
+
+// 全局点击波纹：按下即在点击位置扩散一圈主题色圆环（鼠标 / 手指都生效，纯装饰）
+setupClickRipple();
 
 // 设备布局必须在挂载前写入 <html>：
 // CSS 的 .desktop-only / .mobile-only 以及各断点选择器直接读 data-layout 等属性，

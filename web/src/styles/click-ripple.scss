@@ -1,0 +1,155 @@
+////
+/// 全局点击波纹（鼠标 / 手指 / 触控笔，实现见 libs/clickRipple）。
+///
+/// 视觉：以点击位置为中心、由小变大的「透明圆环」，圈线 = 当前主题色，
+/// 圈内 / 圈外各带一层同色阴影，深色底与浅色底上都看得清。
+///
+/// 实现要点：
+/// - 圆环尺寸固定，只做 transform: scale() + opacity 动画（合成层，不触发布局）；
+/// - 与 theme-ripple-ring 相同的居中做法：负 margin 居中，transform 留给缩放；
+/// - 主题色不写死：JS 每次点击现读主题色，写入 --click-ripple-color /
+///   --click-ripple-rgb，改主题色后下一枚波纹立即生效；
+/// - 多端适配：直径 / 时长按 <html data-device>（phone / tablet / desktop）与
+///   data-short（视口过矮）分档；内外阴影用 calc(直径 × 百分比) 跟着等比缩放，
+///   手机上不会再出现一枚接近 1/3 屏宽的大圈。
+////
+
+:root {
+  // 兜底档位：JS 写入 data-device 之前 / 未知环境
+  --click-ripple-size: clamp(88px, 12vmin, 160px);
+  --click-ripple-duration: 540ms;
+}
+
+// ==============================================
+// 设备档位（由 use-device-layout 写到 <html>）
+// ==============================================
+// 尺寸用 vmin：同一台设备横竖屏切换、或窗口被拉宽拉高时，
+// 圈的「观感比例」不会突然放大缩小。
+html[data-device="desktop"] {
+  // 大屏电脑（> 1200）：1080p 下约 130px，4K 封顶 180px
+  --click-ripple-size: clamp(104px, 12vmin, 180px);
+  --click-ripple-duration: 540ms;
+}
+
+html[data-device="tablet"] {
+  // 平板（600 ~ 1200）：800px 短边下约 96px
+  --click-ripple-size: clamp(80px, 12vmin, 120px);
+  --click-ripple-duration: 500ms;
+}
+
+html[data-device="phone"] {
+  // 手机（<= 600）：约屏宽 18%~22%，390px 宽下 ≈ 70px，比旧版 120px 小一圈
+  --click-ripple-size: clamp(56px, 18vmin, 84px);
+  --click-ripple-duration: 460ms;
+}
+
+// 矮视口（横屏手机 852x393、被拖扁的窗口、分屏）：短边很小时再收一档。
+// 写在档位规则之后 —— 同为 html[attr] 选择器，后写的覆盖先写的。
+html[data-short="true"] {
+  --click-ripple-size: clamp(56px, 15vmin, 108px);
+  --click-ripple-duration: 440ms;
+}
+
+// ==============================================
+// 覆盖层
+// ==============================================
+// 铺满视口、绝不拦截指针事件，只负责给每枚波纹定位。
+.click-ripple-layer {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  // 高于页面内容与 Element Plus 弹层，低于虚拟光标（2147483647）
+  z-index: 2147483001;
+  // 波纹的动画 / 绘制只影响这一层内部，不牵动整页
+  contain: layout paint;
+}
+
+// ==============================================
+// 单枚波纹
+// ==============================================
+.click-ripple {
+  position: absolute;
+  width: var(--click-ripple-size);
+  height: var(--click-ripple-size);
+  // 负 margin 居中：中心始终落在点击坐标上，transform 留给缩放动画
+  margin-left: calc(var(--click-ripple-size) / -2);
+  margin-top: calc(var(--click-ripple-size) / -2);
+  border-radius: 50%;
+  // 背景保持完全透明：只留圈线 + 内外阴影
+  background: transparent;
+  border: 2px solid var(--click-ripple-color, var(--theme-color-strong));
+  // 阴影尺寸全部按直径的百分比写：圈变小时光晕同比缩小，
+  // 不会出现「小圆配一大团光」的比例失调 —— 这是多端观感一致的关键。
+  box-shadow:
+    // 外阴影：近处一圈发亮的同色光晕（≈ 直径 6% 的模糊、0.8% 的扩散）
+    0 0 calc(var(--click-ripple-size) * 0.06) calc(var(--click-ripple-size) * 0.008)
+      rgba(var(--click-ripple-rgb, var(--theme-color-rgb)), 0.5),
+    // 外阴影：更远更淡的一层，让扩散感更柔和（≈ 17% / 4.6%）
+    0 0 calc(var(--click-ripple-size) * 0.17) calc(var(--click-ripple-size) * 0.046)
+      rgba(var(--click-ripple-rgb, var(--theme-color-rgb)), 0.16),
+    // 内阴影：圈内壁的同色柔光
+    inset 0 0 calc(var(--click-ripple-size) * 0.054)
+      rgba(var(--click-ripple-rgb, var(--theme-color-rgb)), 0.5),
+    inset 0 0 calc(var(--click-ripple-size) * 0.154)
+      rgba(var(--click-ripple-rgb, var(--theme-color-rgb)), 0.14);
+  opacity: 0;
+  // 图层已设 pointer-events: none，这里再显式写一遍：波纹永远不参与命中
+  pointer-events: none;
+  will-change: transform, opacity;
+  // 缓动别用「前 1/3 就放到最大」的极端 ease-out：主线程掉一帧，
+  // 用户看到的就可能是「直接出现一个圈」。这条曲线让扩散持续到 3/4 之后。
+  animation: click-ripple-expand var(--click-ripple-duration)
+    cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes click-ripple-expand {
+  0% {
+    transform: scale(0.04);
+    opacity: 0;
+  }
+  // 按下瞬间迅速显形；之后保持较高不透明度，让「小点 → 整圈」的过程
+  // 持续到接近结束才淡出（太低刷新率 / 掉帧时也能看出来是在放大）。
+  12% {
+    opacity: 0.95;
+  }
+  75% {
+    opacity: 0.75;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+// ==============================================
+// 减少动态效果
+// ==============================================
+// 注意：**不要在这里把动画整个取消**，也不要退化成纯淡入淡出 ——
+// 那样在系统开了「减少动态效果」的 PC 上看起来就是「直接出现一个圈」，
+// 用户会以为动画坏了。正确做法是缩小位移 / 缩放幅度、缩短时长，
+// 同时保留「小圈 → 整圈」的过程（与 theme-transition.scss 的立场一致：
+// 点击反馈必须看得见变化，只是幅度可以更小）。
+@keyframes click-ripple-expand-reduced {
+  0% {
+    transform: scale(0.55);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .click-ripple {
+    // 尺寸收小一点，避免一个大圆突然出现
+    --click-ripple-size: clamp(56px, 12vmin, 96px);
+    animation-name: click-ripple-expand-reduced;
+    animation-duration: 300ms;
+    animation-timing-function: ease-out;
+  }
+}
