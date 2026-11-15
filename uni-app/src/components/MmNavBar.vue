@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useThemeStore } from '@/stores/theme';
+import { getWindowInfoCompat, getMenuButtonRectCompat } from '@/utils/systemInfo';
 
 /**
  * 统一自定义导航栏（毛玻璃）
@@ -16,7 +17,7 @@ import { useThemeStore } from '@/stores/theme';
  *     └─ .mm-navbar         固定定位的毛玻璃标题栏（复用 App.vue 的 .mm-frosted-header）
  *
  * 适配细节：
- * · 状态栏高度取自 uni.getSystemInfoSync().statusBarHeight（H5 为 0）；
+ * · 状态栏 / 窗口信息走 utils/systemInfo.ts 的兼容封装（优先新 API，避免弃用警告，H5 为 0）；
  * · 微信小程序右上角胶囊通过 getMenuButtonBoundingClientRect() 预留右侧安全区，
  *   标题与右侧插槽不会被胶囊压住；
  * · 返回按钮：页面栈 > 1 时 navigateBack，否则 reLaunch 回主页（H5 直接打开子页也能返回）。
@@ -61,19 +62,16 @@ const themeStore = useThemeStore();
 /** 标题行高度；与 App.vue 里的 --navbar-h 保持一致（44px） */
 const BAR_HEIGHT = 44;
 
-const sysInfo = uni.getSystemInfoSync();
-const statusBarHeight = sysInfo.statusBarHeight || 0;
+// 状态栏 / 窗口信息：优先 wx.getWindowInfo 等新 API，取不到时自动回退旧 API
+const winInfo = getWindowInfoCompat();
+const statusBarHeight = winInfo.statusBarHeight;
 
-/** 微信小程序右上角胶囊预留宽度（H5 / App 端为 0） */
+/** 微信小程序右上角胶囊预留宽度（H5 / App 端拿不到胶囊 → 0） */
 let capsuleInset = 0;
-// #ifdef MP-WEIXIN
-try {
-  const menu = uni.getMenuButtonBoundingClientRect();
-  capsuleInset = Math.max(sysInfo.windowWidth - menu.left + 8, 0);
-} catch (e) {
-  capsuleInset = 0;
+const menuRect = getMenuButtonRectCompat();
+if (menuRect && winInfo.windowWidth > 0) {
+  capsuleInset = Math.max(winInfo.windowWidth - menuRect.left + 8, 0);
 }
-// #endif
 
 const totalHeight = computed(() => statusBarHeight + BAR_HEIGHT);
 

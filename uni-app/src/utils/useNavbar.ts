@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import { getSystemInfoCompat } from '@/utils/systemInfo';
 
 export function useNavbar() {
   const paddingTop = ref(0);
@@ -7,7 +8,8 @@ export function useNavbar() {
   const navbarHeight = ref(0); // Total height including capsule and bottom margin
 
   // Initialize
-  const sysInfo = uni.getSystemInfoSync();
+  // 优先新 API（getWindowInfo 等），避免 wx.getSystemInfoSync 弃用警告
+  const sysInfo = getSystemInfoCompat();
   const statusBarHeight = sysInfo.statusBarHeight || 0;
   
   // Default values
