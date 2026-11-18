@@ -706,6 +706,10 @@ api/errorLog/
 # uploads 目录的打包备份（体积大且含个人数据）
 *.rar
 
+# IP 归属地离线库（8.7MB 二进制，不入库；用 tools/geocn/fetch-geocn.sh 拉取）
+# 省/市名称映射表（full.txt / short.txt）体积小，随仓库提交。
+api/Resources/ipTo/*.mmdb
+
 # 本地开发配置（含真实密钥，勿提交）
 api/appsettings.Development.json
 
