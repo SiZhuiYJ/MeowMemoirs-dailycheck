@@ -19,7 +19,11 @@ import { getWindowInfoCompat, getMenuButtonRectCompat } from '@/utils/systemInfo
  * 适配细节：
  * · 状态栏 / 窗口信息走 utils/systemInfo.ts 的兼容封装（优先新 API，避免弃用警告，H5 为 0）；
  * · 微信小程序右上角胶囊通过 getMenuButtonBoundingClientRect() 预留右侧安全区，
- *   标题与右侧插槽不会被胶囊压住；
+ *   右侧插槽不会被胶囊压住；
+ * · **居中标题与左右内容解耦**：align=center 的标题绝对定位占满整条顶栏（left/right: 0），
+ *   文字在整屏宽度内居中 —— 小程序有胶囊、H5 没有胶囊时标题都固定在屏幕正中，
+ *   不会像 flex 布局那样被右侧胶囊（左偏）或左侧返回按钮（H5 右偏）挤歪；
+ *   左右按钮/插槽 z-index 更高，标题不拦截点击。
  * · 返回按钮：页面栈 > 1 时 navigateBack，否则 reLaunch 回主页（H5 直接打开子页也能返回）。
  *
  * 用法：
@@ -77,8 +81,14 @@ const totalHeight = computed(() => statusBarHeight + BAR_HEIGHT);
 
 const barStyle = computed(() => ({
   paddingTop: `${statusBarHeight}px`,
+}));
+
+/**
+ * 标题行横向内边距：右侧有胶囊时让出胶囊宽度，避免右侧插槽被胶囊压住；
+ * 居中标题是绝对定位的，不受这段不对称内边距影响（见 .mm-navbar-title.align-center）。
+ */
+const innerStyle = computed(() => ({
   paddingLeft: '12px',
-  // 有胶囊时右侧让出胶囊宽度，没有时留常规内边距
   paddingRight: capsuleInset > 0 ? `${capsuleInset}px` : '12px',
 }));
 
@@ -112,7 +122,7 @@ function handleBack() {
       ]"
       :style="barStyle"
     >
-      <view class="mm-navbar-inner">
+      <view class="mm-navbar-inner" :style="innerStyle">
         <!-- 返回按钮：36px 热区；箭头用 CSS 绘制（仓库 turn-left.svg 实际是朝右的图标，
              直接引用会导致方向反转；CSS 箭头还能自动跟随日/夜主题变色） -->
         <view v-if="showBack" class="mm-navbar-back" hover-class="mm-hover" @click="handleBack">
@@ -158,12 +168,17 @@ function handleBack() {
 }
 
 .mm-navbar-inner {
+  position: relative;
   display: flex;
   align-items: center;
+  box-sizing: border-box;
+  width: 100%;
   height: 44px;
 }
 
 .mm-navbar-back {
+  position: relative;
+  z-index: 2;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -188,13 +203,17 @@ function handleBack() {
 
 .mm-navbar-left,
 .mm-navbar-right {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   flex-shrink: 0;
 }
 
+/* auto 外边距：居中标题绝对定位后不占 flex 空间，右侧插槽仍要贴右 */
 .mm-navbar-right {
-  margin-left: 8px;
+  margin-left: auto;
+  padding-left: 8px;
 }
 
 .mm-navbar-title {
@@ -210,7 +229,20 @@ function handleBack() {
 }
 
 .mm-navbar-title.align-center {
+  /* 与左右内容解耦：绝对定位占满整条顶栏，文字在整屏宽度内居中。
+     小程序有胶囊 / H5 无胶囊时都固定在屏幕正中，不再被侧边内容挤偏；
+     padding 保证长标题不会压到返回按钮/胶囊（超出省略）。
+     z-index 低于按钮与插槽，且 pointer-events:none，点击可穿透。 */
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  padding: 0 64px;
   text-align: center;
+  pointer-events: none;
 }
 
 .mm-navbar-title.align-left {

@@ -9,6 +9,8 @@
  * 6. 参数序列化 (Params Serialization)
  */
 
+import { getClientDeviceModel, getClientPlatform } from '@/utils/systemInfo';
+
 /** 
  * 外部注入的 Auth Store 实例
  * 用于避免循环依赖，在应用初始化时通过 setAuthStore 注入
@@ -76,11 +78,18 @@ interface HttpResponse<T = any> {
 
 /**
  * 创建 HTTP 请求实例
- * @param {string} url 基础路径 baseURL
+ * @param {string | (() => string | Promise<string>)} url 基础路径（或返回基础路径的解析器）
  * @param {CreateHttpOptions} globalOptions 全局配置
  */
-const createHttp = (url: string, globalOptions: CreateHttpOptions = {}) => {
-    const baseURL = url;
+const createHttp = (
+    url: string | (() => string | Promise<string>),
+    globalOptions: CreateHttpOptions = {},
+) => {
+    /** 解析当前基础路径：开发环境可由解析器自动选择可达后端 */
+    const resolveBaseURL = async (override?: string): Promise<string> => {
+        if (override) return override;
+        return typeof url === 'function' ? await url() : url;
+    };
     const {
         concurrencyLimit = Infinity,
         retryCount: globalRetryCount = 0,
@@ -130,15 +139,10 @@ const createHttp = (url: string, globalOptions: CreateHttpOptions = {}) => {
         const auth = authStore;
 
         let url = options.url;
-        // 拼接基础路径
-        if (options.baseURL !== undefined) {
-            if (!url.startsWith('http')) {
-                url = (options.baseURL || baseURL) + url;
-            }
-        } else {
-            if (!url.startsWith('http')) {
-                url = baseURL + url;
-            }
+        // 拼接基础路径（开发环境这里会等自动探测完成，生产环境直接返回域名）
+        const resolvedBaseURL = await resolveBaseURL(options.baseURL);
+        if (!url.startsWith('http')) {
+            url = resolvedBaseURL + url;
         }
 
         // 序列化 URL 参数
@@ -153,6 +157,16 @@ const createHttp = (url: string, globalOptions: CreateHttpOptions = {}) => {
         const headers = options.header || {};
         if (auth && auth.accessToken) {
             headers['Authorization'] = `Bearer ${auth.accessToken}`;
+        }
+
+        // 上报客户端平台 / 机型：后端登录记录用来展示设备（取不到就跳过，绝不影响请求）
+        try {
+            const clientPlatform = getClientPlatform();
+            if (clientPlatform) headers['X-Client-Platform'] = clientPlatform;
+            const clientDevice = getClientDeviceModel();
+            if (clientDevice) headers['X-Client-Device'] = clientDevice;
+        } catch (e) {
+            // 系统信息不可用时忽略：后端会用 User-Agent 兜底
         }
 
         return new Promise((resolve, reject) => {
@@ -190,8 +204,9 @@ const createHttp = (url: string, globalOptions: CreateHttpOptions = {}) => {
                                     return;
                                 }
 
+                                const refreshBaseURL = await resolveBaseURL();
                                 const refreshRes = await uni.request({
-                                    url: baseURL + '/mm/Auth/refresh',
+                                    url: refreshBaseURL + '/mm/Auth/refresh',
                                     method: 'POST',
                                     data: { refreshToken: auth.refreshToken },
                                 });

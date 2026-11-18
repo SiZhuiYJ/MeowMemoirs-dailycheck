@@ -5,7 +5,7 @@ import { useCheckinsStore } from '@/stores/checkins';
 import { useAuthStore } from '@/stores/auth';
 import { useThemeStore } from '@/stores/theme';
 import { usePlansStore } from '@/stores/plans';
-import { API_BASE_URL } from '@/config';
+import { getApiBase } from '@/libs/http/apiBase';
 import { compressImageToWebP } from '@/utils/image';
 import MmNavBar from '@/components/MmNavBar.vue';
 
@@ -95,7 +95,7 @@ function handlePreviewImage(current: string) {
 async function uploadFile(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
     uni.uploadFile({
-      url: `${API_BASE_URL}/mm/Files/images`,
+      url: `${getApiBase()}/mm/Files/images`,
       filePath: filePath,
       name: 'file',
       header: {

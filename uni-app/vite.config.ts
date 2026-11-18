@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
   // 本机开发环境可用 VITE_API_PROXY_TARGET 指向正在运行的后端
   // （见 .env.development.local，已被 .gitignore 的 *.local 忽略）。
   const env = loadEnv(mode, process.cwd(), '');
-  const apiProxyTarget = env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:5210';
+  const apiProxyTarget = env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:5211';
 
   return {
     plugins: [

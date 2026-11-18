@@ -1,17 +1,33 @@
 /**
  * 接口基址
  *
- * · H5 开发（npm run dev:h5）：置空，改走 Vite 同源代理（vite.config.ts 里的
- *   /mm → VITE_API_PROXY_TARGET），这样手机 / 局域网访问都不会撞后端 CORS 白名单；
- * · 微信小程序 / App / H5 生产：必须绝对地址，取 .env 里的 VITE_API_BASE_URL
- *   （小程序端没有同源概念，相对路径无法请求）。
+ * 生产 / H5 生产：`VITE_API_BASE_URL` 是单个绝对地址（如 https://meowmemoirs.cn）。
+ * H5 开发：强制空串，走 Vite 同源代理（/mm → VITE_API_PROXY_TARGET）。
+ * 小程序开发：`VITE_API_BASE_URL` 可以是**逗号分隔的候选列表**（由
+ *   scripts/dev-env.mjs 自动扫描本机网卡生成），运行时由 libs/http/apiBase.ts
+ *   并行探测、选第一个可达的地址，换网段/Wi-Fi 不用改配置。
  */
-const ENV_API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').trim();
-let apiBase = ENV_API_BASE;
-// #ifdef H5
-// H5 开发模式下强制走同源代理；生产构建仍用 .env.production 的绝对地址
-if (import.meta.env.DEV) apiBase = '';
-// #endif
-export const API_BASE_URL = apiBase || 'https://paw.meowmemoirs.cn';
-export const APP_TITLE = import.meta.env.VITE_APP_TITLE ?? '喵咪记事簿';
+const ENV_API_BASE: string = String(import.meta.env.VITE_API_BASE_URL ?? '').trim();
 
+let apiBaseList: string[] = ENV_API_BASE
+  .split(',')
+  .map((item: string) => item.trim())
+  .filter(Boolean);
+
+// #ifdef H5
+// H5 开发模式强制走同源代理；生产构建仍用 .env.production 的绝对地址
+if (import.meta.env.DEV) apiBaseList = [''];
+// #endif
+
+// 没配置时：先默认本机开发后端（开发环境），生产打包通常会带 .env.production
+if (apiBaseList.length === 0) {
+  apiBaseList = ['https://meowmemoirs.cn'];
+}
+
+/** 候选接口基址（生产只有 1 个；小程序开发可能有多个，按顺序探测） */
+export const API_BASE_CANDIDATES: readonly string[] = apiBaseList;
+
+/** 兼容旧代码：默认取第一个候选（页面里的文件 URL 请改用 libs/http/apiBase.ts 的响应式 apiBase） */
+export const API_BASE_URL = apiBaseList[0]!;
+
+export const APP_TITLE = import.meta.env.VITE_APP_TITLE ?? '喵咪记事簿';

@@ -4,7 +4,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app';
 import { useCheckinsStore, type CheckinDetail } from '@/stores/checkins';
 import { useAuthStore } from '@/stores/auth';
 import { useThemeStore } from '@/stores/theme';
-import { API_BASE_URL } from '@/config';
+import { getApiBase } from '@/libs/http/apiBase';
 import http from '@/libs/http/config';
 import { notifyError } from '@/utils/notification';
 import MmNavBar from '@/components/MmNavBar.vue';
@@ -88,7 +88,7 @@ async function fetchDetail() {
     const processedDetails = res.map(item => {
         const processedUrls = item.imageUrls.map(url => {
             if (url.startsWith('http')) return url;
-            return API_BASE_URL + url;
+            return getApiBase() + url;
         });
         return {
             ...item,

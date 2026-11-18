@@ -2,9 +2,13 @@
 import { onLaunch, onShow, onHide } from "@dcloudio/uni-app";
 import { useAuthStore } from './stores/auth';
 import { useThemeStore } from './stores/theme';
+import { resolveApiBase } from './libs/http/apiBase';
 
 onLaunch(() => {
   console.log("App Launch");
+
+  // 开发环境：启动时并行探测候选后端地址（生产环境只有一个候选，立即返回）
+  resolveApiBase();
 
   // Init Theme
   const themeStore = useThemeStore();
@@ -215,9 +219,10 @@ textarea {
 
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .mm-frosted-header {
-    background-color: var(--header-bg);
-    -webkit-backdrop-filter: blur(18px) saturate(180%);
-    backdrop-filter: blur(18px) saturate(180%);
+    background: linear-gradient(to bottom, var(--uni-bg-color), rgba(255, 255, 255, 0));
+    -webkit-backdrop-filter: blur(3px) saturate(180%);
+    backdrop-filter: blur(3px) saturate(180%);
+    border-bottom: 0;
   }
 }
 

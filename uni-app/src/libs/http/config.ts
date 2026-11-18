@@ -4,12 +4,12 @@
  */
 
 import createHttp from '@/libs/http';
-import { API_BASE_URL } from '@/config';
+import { resolveApiBase } from '@/libs/http/apiBase';
 
 /**
  * 通用 HTTP 请求实例
  */
-export const http = createHttp(API_BASE_URL, {
+export const http = createHttp(() => resolveApiBase(), {
     concurrencyLimit: 10,           // 最大并发请求数
     retryCount: 2,                  // 请求失败重试次数
     retryDelay: 1000,               // 重试延迟时间 (ms)

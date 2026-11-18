@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev:custom": "uni -p",
-    "dev:h5": "uni",
+    "env:dev": "node scripts/dev-env.mjs",
+    "dev:h5": "node scripts/dev-env.mjs && uni",
     "dev:h5:ssr": "uni --ssr",
     "dev:mp-alipay": "uni -p mp-alipay",
     "dev:mp-baidu": "uni -p mp-baidu",
@@ -14,7 +15,7 @@
     "dev:mp-qq": "uni -p mp-qq",
     "dev:mp-toutiao": "uni -p mp-toutiao",
     "dev:mp-harmony": "uni -p mp-harmony",
-    "dev:mp-weixin": "uni -p mp-weixin",
+    "dev:mp-weixin": "node scripts/dev-env.mjs && uni -p mp-weixin",
     "dev:mp-xhs": "uni -p mp-xhs",
     "dev:quickapp-webview": "uni -p quickapp-webview",
     "dev:quickapp-webview-huawei": "uni -p quickapp-webview-huawei",
