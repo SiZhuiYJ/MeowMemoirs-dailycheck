@@ -7,11 +7,15 @@
     </view>
 
     <!-- navigation=false because pages.json has navigationStyle: custom -->
+    <!-- 裁剪尺寸/格式可由调用方用 query 指定（width/height/filetype/quality），默认 500x500 png；
+         个人主页背景图传 width=1200&height=1200&filetype=jpg，避免 500px 铺满卡片时发虚 -->
     <qf-image-cropper 
       v-if="src" 
       :src="src" 
-      :width="500" 
-      :height="500" 
+      :width="cropWidth" 
+      :height="cropHeight" 
+      :file-type="fileType"
+      :quality="quality"
       :radius="0" 
       :navigation="false"
       @crop="handleCrop" 
@@ -30,9 +34,34 @@ const themeStore = useThemeStore();
 
 const src = ref('');
 
+// 裁剪输出尺寸（px）。默认 500x500（头像等小图）；背景这类整卡铺满的图需要更大分辨率。
+const cropWidth = ref(500);
+const cropHeight = ref(500);
+// 输出格式与 jpg 质量：背景图用 jpg 控制体积，默认沿用 png。
+const fileType = ref<'png' | 'jpg'>('png');
+const quality = ref(92);
+
+const CROP_SIZE_MIN = 100;
+const CROP_SIZE_MAX = 1440;
+
+function parseCropSize(value: unknown, fallback: number): number {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(n, CROP_SIZE_MIN), CROP_SIZE_MAX);
+}
+
 onLoad((options: any) => {
   if (options.src) {
     src.value = options.src;
+  }
+  cropWidth.value = parseCropSize(options.width, 500);
+  cropHeight.value = parseCropSize(options.height, 500);
+  if (options.filetype === 'jpg' || options.filetype === 'jpeg') {
+    fileType.value = 'jpg';
+  }
+  const q = Number(options.quality);
+  if (Number.isFinite(q) && q > 0 && q <= 100) {
+    quality.value = q;
   }
 });
 

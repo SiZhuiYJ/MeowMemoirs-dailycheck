@@ -1,17 +1,41 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { computed, ref, reactive } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useThemeStore } from '@/stores/theme';
 import http from '@/libs/http/config';
-import { API_BASE_URL } from '@/config';
+import { apiBase, getApiBase, thumbnailUrl } from '@/libs/http/apiBase';
 import { onLoad, onShow } from '@dcloudio/uni-app';
 import { notifySuccess, notifyError } from '@/utils/notification';
 import MmNavBar from '@/components/MmNavBar.vue';
+import MmLazyImage from '@/components/MmLazyImage.vue';
 
 const authStore = useAuthStore();
 const themeStore = useThemeStore();
 
 const loading = ref(false);
+
+/** 当前用户头像地址 */
+const avatarUrl = computed(() => {
+  const user = authStore.user;
+  return user?.avatarKey ? `${apiBase.value}/mm/Files/users/${user.userId}/${user.avatarKey}` : '';
+});
+
+/** 头像缩略占位图（服务端 96px _thumb；无缩略图时后端回退原图） */
+const avatarThumbUrl = computed(() => thumbnailUrl(avatarUrl.value));
+
+/** 头像卡背景图地址：优先用户自定义背景，未设置时回退到头像（与改动前视觉一致） */
+const profileBackgroundUrl = computed(() => {
+  const user = authStore.user;
+  if (!user) return '';
+  const key = user.profileBackgroundKey || user.avatarKey;
+  return key ? `${apiBase.value}/mm/Files/users/${user.userId}/${key}` : '';
+});
+
+/** 背景缩略占位图（服务端上传时预处理生成，128px 小图）：先铺底，原图加载完再淡入 */
+const profileBackgroundThumbUrl = computed(() => thumbnailUrl(profileBackgroundUrl.value));
+
+/** 是否已设置自定义背景（决定操作表项与「查看大图 / 恢复默认」是否可用） */
+const hasCustomBackground = computed(() => !!authStore.user?.profileBackgroundKey);
 
 onShow(async () => {
   themeStore.updateNavBarColor();
@@ -40,12 +64,116 @@ function handleNavigate(url: string) {
 }
 
 function handleViewAvatar() {
-  if (authStore.user?.avatarKey) {
-    const url = `${API_BASE_URL}/mm/Files/users/${authStore.user.userId}/${authStore.user.avatarKey}`;
+  if (authStore.user?.avatarKey && avatarUrl.value) {
     uni.previewImage({
-      urls: [url],
+      urls: [avatarUrl.value],
       current: 0
     });
+  }
+}
+
+/** 预览当前头像卡背景图（自定义背景或回退的头像图） */
+function handlePreviewBackground() {
+  if (!profileBackgroundUrl.value) return;
+  uni.previewImage({
+    urls: [profileBackgroundUrl.value],
+    current: 0
+  });
+}
+
+/** 头像卡右上角「更换背景」入口：按当前状态弹出操作表 */
+function handleBackgroundSettings() {
+  const hasCustom = hasCustomBackground.value;
+  const itemList = hasCustom
+    ? ['更换背景', '查看大图', '恢复默认背景']
+    : ['设置背景'];
+  uni.showActionSheet({
+    itemList,
+    success: (res) => {
+      if (!hasCustom || res.tapIndex === 0) {
+        pickAndUploadBackground();
+      } else if (res.tapIndex === 1) {
+        handlePreviewBackground();
+      } else if (res.tapIndex === 2) {
+        handleResetBackground();
+      }
+    }
+  });
+}
+
+/** 选图 → 1:1 裁剪页 → 上传为新背景 */
+function pickAndUploadBackground() {
+  uni.chooseImage({
+    count: 1,
+    // 背景图铺满整张卡片，允许用户选原图以保留更多细节（裁剪输出 1200px）
+    sizeType: ['original', 'compressed'],
+    sourceType: ['album', 'camera'],
+    success: (chooseRes) => {
+      const tempFilePath = chooseRes.tempFilePaths?.[0];
+      if (!tempFilePath) return;
+      uni.navigateTo({
+        // 背景输出 1200x1200 jpg：500px 铺满手机卡片会明显放大发虚
+        url: `/pages/common/cropper?src=${tempFilePath}&width=1200&height=1200&filetype=jpg&quality=92`,
+        events: {
+          cropSuccess: (data: { tempFilePath?: string }) => {
+            if (data?.tempFilePath) uploadProfileBackground(data.tempFilePath);
+          }
+        }
+      });
+    }
+  });
+}
+
+/** 上传裁剪后的背景图，成功后写回 store */
+function uploadProfileBackground(filePath: string) {
+  loading.value = true;
+  uni.showLoading({ title: '上传中...', mask: true });
+  uni.uploadFile({
+    url: `${getApiBase()}/mm/Files/profile-background`,
+    filePath: filePath,
+    name: 'file',
+    header: {
+      'Authorization': `Bearer ${authStore.accessToken}`
+    },
+    success: (uploadRes) => {
+      loading.value = false;
+      uni.hideLoading();
+      if (uploadRes.statusCode >= 200 && uploadRes.statusCode < 300) {
+        try {
+          const data = JSON.parse(uploadRes.data);
+          const key = data?.key;
+          if (key) {
+            authStore.updateUser({ profileBackgroundKey: key });
+            notifySuccess('背景图上传成功');
+          } else {
+            notifyError('背景图上传失败: 无效的响应');
+          }
+        } catch (e) {
+          notifyError('背景图上传失败: 数据解析错误');
+        }
+      } else {
+        notifyError('背景图上传失败');
+      }
+    },
+    fail: () => {
+      loading.value = false;
+      uni.hideLoading();
+      notifyError('背景图上传失败: 网络错误');
+    }
+  });
+}
+
+/** 恢复默认背景：删除自定义背景，回退到头像图 */
+async function handleResetBackground() {
+  uni.showLoading({ title: '处理中...', mask: true });
+  try {
+    await http.delete('/mm/Files/profile-background');
+    authStore.updateUser({ profileBackgroundKey: null });
+    notifySuccess('已恢复默认背景');
+  } catch (error) {
+    notifyError('恢复默认背景失败');
+  } finally {
+    uni.hideLoading();
   }
 }
 
@@ -143,7 +271,7 @@ function downloadAndUpload(url: string) {
 function uploadFile(filePath: string) {
   loading.value = true;
   uni.uploadFile({
-    url: `${API_BASE_URL}/mm/Files/avatar`,
+    url: `${getApiBase()}/mm/Files/avatar`,
     filePath: filePath,
     name: 'file',
     header: {
@@ -192,21 +320,32 @@ async function handleAvatarClick() {
     <MmNavBar title="个人信息" />
     <NotificationSystem />
 
-    <!-- 头像卡：白卡片 + 头像 fallback 用主题浅底 -->
-    <view class="card profile-header">
-      <view class="avatar-large">
-        <image v-if="authStore.user?.avatarKey"
-          :src="`${API_BASE_URL}/mm/Files/users/${authStore.user.userId}/${authStore.user.avatarKey}`"
-          class="avatar-img" mode="aspectFill" @click.stop="handleViewAvatar" />
-        <text v-else class="avatar-text-large" @click.stop="handleViewAvatar">{{ (authStore.user?.nickName ||
-          authStore.user?.userAccount ||
-          authStore.user?.email ||
-          'U')[0].toUpperCase() }}</text>
-        <view class="avatar-edit-overlay" hover-class="mm-hover" @click.stop="handleEditAvatar">
-          <text class="edit-icon">✎</text>
-        </view>
+    <!-- 头像卡：先用 128px 缩略占位图铺底，原图加载完成后淡入（渐进/懒加载，见 MmLazyImage）；
+         无自定义背景时回退头像图作背景；点击空白处可预览背景 -->
+    <view class="card profile-header" @click="handlePreviewBackground">
+      <mm-lazy-image v-if="profileBackgroundUrl" class="profile-bg" :src="profileBackgroundUrl"
+        :thumbnail="profileBackgroundThumbUrl" mode="aspectFill" />
+      <view class="bg-setting-btn" hover-class="mm-hover" @click.stop="handleBackgroundSettings">
+        <view class="bg-setting-icon"></view>
       </view>
-      <text class="user-email">{{ authStore.user?.email }}</text>
+      <view class="fade-bottom">
+        <view class="avatar-large">
+          <mm-lazy-image v-if="avatarUrl" class="avatar-img" :src="avatarUrl" :thumbnail="avatarThumbUrl"
+            mode="aspectFill" @click.stop="handleViewAvatar" />
+          <text v-else class="avatar-text-large" @click.stop="handleViewAvatar">{{ (authStore.user?.nickName ||
+            authStore.user?.userAccount ||
+            authStore.user?.email ||
+            'U')[0].toUpperCase() }}</text>
+          <view class="avatar-edit-overlay" hover-class="mm-hover" @click.stop="handleEditAvatar">
+            <text class="edit-icon">✎</text>
+          </view>
+        </view>
+        <view class="user-info" @click.stop>
+          <text class="user-name">{{ authStore.user?.nickName }}</text>
+          <text class="user-email">{{ authStore.user?.email }}</text>
+        </view>
+
+      </view>
     </view>
 
     <!-- 菜单列表：白卡片 + 分割线 + 右侧箭头，行高 ≥ 44px -->
@@ -253,7 +392,8 @@ async function handleAvatarClick() {
 
     <!-- 注销入口：danger 语义色 -->
     <view class="actions">
-      <button class="btn-deactivate" hover-class="mm-hover" @click="handleNavigate('/pages/profile/deactivate')">注销账号</button>
+      <button class="btn-deactivate" hover-class="mm-hover"
+        @click="handleNavigate('/pages/profile/deactivate')">注销账号</button>
     </view>
   </view>
 </template>
@@ -281,10 +421,100 @@ async function handleAvatarClick() {
 
 /* 头像卡 */
 .profile-header {
+  position: relative;
+  overflow: hidden;
   display: flex;
+  justify-content: flex-end;
   flex-direction: column;
+  padding: 0px;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  /* 无背景图时的兜底底色（有头像/自定义背景时由两层 image 覆盖） */
+  background-color: var(--bg-elevated);
+}
+
+/* 背景图：MmLazyImage 负责「缩略占位图 → 原图淡入」，这里只负责铺满卡片 */
+.profile-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* 「更换背景」入口：半透明毛玻璃圆形按钮，固定在卡片右上角（不遮挡左下头像），
+   不支持 backdrop-filter 时回退到 --header-bg-fallback，与全站顶栏一致 */
+.bg-setting-btn {
+  position: absolute;
+  top: var(--page-pad);
+  right: var(--page-pad);
+  z-index: 3;
+  width: 36px;
+  height: 36px;
+  display: flex;
   align-items: center;
-  padding: 24px 16px 20px;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background-color: var(--header-bg-fallback);
+  border: 1px solid var(--header-border);
+  box-shadow: var(--card-shadow);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .bg-setting-btn {
+    background-color: var(--header-bg);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    backdrop-filter: blur(18px) saturate(180%);
+  }
+}
+
+/* 用 CSS 画一个「图片」小图标（外框 + 太阳 + 山），颜色跟随主题文字色 */
+.bg-setting-icon {
+  position: relative;
+  width: 16px;
+  height: 13px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--text-color);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.bg-setting-icon::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background-color: var(--text-color);
+}
+
+.bg-setting-icon::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--text-color);
+  transform: rotate(45deg);
+}
+
+.fade-bottom {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  padding: 16px;
+  background: linear-gradient(to top, #ffffff 0%, #ffffff 50%, rgba(255, 255, 255, 0) 100%);
+  border-radius: 0 0 var(--card-radius) var(--card-radius);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
 }
 
 /* 头像：fallback 底用主题浅底，1px 常规描边 */
@@ -292,7 +522,7 @@ async function handleAvatarClick() {
   position: relative;
   width: 80px;
   height: 80px;
-  margin-bottom: 12px;
+  margin-right: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -304,6 +534,7 @@ async function handleAvatarClick() {
 }
 
 .avatar-img {
+  display: block;
   width: 100%;
   height: 100%;
 }
@@ -333,6 +564,13 @@ async function handleAvatarClick() {
   color: #ffffff;
 }
 
+.user-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.user-name,
 .user-email {
   font-size: 13px;
   color: var(--text-muted);

@@ -13,6 +13,7 @@ export interface AuthUser {
   nickName: string | null;
   userAccount: string | null;
   avatarKey: string | null;
+  profileBackgroundKey: string | null; // 个人主页背景图 key，null 表示未设置（回退到头像）
   thirdPartyBindings?: ThirdPartyBinding[]; // 新增：第三方绑定信息
 }
 
@@ -67,6 +68,7 @@ export const useAuthStore = defineStore('auth', {
         nickName: getVal(['nickName', 'NickName']),
         userAccount: getVal(['userAccount', 'UserAccount']),
         avatarKey: getVal(['avatarKey', 'AvatarKey']) || null,
+        profileBackgroundKey: getVal(['profileBackgroundKey', 'ProfileBackgroundKey']) || null,
         thirdPartyBindings: getVal(['thirdPartyBindings', 'ThirdPartyBindings']) || [], // 添加第三方绑定信息
       };
       this.accessToken = getVal(['token', 'Token']);
@@ -109,6 +111,11 @@ export const useAuthStore = defineStore('auth', {
 
           const avatarKey = getVal(['avatarKey', 'AvatarKey']);
           if (avatarKey !== undefined) updateData.avatarKey = avatarKey;
+
+          const profileBackgroundKey = getVal(['profileBackgroundKey', 'ProfileBackgroundKey']);
+          if (profileBackgroundKey !== undefined) {
+            updateData.profileBackgroundKey = profileBackgroundKey || null;
+          }
 
           const thirdPartyBindings = getVal(['thirdPartyBindings', 'ThirdPartyBindings']);
           if (thirdPartyBindings !== undefined) updateData.thirdPartyBindings = thirdPartyBindings;

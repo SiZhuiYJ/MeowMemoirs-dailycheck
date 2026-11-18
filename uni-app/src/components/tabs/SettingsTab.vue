@@ -1,14 +1,24 @@
 <script setup lang="ts">
 import { useAuthStore } from '@/stores/auth';
 import { useThemeStore, PRESET_SEEDS, normalizeHexColor } from '@/stores/theme';
-import { API_BASE_URL } from '@/config';
+import { apiBase, thumbnailUrl } from '@/libs/http/apiBase';
 import { computed, ref, watch } from 'vue';
 import MmNavBar from '@/components/MmNavBar.vue';
+import MmLazyImage from '@/components/MmLazyImage.vue';
 
 const props = defineProps<{ isActive: boolean }>();
 const authStore = useAuthStore();
 const themeStore = useThemeStore();
 const isLoading = ref(true);
+
+/** 当前用户头像地址 */
+const avatarUrl = computed(() => {
+  const user = authStore.user;
+  return user?.avatarKey ? `${apiBase.value}/mm/Files/users/${user.userId}/${user.avatarKey}` : '';
+});
+
+/** 头像缩略占位图（服务端 96px _thumb；不存在时后端回退原图） */
+const avatarThumbUrl = computed(() => thumbnailUrl(avatarUrl.value));
 
 watch(() => props.isActive, async (newVal) => {
   if (newVal) {
@@ -123,9 +133,8 @@ function navigateTo(path: string) {
                 <view class="skeleton-avatar"></view>
               </template>
               <template v-else>
-                <image v-if="authStore.user?.avatarKey"
-                  :src="`${API_BASE_URL}/mm/Files/users/${authStore.user.userId}/${authStore.user.avatarKey}`"
-                  class="avatar-img" mode="aspectFill" />
+                <mm-lazy-image v-if="avatarUrl" class="avatar-img" :src="avatarUrl" :thumbnail="avatarThumbUrl"
+                  mode="aspectFill" />
                 <view v-else class="avatar-placeholder">
                   <text class="avatar-text">{{ (authStore.user?.nickName || authStore.user?.userAccount ||
                     'U')[0].toUpperCase() }}</text>
@@ -277,6 +286,7 @@ function navigateTo(path: string) {
 }
 
 .avatar-img {
+  display: block;
   width: 100%;
   height: 100%;
 }

@@ -133,7 +133,8 @@
         {
             "path": "pages/settings/login-records",
             "style": {
-                "navigationBarTitleText": "登录记录"
+                "navigationBarTitleText": "登录记录",
+                "enablePullDownRefresh": true
             }
         }
 	],

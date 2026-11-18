@@ -481,7 +481,6 @@ function jumpToToday() {
 
 // 课程表
 .class-table {
-  margin-top: 12px;
   background-color: var(--bg-elevated);
   border-radius: var(--card-radius);
   border: 1px solid var(--border-color);
@@ -671,8 +670,8 @@ function jumpToToday() {
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: var(--surface-soft);
-    border: 1px solid var(--border-color);
+    background-color: var(--theme-color-soft);
+    border: 1px solid var(--theme-color-muted);
     border-radius: 10px;
     transition: transform 0.2s ease, opacity 0.2s ease;
 

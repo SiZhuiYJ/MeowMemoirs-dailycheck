@@ -181,6 +181,11 @@
 				type: String,
 				default: 'png'
 			},
+			/** 生成 jpg 时的图片质量（0-100），仅 fileType='jpg' 时生效；png 忽略 */
+			quality: {
+				type: Number,
+				default: 80
+			},
 			/**
 			 * 图片从绘制到生成所需时间，单位ms
 			 * 微信小程序平台使用 `Canvas 2D` 绘制时有效
@@ -565,6 +570,8 @@
 					destWidth: this.imgWidth, // 必要，保证生成图片宽度不受设备分辨率影响
 					destHeight: this.imgHeight, // 必要，保证生成图片高度不受设备分辨率影响
 					fileType: this.fileType, // 目标文件的类型，默认png
+					// quality 只对 jpg 生效；png 传了会被忽略，这里显式仅 jpg 带上
+					...(this.fileType === 'jpg' ? { quality: this.quality } : {}),
 					success: (res) => {
 						// 生成的图片临时文件路径
 						this.handleImage(res.tempFilePath);
@@ -595,11 +602,15 @@
 						if(res && res.length > 0 && res[0] && res[0].node) {
 							const canvas = res[0].node;
 											
+							// Canvas 2D 的 backing store 在部分机型上超过约 4096px 会绘制失败/空白。
+							// 这里按最大 4096 反推可用倍率：小尺寸裁剪（如 500px 头像）倍率仍等于 dpr，
+							// 行为不变；大尺寸裁剪（如 1200px 背景）在高 DPR 机型上自动降倍率，导出分辨率不受影响。
 							const dpr = uni.getSystemInfoSync().pixelRatio;
-							canvas.width = res[0].width * dpr;
-							canvas.height = res[0].height * dpr;
+							const pixelRatio = Math.min(dpr, 4096 / Math.max(res[0].width, res[0].height, 1));
+							canvas.width = Math.round(res[0].width * pixelRatio);
+							canvas.height = Math.round(res[0].height * pixelRatio);
 							const ctx = canvas.getContext('2d');
-							ctx.scale(dpr, dpr);
+							ctx.scale(pixelRatio, pixelRatio);
 							ctx.clearRect(0, 0, this.canvansWidth, this.canvansHeight);
 							
 							this.draw2DImage(canvas, ctx, this.imgSrc, () => {
