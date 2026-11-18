@@ -167,6 +167,11 @@ public class AuthResponse
     public string? AvatarKey { get; set; }
 
     /// <summary>
+    /// 个人主页背景图键，可选
+    /// </summary>
+    public string? ProfileBackgroundKey { get; set; }
+
+    /// <summary>
     /// 访问令牌
     /// </summary>
     public string Token { get; set; } = string.Empty;
@@ -216,6 +221,11 @@ public class UserBasicResponse
     /// 头像键，可选
     /// </summary>
     public string? AvatarKey { get; set; }
+
+    /// <summary>
+    /// 个人主页背景图键，可选
+    /// </summary>
+    public string? ProfileBackgroundKey { get; set; }
 }
 
 /// <summary>
@@ -232,6 +242,11 @@ public class UpdateUserProfileRequest
     /// 新的头像键，可选
     /// </summary>
     public string? AvatarKey { get; set; }
+
+    /// <summary>
+    /// 个人主页背景图键，可选：字符串=设置；空字符串=清除；不传/null=不修改
+    /// </summary>
+    public string? ProfileBackgroundKey { get; set; }
 }
 
 /// <summary>

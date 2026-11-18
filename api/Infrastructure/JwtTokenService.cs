@@ -66,6 +66,12 @@ public class TokenPair
     /// 刷新令牌过期时间（UTC）。
     /// </summary>
     public DateTime RefreshTokenExpiresAt { get; set; }
+
+    /// <summary>
+    /// 本次签发使用的设备会话标识（JWT sid）。登录时新建、刷新/改资料时沿用，
+    /// 用于把「登录记录」与当前请求会话对应起来。
+    /// </summary>
+    public string SessionId { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -125,7 +131,8 @@ public class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenService
             AccessToken = accessToken,
             RefreshToken = refreshToken,
             AccessTokenExpiresAt = accessExpires,
-            RefreshTokenExpiresAt = refreshExpires
+            RefreshTokenExpiresAt = refreshExpires,
+            SessionId = sid
         };
     }
 

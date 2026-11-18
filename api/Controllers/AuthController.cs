@@ -36,6 +36,7 @@ public class AuthController(
     IJwtTokenService jwtTokenService,
     IVerificationCodeService verificationCodeService,
     IWechatAuthService wechatAuthService,
+    ILoginRecordService loginRecordService,
     IConnectionMultiplexer? redis) : ControllerBase
 {
     readonly DailyCheckDbContext _db = db;
@@ -43,6 +44,7 @@ public class AuthController(
     readonly IJwtTokenService _jwtTokenService = jwtTokenService;
     readonly IVerificationCodeService _verificationCodeService = verificationCodeService;
     readonly IWechatAuthService _wechatAuthService = wechatAuthService;
+    readonly ILoginRecordService _loginRecordService = loginRecordService;
     readonly IDatabase? _redisDb = redis?.GetDatabase();
 
     /// <summary>
@@ -124,6 +126,9 @@ public class AuthController(
         // 将令牌存储到Redis
         await StoreTokensInRedis(user.Id, tokens.AccessToken, tokens.RefreshToken);
 
+        // 记录登录（国内 IP 归属地）；记录失败不影响注册成功。
+        await _loginRecordService.RecordLoginAsync(user, "register", tokens.SessionId, HttpContext, cancellationToken);
+
         return Ok(CreateAuthResponse(user, tokens));
     }
 
@@ -172,6 +177,9 @@ public class AuthController(
 
         // 将令牌存储到Redis
         await StoreTokensInRedis(user.Id, tokens.AccessToken, tokens.RefreshToken);
+
+        // 记录登录（国内 IP 归属地）；记录失败不影响登录成功。
+        await _loginRecordService.RecordLoginAsync(user, "password", tokens.SessionId, HttpContext);
 
         return Ok(CreateAuthResponse(user, tokens));
     }
@@ -224,6 +232,9 @@ public class AuthController(
 
         // 将令牌存储到Redis
         await StoreTokensInRedis(user.Id, tokens.AccessToken, tokens.RefreshToken);
+
+        // 记录登录（国内 IP 归属地）；记录失败不影响登录成功。
+        await _loginRecordService.RecordLoginAsync(user, "password", tokens.SessionId, HttpContext);
 
         return Ok(CreateAuthResponse(user, tokens));
     }
@@ -314,6 +325,9 @@ public class AuthController(
         var tokens = _jwtTokenService.GenerateTokens(user);
         await StoreTokensInRedis(user.Id, tokens.AccessToken, tokens.RefreshToken);
 
+        // 记录登录（国内 IP 归属地）；记录失败不影响登录成功。
+        await _loginRecordService.RecordLoginAsync(user, "wechat", tokens.SessionId, HttpContext, cancellationToken);
+
         return Ok(CreateAuthResponse(user, tokens));
     }
 
@@ -366,6 +380,9 @@ public class AuthController(
         var tokens = _jwtTokenService.GenerateTokens(user);
         await StoreTokensInRedis(user.Id, tokens.AccessToken, tokens.RefreshToken);
         await _db.SaveChangesAsync(cancellationToken);
+
+        // 记录登录（国内 IP 归属地）；记录失败不影响登录成功。
+        await _loginRecordService.RecordLoginAsync(user, "wechat", tokens.SessionId, HttpContext, cancellationToken);
 
         return Ok(CreateAuthResponse(user, tokens));
     }
@@ -470,6 +487,9 @@ public class AuthController(
         var tokens = _jwtTokenService.GenerateTokens(user);
         await StoreTokensInRedis(user.Id, tokens.AccessToken, tokens.RefreshToken);
 
+        // 记录登录（国内 IP 归属地；自动注册分支同样记录）；记录失败不影响登录成功。
+        await _loginRecordService.RecordLoginAsync(user, "wechat", tokens.SessionId, HttpContext, cancellationToken);
+
         var response = CreateAuthResponse(user, tokens);
         // 可以根据需要在响应中标识是否为新用户
         // 注意：CreateAuthResponse方法目前不包含IsNewUser字段，如需此信息需要扩展模型
@@ -541,6 +561,9 @@ public class AuthController(
 
         // 将令牌存储到Redis
         await StoreTokensInRedis(user.Id, tokens.AccessToken, tokens.RefreshToken);
+
+        // 记录登录（国内 IP 归属地）；记录失败不影响登录成功。
+        await _loginRecordService.RecordLoginAsync(user, "email-code", tokens.SessionId, HttpContext, cancellationToken);
 
         return Ok(CreateAuthResponse(user, tokens));
     }
@@ -797,6 +820,9 @@ public class AuthController(
             Console.WriteLine($"[Auth] 用户 {userId} 的设备已登出 sid={sid}");
         }
 
+        // 标记该设备的登录记录已退出；标记失败不影响登出。
+        await _loginRecordService.MarkLoggedOutAsync(userId, sid);
+
         return Ok(new { message = "已退出登录" });
     }
 
@@ -809,6 +835,10 @@ public class AuthController(
     {
         var userId = GetUserId();
         await DeleteTokensFromRedis(userId);
+
+        // 标记该用户全部未退出的登录记录；标记失败不影响登出。
+        await _loginRecordService.MarkLoggedOutAsync(userId, null);
+
         return Ok(new { message = "已在所有设备退出登录" });
     }
 
@@ -851,6 +881,9 @@ public class AuthController(
         await DeleteTokensFromRedis(userId);
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        // 注销等于全端下线：标记该用户全部未退出的登录记录。
+        await _loginRecordService.MarkLoggedOutAsync(userId, null);
 
         return NoContent();
     }
@@ -948,6 +981,9 @@ public class AuthController(
         await DeleteTokensFromRedis(userId);
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        // 改密后全部令牌失效，等于全端下线：标记全部未退出的登录记录。
+        await _loginRecordService.MarkLoggedOutAsync(userId, null);
 
         return NoContent();
     }
@@ -1059,8 +1095,12 @@ public class AuthController(
             return Conflict("该邮箱已被使用");
         }
 
-        var tokens = _jwtTokenService.GenerateTokens(user);
+        // 沿用当前请求的 sid：换绑邮箱不是新设备登录，避免「当前登录」记录错位。
+        var tokens = _jwtTokenService.GenerateTokens(user, GetCurrentSessionId());
         await StoreTokensInRedis(user.Id, tokens.AccessToken, tokens.RefreshToken);
+
+        // 记录换绑登录（沿用同一 sid）；记录失败不影响换绑成功。
+        await _loginRecordService.RecordLoginAsync(user, "email-change", tokens.SessionId, HttpContext, cancellationToken);
 
         return Ok(CreateAuthResponse(user, tokens));
     }
@@ -1117,9 +1157,17 @@ public class AuthController(
         if (request.AvatarKey != null)
             user.AvatarKey = request.AvatarKey;
 
+        // 背景图走 /mm/Files/profile-background 上传更常用；这里保留通用更新入口：
+        // 传字符串=设置，传空串=清除（null 表示不修改，避免误清空）。
+        if (request.ProfileBackgroundKey != null)
+            user.ProfileBackgroundKey = string.IsNullOrWhiteSpace(request.ProfileBackgroundKey)
+                ? null
+                : request.ProfileBackgroundKey;
+
         user.UpdatedAt = DateTime.UtcNow;
 
-        var tokens = _jwtTokenService.GenerateTokens(user);
+        // 沿用当前请求的 sid：改资料不是新设备登录，避免「当前登录」记录错位。
+        var tokens = _jwtTokenService.GenerateTokens(user, GetCurrentSessionId());
 
         // 更新Redis中的令牌
         await StoreTokensInRedis(user.Id, tokens.AccessToken, tokens.RefreshToken);
@@ -1174,6 +1222,7 @@ public class AuthController(
                 x.NickName,
                 x.UserAccount,
                 x.AvatarKey,
+                x.ProfileBackgroundKey,
                 x.Status
             })
             .SingleOrDefaultAsync(cancellationToken);
@@ -1193,7 +1242,8 @@ public class AuthController(
             Email = user.Email,
             NickName = user.NickName,
             UserAccount = user.UserAccount,
-            AvatarKey = user.AvatarKey
+            AvatarKey = user.AvatarKey,
+            ProfileBackgroundKey = user.ProfileBackgroundKey
         });
     }
 
@@ -1318,7 +1368,8 @@ public class AuthController(
         user.AccountUpdatedAt = DateTime.UtcNow;
         user.UpdatedAt = DateTime.UtcNow;
 
-        var tokens = _jwtTokenService.GenerateTokens(user);
+        // 沿用当前请求的 sid：改账号名不是新设备登录，避免「当前登录」记录错位。
+        var tokens = _jwtTokenService.GenerateTokens(user, GetCurrentSessionId());
 
         // 更新Redis中的令牌
         await StoreTokensInRedis(user.Id, tokens.AccessToken, tokens.RefreshToken);
@@ -1343,6 +1394,7 @@ public class AuthController(
             NickName = user.NickName,
             UserAccount = user.UserAccount,
             AvatarKey = user.AvatarKey,
+            ProfileBackgroundKey = user.ProfileBackgroundKey,
             Token = tokens.AccessToken,
             RefreshToken = tokens.RefreshToken,
             AccessTokenExpiresAt = tokens.AccessTokenExpiresAt,
@@ -1383,6 +1435,17 @@ public class AuthController(
         var subClaim = User.FindFirstValue("sub");
         var value = idClaim ?? subClaim;
         return value == null ? throw new InvalidOperationException("User id not found in token") : ulong.Parse(value);
+    }
+
+    /// <summary>
+    /// 从当前请求的 Authorization 头里读取访问令牌的 sid（设备会话标识）。
+    /// 改资料 / 改账号名 / 换绑邮箱重新签发令牌时沿用，避免「当前登录」记录错位。
+    /// </summary>
+    /// <returns>当前令牌的 sid；读取失败返回 null。</returns>
+    string? GetCurrentSessionId()
+    {
+        var rawToken = Request.Headers.Authorization.ToString().Replace("Bearer ", string.Empty).Trim();
+        return ReadPayloadString(rawToken, "sid");
     }
 
     /// <summary>

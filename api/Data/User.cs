@@ -34,6 +34,11 @@ public partial class User
     public string? AvatarKey { get; set; }
 
     /// <summary>
+    /// 个人主页背景图存储标识（NULL 表示未设置，前端回退用头像图）
+    /// </summary>
+    public string? ProfileBackgroundKey { get; set; }
+
+    /// <summary>
     /// 是否伪删除：0正常，1已删除
     /// </summary>
     public bool IsDeleted { get; set; }

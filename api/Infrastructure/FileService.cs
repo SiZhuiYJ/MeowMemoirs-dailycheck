@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.Processing;
 using System;
 using System.IO;
@@ -17,6 +18,7 @@ public interface IFileService
 {
     Task<string> SaveImageAsync(ulong userId, IFormFile file, bool isPublic, CancellationToken cancellationToken = default);
     Task<string> SaveUserAvatarAsync(ulong userId, IFormFile file, IFormFile? thumbnail = null, CancellationToken cancellationToken = default);
+    Task<string> SaveProfileBackgroundAsync(ulong userId, IFormFile file, IFormFile? thumbnail = null, CancellationToken cancellationToken = default);
     Task<(Stream Stream, string ContentType)?> GetImageAsync(ulong userId, string fileKey, bool isPublic, bool preferThumbnail = false, CancellationToken cancellationToken = default);
     Task<FileInfoResult> SaveChatFileAsync(ulong userId, ulong conversationId, IFormFile file, CancellationToken cancellationToken = default);
     Task<(Stream Stream, string ContentType, string FileName)?> GetChatFileAsync(ulong userId, string fileKey, CancellationToken cancellationToken = default);
@@ -42,6 +44,13 @@ public class LocalFileService : IFileService
     private const long MaxChatFileBytes = 100 * 1024 * 1024;      // 100 MB
     private const int AvatarThumbnailMaxPixels = 96;
     private const string AvatarThumbnailSuffix = "_thumb";
+    // 个人主页背景图（头像卡正方形铺满）最长边上限；前端裁剪输出 1200px，这里留出余量。
+    private const int ProfileBackgroundMaxPixels = 1600;
+    // 背景图是有损照片类内容，85 在 1200-1600px 下肉眼几乎无损，体积远小于无损/默认编码。
+    private const int ProfileBackgroundWebpQuality = 85;
+    // 背景缩略占位图：前端先显示它、原图下载完再淡入（渐进加载），128px 足够铺满卡片当模糊底。
+    private const int ProfileBackgroundThumbnailMaxPixels = 128;
+    private const int ProfileBackgroundThumbnailWebpQuality = 70;
 
     private static readonly string[] AllowedImageExtensions =
     [
@@ -115,6 +124,45 @@ public class LocalFileService : IFileService
 
         var (_, fileKey) = await ComputeHashAsync(file.OpenReadStream(), cancellationToken);
         await SaveAvatarAssetsAsync(file, thumbnail, root, fileKey, cancellationToken);
+        return fileKey;
+    }
+
+    /// <summary>
+    /// 保存个人主页背景图：与头像共用公开用户目录（便于复用
+    /// GET /mm/Files/users/{userId}/{key} 公开读取），最长边不超过 1600px，
+    /// 有损 WebP（质量 85）兼顾清晰度与体积。
+    /// 同时预处理缩略占位图（最长边 128px，存为 {key}_thumb.webp）供前端渐进加载：
+    /// 优先使用客户端上传的 thumbnail，未上传则由服务端从原图自动生成。
+    /// </summary>
+    public async Task<string> SaveProfileBackgroundAsync(ulong userId, IFormFile file, IFormFile? thumbnail = null, CancellationToken cancellationToken = default)
+    {
+        ValidateImageFile(file);
+        if (thumbnail != null)
+            ValidateImageFile(thumbnail);
+
+        var root = GetUserRoot(userId, isPublic: true);
+        Directory.CreateDirectory(root);
+
+        var (_, fileKey) = await ComputeHashAsync(file.OpenReadStream(), cancellationToken);
+        var webpPath = Path.Combine(root, fileKey + ".webp");
+
+        // 内容哈希相同即内容相同，直接复用，避免重复转码。
+        if (!File.Exists(webpPath))
+            await SaveImageAsWebpAsync(
+                file, webpPath, cancellationToken,
+                ProfileBackgroundMaxPixels, ProfileBackgroundMaxPixels,
+                onlyDownscale: true,
+                webpQuality: ProfileBackgroundWebpQuality);
+
+        // 缩略占位图：客户端传了就直接用（只缩不放），否则从原图生成。
+        var thumbnailPath = Path.Combine(root, fileKey + AvatarThumbnailSuffix + ".webp");
+        if (!File.Exists(thumbnailPath))
+            await SaveImageAsWebpAsync(
+                thumbnail ?? file, thumbnailPath, cancellationToken,
+                ProfileBackgroundThumbnailMaxPixels, ProfileBackgroundThumbnailMaxPixels,
+                onlyDownscale: true,
+                webpQuality: ProfileBackgroundThumbnailWebpQuality);
+
         return fileKey;
     }
 
@@ -512,7 +560,9 @@ public class LocalFileService : IFileService
         string targetPath,
         CancellationToken cancellationToken,
         int? maxWidth = null,
-        int? maxHeight = null)
+        int? maxHeight = null,
+        bool onlyDownscale = false,
+        int? webpQuality = null)
     {
         try
         {
@@ -529,14 +579,30 @@ public class LocalFileService : IFileService
             using var image = await LoadImageForConversionAsync(sourceStream, originalExt, cancellationToken);
             if (maxWidth.HasValue || maxHeight.HasValue)
             {
-                image.Mutate(context => context.Resize(new ResizeOptions
+                // onlyDownscale：只缩不放。头像缩略图需要放大到 96px 的兜底，
+                // 但背景小图若被放大到 1600px 只会变大变糊，因此背景传 true。
+                var needsResize = !onlyDownscale
+                    || (maxWidth.HasValue && image.Width > maxWidth.Value)
+                    || (maxHeight.HasValue && image.Height > maxHeight.Value);
+                if (needsResize)
                 {
-                    Mode = ResizeMode.Max,
-                    Size = new Size(maxWidth ?? image.Width, maxHeight ?? image.Height)
-                }));
+                    image.Mutate(context => context.Resize(new ResizeOptions
+                    {
+                        Mode = ResizeMode.Max,
+                        Size = new Size(maxWidth ?? image.Width, maxHeight ?? image.Height)
+                    }));
+                }
             }
 
-            await image.SaveAsWebpAsync(targetPath, cancellationToken);
+            // webpQuality 指定时显式用有损编码（背景图这类照片用有损 85 既清晰又省体积）；
+            // 不指定时保持原来的默认编码行为，头像/聊天图片不受影响。
+            if (webpQuality.HasValue)
+                await image.SaveAsWebpAsync(
+                    targetPath,
+                    new WebpEncoder { FileFormat = WebpFileFormatType.Lossy, Quality = webpQuality.Value },
+                    cancellationToken);
+            else
+                await image.SaveAsWebpAsync(targetPath, cancellationToken);
         }
         catch (IOException) when (File.Exists(targetPath))
         {

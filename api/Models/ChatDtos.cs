@@ -514,6 +514,10 @@ public class UserProfileDto
     /// </summary>
     public string? AvatarKey { get; set; }
     /// <summary>
+    /// 个人主页背景图键（未设置时为 null，前端回退用头像图）
+    /// </summary>
+    public string? ProfileBackgroundKey { get; set; }
+    /// <summary>
     /// 注册时间
     /// </summary>
     public DateTime CreatedAt { get; set; }

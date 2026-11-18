@@ -54,6 +54,11 @@ public partial class DailyCheckDbContext : DbContext
 
     public virtual DbSet<UserFriendship> UserFriendships { get; set; }
 
+    /// <summary>
+    /// 用户登录记录（含IP归属地）。
+    /// </summary>
+    public virtual DbSet<UserLoginRecord> UserLoginRecords { get; set; }
+
     public virtual DbSet<UserOauthAccount> UserOauthAccounts { get; set; }
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -974,6 +979,10 @@ public partial class DailyCheckDbContext : DbContext
                 .HasMaxLength(512)
                 .HasComment("头像图片URL")
                 .HasColumnName("avatar_key");
+            entity.Property(e => e.ProfileBackgroundKey)
+                .HasMaxLength(512)
+                .HasComment("个人主页背景图存储标识")
+                .HasColumnName("profile_background_key");
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasComment("创建时间")
@@ -1077,6 +1086,99 @@ public partial class DailyCheckDbContext : DbContext
             entity.Property(e => e.UserId)
                 .HasComment("用户ID（匿名操作可为空）")
                 .HasColumnName("user_id");
+        });
+
+        modelBuilder.Entity<UserLoginRecord>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PRIMARY");
+
+            entity
+                .ToTable("user_login_records", tb => tb.HasComment("用户登录记录表（含IP归属地）"))
+                .UseCollation("utf8mb4_unicode_ci");
+
+            entity.HasIndex(e => new { e.UserId, e.LoginAt }, "idx_login_records_user_time");
+
+            entity.HasIndex(e => new { e.UserId, e.IsDomestic, e.LoginAt }, "idx_login_records_user_domestic_time");
+
+            entity.HasIndex(e => e.SessionId, "idx_login_records_session");
+
+            entity.Property(e => e.Id)
+                .HasComment("主键ID")
+                .HasColumnName("id");
+            entity.Property(e => e.City)
+                .HasMaxLength(64)
+                .HasComment("市（仅国内，可能为空）")
+                .HasColumnName("city");
+            entity.Property(e => e.Device)
+                .IsRequired()
+                .HasMaxLength(128)
+                .HasDefaultValueSql("''")
+                .HasComment("设备展示名，如 iPhone 13 · 微信")
+                .HasColumnName("device");
+            entity.Property(e => e.District)
+                .HasMaxLength(64)
+                .HasComment("区县（仅国内，可能为空）")
+                .HasColumnName("district");
+            entity.Property(e => e.Ip)
+                .HasMaxLength(45)
+                .HasComment("登录IP（v4/v6）")
+                .HasColumnName("ip");
+            entity.Property(e => e.IsDomestic)
+                .IsRequired()
+                .HasDefaultValueSql("'0'")
+                .HasComment("是否中国大陆IP：1是，0否")
+                .HasColumnName("is_domestic");
+            entity.Property(e => e.Isp)
+                .HasMaxLength(64)
+                .HasComment("运营商（仅国内，可能为空）")
+                .HasColumnName("isp");
+            entity.Property(e => e.Location)
+                .HasMaxLength(64)
+                .HasComment("归一化登录地点：河南 · 郑州 / 境外 / 本地网络 / 未知位置")
+                .HasColumnName("location");
+            entity.Property(e => e.LoginAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasComment("登录时间（UTC）")
+                .HasColumnType("datetime")
+                .HasColumnName("login_at");
+            entity.Property(e => e.LoginType)
+                .IsRequired()
+                .HasMaxLength(32)
+                .HasDefaultValueSql("'password'")
+                .HasComment("登录方式：password/email-code/wechat/register/email-change")
+                .HasColumnName("login_type");
+            entity.Property(e => e.LogoutAt)
+                .HasComment("退出/被撤销时间（UTC，NULL=未退出）")
+                .HasColumnType("datetime")
+                .HasColumnName("logout_at");
+            entity.Property(e => e.Platform)
+                .IsRequired()
+                .HasMaxLength(32)
+                .HasDefaultValueSql("'unknown'")
+                .HasComment("客户端平台：mp-weixin/h5/app/unknown")
+                .HasColumnName("platform");
+            entity.Property(e => e.Province)
+                .HasMaxLength(64)
+                .HasComment("省（仅国内）")
+                .HasColumnName("province");
+            entity.Property(e => e.SessionId)
+                .IsRequired()
+                .HasMaxLength(64)
+                .HasComment("设备会话标识（JWT sid，刷新沿用）")
+                .HasColumnName("session_id");
+            entity.Property(e => e.UserAgent)
+                .HasMaxLength(512)
+                .HasComment("User-Agent（截断后）")
+                .HasColumnName("user_agent");
+            entity.Property(e => e.UserId)
+                .HasComment("用户ID")
+                .HasColumnName("user_id");
+
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_login_records_user");
         });
 
         modelBuilder.Entity<UserBlock>(entity =>

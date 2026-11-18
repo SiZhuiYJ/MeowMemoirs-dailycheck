@@ -49,6 +49,7 @@ public class UsersController(DailyCheckDbContext db) : ControllerBase
                 u.UserAccount,
                 u.NickName,
                 u.AvatarKey,
+                u.ProfileBackgroundKey,
                 u.CreatedAt,
                 u.Status,
                 IsFriend = _db.UserFriendships.Any(f =>
@@ -100,6 +101,7 @@ public class UsersController(DailyCheckDbContext db) : ControllerBase
             UserAccount = profile.UserAccount,
             NickName = profile.NickName,
             AvatarKey = profile.AvatarKey,
+            ProfileBackgroundKey = profile.ProfileBackgroundKey,
             CreatedAt = profile.CreatedAt,
             IsSelf = isSelf,
             // 自己看自己时，关系状态一律按「无」返回，和旧实现一致。

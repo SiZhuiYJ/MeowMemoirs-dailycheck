@@ -166,6 +166,12 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 builder.Services.AddScoped<IFileService, LocalFileService>();
 #endregion
 
+#region 登录记录与 GeoIP 服务配置
+// GeoCN 离线库在进程内加载一次（Reader 线程安全）；登录记录服务随请求作用域使用 DbContext。
+builder.Services.AddSingleton<IGeoIpService, GeoIpService>();
+builder.Services.AddScoped<ILoginRecordService, LoginRecordService>();
+#endregion
+
 #region 数据库上下文注册
 var connectionString = builder.Configuration.GetConnectionString("Default");
 // 生产环境可以写死 "Database:ServerVersion"（例如 8.0.36-mysql / 10.4.0-mariadb），

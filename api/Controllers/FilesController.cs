@@ -109,6 +109,93 @@ public class FilesController(IFileService fileService, DailyCheckDbContext db) :
     }
 
     /// <summary>
+    /// 上传/更换个人主页背景图接口。
+    /// 上传成功后自动写入当前用户的 ProfileBackgroundKey。
+    /// </summary>
+    /// <remarks>
+    /// 背景图与头像共用公开用户目录（uploads/public/users/{userId}/），
+    /// 因此读图直接复用 GET /mm/Files/users/{userId}/{key}（匿名、可缓存），
+    /// 不需要额外的 GET 接口。
+    ///
+    /// 处理流程：
+    /// 1. 图片格式与大小校验（≤10MB，与头像一致，含 HEIC/HEIF）
+    /// 2. 原图统一转有损 WebP，最长边压缩到 1600px（背景整卡铺满，不需要原图尺寸）
+    /// 3. 预处理缩略占位图（最长边 128px，存为 {key}_thumb.webp）：
+    ///    客户端传了 thumbnail 就用它，否则服务端从原图生成 —— 前端先显示占位图、原图下载完再淡入
+    /// 4. 内容哈希作为 fileKey，相同图片自动去重复用
+    /// 5. 更新 users.profile_background_key
+    ///
+    /// 返回：
+    /// { "key": "内容哈希", "thumbnailKey": "内容哈希_thumb" }
+    ///
+    /// 前端通过 /mm/Files/users/{userId}/{key} 展示原图，
+    /// 通过 /mm/Files/users/{userId}/{key}?thumbnail=true 展示缩略占位图。
+    /// </remarks>
+    /// <param name="file">待上传的背景原图文件。</param>
+    /// <param name="thumbnail">可选的缩略占位图文件；不传时服务端从原图自动生成。</param>
+    /// <returns>成功时返回200 OK，包含原图与缩略图文件Key。</returns>
+    /// <response code="200">背景图上传成功</response>
+    /// <response code="400">文件为空或格式不支持</response>
+    /// <response code="404">用户不存在</response>
+    [HttpPost("profile-background")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<ActionResult> UploadProfileBackground(IFormFile file, IFormFile? thumbnail)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest("文件不能为空");
+
+        var userId = GetUserId();
+        var user = await _db.Users.SingleOrDefaultAsync(x => x.Id == userId && !x.IsDeleted);
+        if (user == null)
+            return NotFound("用户不存在");
+
+        try
+        {
+            var fileKey = await _fileService.SaveProfileBackgroundAsync(userId, file, thumbnail);
+
+            user.ProfileBackgroundKey = fileKey;
+            user.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            // 缩略占位图按约定存为 {key}_thumb.webp（与头像缩略图同一命名规则）。
+            return Ok(new { key = fileKey, thumbnailKey = fileKey + "_thumb" });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 恢复默认个人主页背景接口：清空当前用户的背景图标识。
+    /// </summary>
+    /// <remarks>
+    /// 只把 users.profile_background_key 置空，前端随即回退为「用头像图作背景」；
+    /// 已落盘的图片文件不删除（内容哈希可能被其它用途复用，清理成本高于收益）。
+    /// 返回：{ "success": true }
+    /// </remarks>
+    /// <returns>成功时返回200 OK。</returns>
+    /// <response code="200">背景已恢复默认</response>
+    /// <response code="404">用户不存在</response>
+    [HttpDelete("profile-background")]
+    public async Task<ActionResult> DeleteProfileBackground()
+    {
+        var userId = GetUserId();
+        var user = await _db.Users.SingleOrDefaultAsync(x => x.Id == userId && !x.IsDeleted);
+        if (user == null)
+            return NotFound("用户不存在");
+
+        if (user.ProfileBackgroundKey != null)
+        {
+            user.ProfileBackgroundKey = null;
+            user.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+
+        return Ok(new { success = true });
+    }
+
+    /// <summary>
     /// 获取指定用户头像接口，提供公开访问的头像读取服务。
     /// 无需认证即可访问，支持跨域请求。
     /// 返回优化后的WebP格式图片，提升加载性能。
