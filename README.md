@@ -18,7 +18,7 @@
 │   ├── Hubs/            # SignalR ChatHub（/hubs/chat）
 │   ├── Infrastructure/  # JWT、Redis 校验中间件、邮件、文件、密码哈希
 │   ├── Models/          # 请求/响应 DTO
-│   ├── Resources/       # 邮件模板
+│   ├── Resources/       # 邮件模板、IP 归属地离线数据（ipTo/）
 │   └── appsettings.json # 配置模板（占位符，见下方「配置」）
 ├── web/                 # Vue 3 前端
 │   └── src/             # features / components / views / stores / libs
@@ -28,7 +28,7 @@
 │   ├── 2026-10-2*_*.sql         # 增量迁移脚本（已初始化环境按序补跑）
 │   ├── private/                 # 含真实数据的备份，本地留存，不入库
 │   └── legacy/                  # 早期 MySQL 8 导出，仅存档
-├── tools/               # 开发脚本（建表/备份生成、埋点校验等）
+├── tools/               # 开发脚本（建表/备份生成、埋点校验、GeoCN 数据拉取等）
 ├── openapi.yaml         # OpenAPI 描述
 ├── API接口文档.md        # 接口文档（按控制器同步）
 ├── FILE_UPLOAD_FEATURE.md
@@ -55,13 +55,13 @@
 建表（仅结构，三个文件自带 `CREATE DATABASE`，按顺序执行即可）：
 
 ```bash
-mysql -u root < sql/2026-11-04_schema_01_user.sql      # 用户与账号（9 张表）
+mysql -u root < sql/2026-11-04_schema_01_user.sql      # 用户与账号（10 张表）
 mysql -u root < sql/2026-11-04_schema_02_chat.sql      # 聊天与群聊（8 张表）
 mysql -u root < sql/2026-11-04_schema_03_checkin.sql   # 打卡（3 张表）
 ```
 
 > 三个文件由 MariaDB 13 导出，`utf8mb4_unicode_ci`，MySQL 8 / MariaDB 10.4+ 均可直接导入，
-> 共覆盖 20 张表。它们**只含结构、不含数据**——真实数据里有邮箱、密码哈希和聊天正文，
+> 共覆盖 21 张表。它们**只含结构、不含数据**——真实数据里有邮箱、密码哈希和聊天正文，
 > 不能进公开仓库。含数据的版本由 `bash tools/dev-verify/gen-full-dump.sh` 生成到
 > `sql/private/`（已被 `.gitignore` 忽略，只留本地做备份）。
 
@@ -74,6 +74,10 @@ mysql -u root dailycheck < sql/2026-10-22_chat_context_menu.sql
 mysql -u root dailycheck < sql/2026-10-22_chat_moderation_recall.sql
 # 用户拉黑表（user_blocks）——缺了会让 /mm/friends* 三个接口 500
 mysql -u root dailycheck < sql/2026-10-23_user_blocks.sql
+# 个人主页背景图（users.profile_background_key）
+mysql -u root dailycheck < sql/2026-11-18_user_profile_background.sql
+# 登录记录表（user_login_records）——小程序「登录记录」页缺了会 500
+mysql -u root dailycheck < sql/2026-11-18_user_login_records.sql
 ```
 
 > 早期 MySQL 8 的导出已归档到 `sql/legacy/`，仅在考古时使用。导入 MariaDB 时注意两点：
@@ -107,6 +111,11 @@ export ASPNETCORE_ENVIRONMENT=Development
 export ConnectionStrings__Default='server=127.0.0.1;database=dailycheck;charset=utf8;uid=root;pwd=<你的密码>;port=3306'
 export Redis__Configuration='127.0.0.1:6379,password=<你的密码>,defaultDatabase=0,abortConnect=false,ssl=false'
 ```
+
+> **IP 归属地数据（登录记录页用）**：`appsettings.json` 的 `GeoIp` 节指向
+> `Resources/ipTo/GeoCN.mmdb` 与同目录的 `full.txt` / `short.txt`（相对程序输出目录）。
+> `GeoCN.mmdb` 体积 8.7MB 且随上游更新，**不入库**，首次部署 / 更新时执行
+> `bash tools/geocn/fetch-geocn.sh`；文件缺失不会阻断启动与登录，只是地点显示「未知位置」。
 
 ### 4. 启动后端
 
@@ -146,6 +155,19 @@ npm run dev
 | 好友 Friends | 好友申请、好友列表、用户拉黑 / 黑名单（拉黑后禁止对方加好友、单聊与搜索；主页仍可查看，群聊不受影响） |
 | 聊天 Chat | 会话/群聊、成员与角色、入群申请、消息收发、已读回执、文件消息、SignalR 实时推送 |
 | 文件 Files | 上传、预览、下载（图片转 WebP、HEIC/HEIF 适配、SHA256 去重） |
+| 登录记录 LoginRecords | 记录每次成功登录的 IP / 设备 / 时间；用 GeoCN 离线库把 IP 解析成国内省市，小程序按「国内 / 全部」分页查看，可识别当前设备、已退出与境外登录 |
+
+> **登录记录（国内）**
+>
+> - 每次成功登录（密码 / 验证码 / 微信 / 注册后自动登录）写入 `user_login_records`，记录
+>   `sid`、IP、User-Agent、设备名与登录时间；`refresh` 只是同一设备续期，不重复记。
+> - IP 归属地由 **GeoCN 离线库**解析（只收录中国大陆 IP 段）：命中 → `is_domestic=1`，
+>   地点如「河南 · 郑州」；未命中 → 境外（私有 / 回环地址记为「本地网络」）。
+>   数据文件在 `api/Resources/ipTo/`，`GeoCN.mmdb` 体积大不入库，用
+>   `bash tools/geocn/fetch-geocn.sh` 拉取（详见 `tools/geocn/README.md`）。
+> - 记录失败**不影响登录**；mmdb 缺失时只是地点显示「未知位置」，登录与页面其它功能照常。
+> - 接口：`GET /mm/LoginRecords?page=&pageSize=&scope=domestic|all`，返回当前设备状态
+>   （`current` / `active` / `logged_out`）与脱敏 IP。
 
 > **图片格式**：JPG / PNG / GIF / WebP / BMP / SVG / ICO 以及 iPhone 默认的
 > **HEIC / HEIF** 均可上传。Web 端用 `heic2any` 在浏览器内先解码再转 WebP；
@@ -181,4 +203,6 @@ npm run dev
 
 - 本仓库中的 `api/appsettings.json` 已做脱敏处理，**不含任何真实密钥**，请勿把真实密钥写回该文件。
 - `api/uploads/`、`api/errorLog/`、`api.Release/`、`api/bin/`、`api/obj/` 及 `node_modules/` 均已忽略。
+- IP 归属地离线库 `api/Resources/ipTo/GeoCN.mmdb` 已忽略（体积大），数据来源
+  <https://github.com/ljxi/GeoCN>，用 `bash tools/geocn/fetch-geocn.sh` 拉取 / 更新。
 - `uni-app/` 端的微信小程序 `appid` 为示例值，需替换为你自己的小程序 AppID 后才能构建。

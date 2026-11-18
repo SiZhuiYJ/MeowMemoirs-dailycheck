@@ -230,7 +230,7 @@ paths:
     post:
       tags: [Authentication]
       summary: 更新个人资料
-      description: 更新用户昵称和头像
+      description: 更新用户昵称、头像和个人主页背景
       security:
         - bearerAuth: []
       requestBody:
@@ -313,6 +313,55 @@ paths:
           description: 账号注销成功
         '400':
           description: 验证码无效
+
+  /login-records:
+    get:
+      tags: [Authentication]
+      summary: 获取登录记录
+      description: |
+        分页返回当前登录用户的登录记录，按登录时间倒序。
+        - `scope=domestic`（默认）：只返回中国大陆 IP 记录（GeoCN 命中）；
+        - `scope=all`：返回全部记录（含境外 / 内网）。
+        每条记录包含设备、登录方式、归一化地点、脱敏 IP、状态与 UTC 时间。
+        只记录成功登录，`/auth/refresh` 不会新增记录；
+        登出 / 全部登出 / 注销 / 改密后对应记录状态变为 `logged_out`。
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: 页码，默认 1，小于 1 按 1 处理
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+          description: 每页数量，默认 20，取值夹到 1..50
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [domestic, all]
+            default: domestic
+          description: 记录范围，默认 domestic（国内）；非法值按 domestic 处理
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginRecordListResponse'
+        '401':
+          description: 未登录或登录状态已失效
 
   # 打卡计划相关接口
   /plans:
@@ -536,11 +585,79 @@ paths:
                     type: string
                     description: 头像文件Key
 
+  /files/profile-background:
+    post:
+      tags: [Files]
+      summary: 上传 / 更换个人主页背景
+      description: |
+        上传当前用户的个人主页背景图，上传成功后自动写入 `profile_background_key`。
+        原图统一转有损 WebP（质量 85）并把最长边压缩到 1600px 以内；
+        可选字段 `thumbnail` 用于上传缩略占位图；不传时服务端从原图自动生成 `{key}_thumb`（有损 WebP 质量 70、最长边 128px）。
+        支持 JPG/PNG/GIF/WebP/BMP/SVG/ICO/HEIC/HEIF。
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 背景图片文件（≤10MB）
+                thumbnail:
+                  type: string
+                  format: binary
+                  description: 可选，缩略占位图（≤10MB）；不传则由服务端从原图自动生成（最长边 ≤128px）
+      responses:
+        '200':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    description: 背景图原图文件Key
+                  thumbnailKey:
+                    type: string
+                    description: 缩略占位图Key（`{key}_thumb`），用于渐进加载占位
+        '400':
+          description: 文件为空或格式不支持
+        '404':
+          description: 用户不存在
+    delete:
+      tags: [Files]
+      summary: 恢复默认背景
+      description: 清空当前用户的个人主页背景（profile_background_key 置 NULL），前端回退用头像图作背景。
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 恢复成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '404':
+          description: 用户不存在
+
   /files/users/{userId}/{key}:
     get:
       tags: [Files]
-      summary: 获取用户头像
-      description: 获取指定用户的头像图片（公开访问）
+      summary: 获取用户公开图片
+      description: |
+        获取指定用户的头像 / 个人主页背景图片（公开访问，Cache-Control: public, max-age=86400, immutable）。
+        传 `?thumbnail=true` 时返回缩略占位图（最长边 ≤128px），不存在则回退返回原图。
       parameters:
         - name: userId
           in: path
@@ -555,6 +672,12 @@ paths:
           schema:
             type: string
           description: 图片文件Key
+        - name: thumbnail
+          in: query
+          required: false
+          schema:
+            type: string
+          description: 传 true（也接受 1 / yes）返回缩略占位图；缩略图不存在时回退返回原图；缺省返回原图
       responses:
         '200':
           description: 获取成功
@@ -564,7 +687,7 @@ paths:
                 type: string
                 format: binary
         '404':
-          description: 头像文件不存在
+          description: 图片文件不存在
 
   /files/images:
     post:
@@ -716,6 +839,10 @@ components:
         avatarKey:
           type: string
           description: 头像文件Key
+        profileBackgroundKey:
+          type: string
+          nullable: true
+          description: 个人主页背景图文件Key（null 表示未设置，前端回退用头像图作背景）
         token:
           type: string
           description: Access Token
@@ -746,6 +873,10 @@ components:
           type: string
         avatarKey:
           type: string
+        profileBackgroundKey:
+          type: string
+          nullable: true
+          description: 个人主页背景图文件Key（null 表示未设置）
 
     RefreshTokenRequest:
       type: object
@@ -778,6 +909,10 @@ components:
         avatarKey:
           type: string
           description: 头像文件Key
+        profileBackgroundKey:
+          type: string
+          nullable: true
+          description: 个人主页背景图文件Key；传字符串=设置，传空字符串 ""=清除，不传/null=不修改
 
     UpdateUserAccountRequest:
       type: object
@@ -1057,6 +1192,93 @@ components:
           type: integer
           format: int64
           description: 关联的时间段ID
+
+    # 登录记录相关模型
+    LoginRecordItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 记录ID
+        device:
+          type: string
+          description: 设备展示名，如 iPhone 13 · 微信
+        platform:
+          type: string
+          enum: [mp-weixin, h5, app, unknown]
+          description: 客户端平台
+        loginType:
+          type: string
+          enum: [password, email-code, wechat, register, email-change]
+          description: 登录方式
+        location:
+          type: string
+          description: 归一化登录地点：河南 · 郑州 / 境外 / 本地网络 / 未知位置
+        ipMasked:
+          type: string
+          nullable: true
+          description: 脱敏后的 IP：IPv4 只留前两段（222.137.*.*），IPv6 只留前两组（240e:476:*）；无 IP 为 null
+        province:
+          type: string
+          nullable: true
+          description: 省（简称，仅国内）
+        city:
+          type: string
+          nullable: true
+          description: 市（简称，仅国内，可能为空）
+        district:
+          type: string
+          nullable: true
+          description: 区县（简称，仅国内，可能为空）
+        isp:
+          type: string
+          nullable: true
+          description: 运营商（仅国内，可能为空）
+        isDomestic:
+          type: boolean
+          description: 是否中国大陆 IP
+        status:
+          type: string
+          enum: [current, active, logged_out]
+          description: 记录状态：current=当前登录，active=在线，logged_out=已退出
+        loginAt:
+          type: string
+          format: date-time
+          description: 登录时间（UTC）
+        logoutAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: 退出 / 被撤销时间（UTC，未退出为 null）
+
+    LoginRecordListResponse:
+      type: object
+      properties:
+        scope:
+          type: string
+          enum: [domestic, all]
+          description: 当前生效的记录范围
+        page:
+          type: integer
+          description: 当前页码
+        pageSize:
+          type: integer
+          description: 每页数量
+        total:
+          type: integer
+          description: 当前 scope 下的记录总数
+        domesticTotal:
+          type: integer
+          description: 国内登录记录总数
+        allTotal:
+          type: integer
+          description: 全部登录记录总数（含境外 / 内网）
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoginRecordItem'
+          description: 当前页的登录记录
 
 externalDocs:
   description: 查看更多文档

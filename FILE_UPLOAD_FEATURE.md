@@ -118,6 +118,41 @@ Content-Type: image/webp
 
 **权限**: 必须是该会话的成员
 
+### 5. 上传个人主页背景
+
+```http
+POST /mm/files/profile-background
+Content-Type: multipart/form-data
+Authorization: Bearer {token}
+
+Form Data:
+- file: [背景图片文件（必填）]
+- thumbnail: [缩略占位图（可选；不传则服务端从原图自动生成）]
+
+Response 200:
+{
+  "key": "7c31f3be1578d0ba9cbe6ba7cc5f653eea4b86ae4392ccfa92ffd4de8c77eb03",
+  "thumbnailKey": "7c31f3be1578d0ba9cbe6ba7cc5f653eea4b86ae4392ccfa92ffd4de8c77eb03_thumb"
+}
+```
+
+**说明**:
+- 上传成功后服务端自动写入当前用户的 `profile_background_key`，返回的 `key` 可直接用于展示
+- 原图统一转有损 WebP（质量 85）、最长边 ≤1600px；缩略占位图存为 `{key}_thumb.webp`（有损 WebP 质量 70、最长边 ≤128px）
+- 缩略占位图优先使用客户端上传的 `thumbnail`，未上传则由服务端从原图自动生成
+- 文件存放在公开用户目录 `api/uploads/public/users/{userId}/`，与头像同一目录、内容哈希命名
+- 公开读取：
+  - 原图：`GET /mm/files/users/{userId}/{key}`
+  - 缩略占位图：`GET /mm/files/users/{userId}/{key}?thumbnail=true`（缩略图不存在时回退返回原图）
+  - 两者均无需认证，`Cache-Control: public, max-age=86400, immutable`
+- 恢复默认背景：`DELETE /mm/files/profile-background`（需认证），返回 `{ "success": true }`，
+  将 `profile_background_key` 置 NULL，前端回退用头像图作背景
+
+**与头像上传的区别**:
+- 最长边压缩到 **1600px** 以内（头像为较小尺寸），适配全屏背景展示
+- 生成 **128px** 缩略占位图（头像缩略图为 96px），用于前端**渐进加载**：头像卡先渲染缩略占位图，原图下载完成后淡入
+- 存储目录与读取接口与头像相同（同一公开用户目录 + `GET /mm/files/users/{userId}/{key}`）
+
 ## 前端使用示例
 
 ### 1. 上传并发送文件消息
