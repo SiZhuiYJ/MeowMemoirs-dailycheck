@@ -9,9 +9,11 @@ const menuList = ref([
     { name: "个人信息", path: "/setting/profile" },
     { name: "账号修改", path: "/setting/account" },
     { name: "头像修改", path: "/setting/avatar" },
-    { name: "注销账号", path: "/setting/deactivate" },
+    { name: "头像背景", path: "/setting/appearance" },
     { name: "密码修改", path: "/setting/password" },
     { name: "平台绑定", path: "/setting/bind" },
+    { name: "登录记录", path: "/setting/login-records" },
+    { name: "注销账号", path: "/setting/deactivate" },
 ]);
 
 // 下拉按钮上显示当前子页名称

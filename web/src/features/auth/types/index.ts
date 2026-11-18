@@ -4,6 +4,8 @@ export interface AuthUser {
   nickName: string | null;
   userAccount: string | null;
   avatarKey: string | null;
+  /** 个人主页头像卡自定义背景图 key；null 表示未设置，展示时回退头像图。 */
+  profileBackgroundKey: string | null;
   thirdPartyBindings?: ThirdPartyBinding[]; // 新增：第三方绑定信息
 }
 
@@ -28,6 +30,7 @@ export interface AuthData {
   accessTokenExpiresAt: string;
   refreshTokenExpiresAt: string;
   avatarKey?: string | null;
+  profileBackgroundKey?: string | null;
 }
 export type ActionType =
   | "register" // "注册",

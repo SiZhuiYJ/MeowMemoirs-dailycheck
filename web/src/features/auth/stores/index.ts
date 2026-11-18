@@ -45,6 +45,7 @@ export const useAuthStore = defineStore("auth", () => {
       nickName: payload.nickName,
       userAccount: payload.userAccount,
       avatarKey: payload.avatarKey || null,
+      profileBackgroundKey: payload.profileBackgroundKey || null,
     };
     accessToken.value = payload.token;
     refreshToken.value = payload.refreshToken;
@@ -206,6 +207,7 @@ export const useAuthStore = defineStore("auth", () => {
     userAccount?: string;
     nickName?: string;
     avatarKey?: string;
+    profileBackgroundKey?: string | null;
     thirdPartyBindings?: ThirdPartyBinding[]; // 新增：第三方绑定信息
   }): void {
     if (user.value) {
@@ -215,6 +217,8 @@ export const useAuthStore = defineStore("auth", () => {
         user.value.nickName = payload.nickName;
       if (payload.avatarKey !== undefined)
         user.value.avatarKey = payload.avatarKey;
+      if (payload.profileBackgroundKey !== undefined)
+        user.value.profileBackgroundKey = payload.profileBackgroundKey;
       if (payload.thirdPartyBindings !== undefined) {
         user.value.thirdPartyBindings = payload.thirdPartyBindings;
       }

@@ -66,6 +66,19 @@ export const staticRouter: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/setting/appearance", // [唯一]
+        component: () => import("@/views/setting/appearance/index.vue"),
+        meta: {
+          title: "头像背景",
+          enName: "Appearance",
+          icon: "User",
+          isHide: "1",
+          isLink: "",
+          isKeepAlive: "0",
+          isFull: "1",
+        },
+      },
+      {
         path: "/setting/account", // [唯一]
         component: () => import("@/views/setting/account/index.vue"),
         meta: {
@@ -111,6 +124,19 @@ export const staticRouter: RouteRecordRaw[] = [
           title: "第三方绑定",
           enName: "ThirdParty",
           icon: "Link",
+          isHide: "1",
+          isLink: "",
+          isKeepAlive: "0",
+          isFull: "1",
+        },
+      },
+      {
+        path: "/setting/login-records", // [唯一]
+        component: () => import("@/views/setting/login-records/index.vue"),
+        meta: {
+          title: "登录记录",
+          enName: "LoginRecords",
+          icon: "User",
           isHide: "1",
           isLink: "",
           isKeepAlive: "0",
