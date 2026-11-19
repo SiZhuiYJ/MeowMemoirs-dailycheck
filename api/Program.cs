@@ -172,6 +172,12 @@ builder.Services.AddSingleton<IGeoIpService, GeoIpService>();
 builder.Services.AddScoped<ILoginRecordService, LoginRecordService>();
 #endregion
 
+#region 更新日志服务配置
+// 更新日志是随源码发布的内容（Resources/changelog/CHANGELOG.md），
+// 单例服务按文件「最后修改时间 + 长度」缓存解析结果，改文件即生效，不落数据库。
+builder.Services.AddSingleton<IChangelogService, ChangelogService>();
+#endregion
+
 #region 数据库上下文注册
 var connectionString = builder.Configuration.GetConnectionString("Default");
 // 生产环境可以写死 "Database:ServerVersion"（例如 8.0.36-mysql / 10.4.0-mariadb），
