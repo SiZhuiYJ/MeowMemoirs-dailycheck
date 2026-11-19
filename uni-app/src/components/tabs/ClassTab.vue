@@ -1,398 +1,289 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
-import useClass from '@/features/Curriculum/useClass';
-import type { Class } from '@/libs/api/class/type';
+import { computed, onMounted, ref, watch } from 'vue';
 import MmNavBar from '@/components/MmNavBar.vue';
 import { useThemeStore } from '@/stores/theme';
-import { padNumber } from '@/utils/date';
+import useSchedule, { type ScheduleBlock } from '@/features/Curriculum/useSchedule';
 
-
-
+/**
+ * 课程 tab（只读课表）
+ *
+ * 重构要点：
+ * 1. 数据换成后端新课表模型：`useSchedule` 负责拉列表/详情、算当前周、把
+ *    Course.times 按「当前周 + 星期」映射成可跨行渲染的课程块；
+ * 2. 顶部沿用 MmNavBar：左侧课表名（多课表时可 picker 切换）+ 周次胶囊，
+ *    右侧「今天」按钮；
+ * 3. 周次切换条：上一周 / 第 N 周（本周高亮）/ 下一周；
+ * 4. 网格：左侧节次/时间列固定，右侧 7 天用 scroll-view 横向滚动；课程块按
+ *    sectionList 跨行、用数据 color 做浅底 + 左侧条；
+ * 5. 只读：没有任何添加/编辑/删除入口；进入 tab 时自动刷新（isActive watch + onMounted）。
+ */
 const props = defineProps<{
   isActive: boolean;
 }>();
 
-const { classes, initializeData, getClass, isLoading } = useClass();
 // 主题变量绑定到页面根节点，保证日/夜切换时课程页配色跟随
 const themeStore = useThemeStore();
 
-watch(() => props.isActive, (newVal) => {
-  if (newVal) {
-    initializeData();
-    // 每次激活时定位到当前周
-    currentWeek.value = currentAcademicWeek.value;
-  }
-}, { immediate: true });
+const {
+  // 数据
+  schedules,
+  currentSchedule,
+  currentScheduleName,
+  scheduleNames,
+  currentScheduleIndex,
+  courses,
+  // 周次
+  currentWeek,
+  todayWeek,
+  weekCount,
+  isCurrentWeek,
+  weekDays,
+  weekDateRangeText,
+  sectionRows,
+  // 课程块
+  courseBlocks,
+  getDayBlocks,
+  weekdayLabel,
+  // 状态
+  isLoading,
+  isRefreshing,
+  hasLoaded,
+  error,
+  // 方法
+  refresh,
+  switchSchedule,
+  prevWeek,
+  nextWeek,
+  goToday,
+} = useSchedule();
 
-// 周次
-const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-const currentWeek = ref(1); // 初始值，在 script 末尾或 initializeData 后更新
-const totalWeeks = ref(20); // 总周数
+/** 网格布局常量：与 <style> 里的行高 / 表头高度 / 天列宽保持一致 */
+const ROW_HEIGHT = 62;
+const HEADER_HEIGHT = 42;
+const DAY_COLUMN_WIDTH = 78;
+const DAY_COUNT = 7;
 
-// 开学日期（本学期第一周的周一）
-// 实际项目中，此日期应从后端 API 获取或在全局配置中定义
-const semesterStartDate = ref(new Date('2026-03-10'));
+/** 网格内容高度（表头 + N 节） */
+const bodyHeight = computed(() => sectionRows.value.length * ROW_HEIGHT);
+const gridHeight = computed(() => HEADER_HEIGHT + bodyHeight.value);
+const dayGridWidth = computed(() => DAY_COLUMN_WIDTH * DAY_COUNT);
 
-// 计算当前逻辑上的“第几周”
-const currentAcademicWeek = computed(() => {
-  const now = new Date();
-  // 重置时间为 00:00:00 避免小时差异
-  const start = new Date(semesterStartDate.value);
-  start.setHours(0, 0, 0, 0);
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
+/** 首屏骨架：只有「第一次加载」才闪骨架，之后进入 tab 都是静默刷新 */
+const showSkeleton = computed(() => isLoading.value && !hasLoaded.value);
 
-  const diffTime = today.getTime() - start.getTime();
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+/** 当前周没有课程时顶部展示提示条 */
+const hasNoCourseThisWeek = computed(() => courseBlocks.value.length === 0);
+const noCourseDesc = computed(() =>
+  courses.value.length === 0 ? '这份课表还没有课程' : '可以切换到其他周次看看',
+);
 
-  // 计算周数：(天数差 / 7) + 1
-  const weekNum = Math.floor(diffDays / 7) + 1;
-  return Math.max(1, Math.min(totalWeeks.value, weekNum));
+// 进入 tab 刷新：watch isActive + onMounted 双保险；
+// refresh 内部有并发保护（isLoading/isRefreshing），两个入口不会重复请求。
+watch(
+  () => props.isActive,
+  (active) => {
+    if (active) void refresh();
+  },
+  { immediate: true },
+);
+onMounted(() => {
+  void refresh();
 });
 
-// 节次时间
-const timeSlots = [
-  { number: 1, time: '08:25-09:10' },
-  { number: 2, time: '09:15-10:00' },
-  { number: 3, time: '10:10-10:55' },
-  { number: 4, time: '11:00-11:45' },
-  { number: 5, time: '14:00-14:45' },
-  { number: 6, time: '14:50-15:35' },
-  { number: 7, time: '15:45-16:30' },
-  { number: 8, time: '16:35-17:20' },
-  { number: 9, time: '18:30-19:15' },
-  { number: 10, time: '19:20-20:05' },
-  { number: 11, time: '20:10-20:55' },
-  { number: 12, time: '21:00-21:45' },
-];
+/** 课程详情弹层 */
+const activeCourse = ref<ScheduleBlock | null>(null);
 
-// 是否折叠晚间课程（9节及以后）
-const isFolded = ref(true);
-
-// 检查当前周是否有晚间课程（第9节及以后）
-const hasNightClasses = computed(() => {
-  for (let day = 1; day <= 7; day++) {
-    for (let slot = 9; slot <= 12; slot++) {
-      if (getClass(currentWeek.value, day, slot)) {
-        return true;
-      }
-    }
-  }
-  return false;
-});
-
-// 实际显示的节次
-const displayedTimeSlots = computed(() => {
-  // 如果当前周有晚间课程，或者用户主动取消折叠，则显示全部
-  if (hasNightClasses.value || !isFolded.value) {
-    return timeSlots;
-  }
-  // 否则只显示前8节
-  return timeSlots.slice(0, 8);
-});
-
-// 切换折叠状态
-function toggleFold() {
-  isFolded.value = !isFolded.value;
+function openCourseDetail(block: ScheduleBlock) {
+  activeCourse.value = block;
 }
 
-// 详情弹窗
-const showDetail = ref(false);
-const selectedClass = ref<Class | null>(null);
-
-// 时间表弹窗
-const showTimeTable = ref(false);
-
-// 计算当前日期信息
-const today = computed(() => {
-  const now = new Date();
-  return {
-    month: now.getMonth() + 1,
-    day: now.getDate(),
-    dayOfWeek: now.getDay() || 7 // 周日为 7
-  };
-});
-
-// 判断是否是今天
-function isToday(dayIndex: number): boolean {
-  // 必须满足：1. 当前显示的周是“本周” 2. 星期匹配
-  return currentWeek.value === currentAcademicWeek.value && today.value.dayOfWeek === dayIndex + 1;
+function closeCourseDetail() {
+  activeCourse.value = null;
 }
 
-// 获取指定周数和星期的日期
-function getDateForDay(week: number, dayIndex: number): { month: number; day: number } {
-  // 基于开学日期计算
-  const targetDate = new Date(semesterStartDate.value);
-  // 计算偏移天数：(周数-1) * 7 + 星期偏移(0-6)
-  const offsetDays = (week - 1) * 7 + dayIndex;
-  targetDate.setDate(semesterStartDate.value.getDate() + offsetDays);
+/** 多课表切换：picker change 事件里拿下标再切 */
+function onScheduleChange(event: any) {
+  const index = Number(event?.detail?.value);
+  const target = schedules.value[index];
+  if (target) void switchSchedule(target.id);
+}
 
+/** 课程块绝对定位：按 sectionStart / sectionSpan 跨行 */
+function courseBlockStyle(block: ScheduleBlock) {
   return {
-    month: targetDate.getMonth() + 1,
-    day: targetDate.getDate()
+    top: `${(block.sectionStart - 1) * ROW_HEIGHT + 2}px`,
+    height: `${block.sectionSpan * ROW_HEIGHT - 4}px`,
+    backgroundColor: block.tint || 'var(--theme-color-soft)',
+    borderLeftColor: block.color || 'var(--theme-primary)',
   };
 }
 
-// 切换周数
-function changeWeek(delta: number) {
-  const newWeek = currentWeek.value + delta;
-  if (newWeek >= 1 && newWeek <= totalWeeks.value) {
-    currentWeek.value = newWeek;
-  }
-}
-
-// 跳转到首周
-function jumpToFirstWeek() {
-  currentWeek.value = 1;
-}
-
-// 跳转到末尾周
-function jumpToLastWeek() {
-  currentWeek.value = totalWeeks.value;
-}
-
-// 获取周次范围
-const weekRange = computed(() => {
-  const startWeek = Math.max(1, currentWeek.value - 2);
-  const endWeek = Math.min(totalWeeks.value, currentWeek.value + 2);
-  return Array.from({ length: endWeek - startWeek + 1 }, (_, i) => startWeek + i);
-});
-
-// 获取课程详细信息
-function showClassDetail(week: number, dayIndex: number, slotIndex: number) {
-  const course = getClass(week, dayIndex + 1, slotIndex + 1);
-  if (course) {
-    selectedClass.value = course;
-    showDetail.value = true;
-  }
-}
-
-// 关闭详情
-function closeDetail() {
-  showDetail.value = false;
-  selectedClass.value = null;
-}
-
-// 获取节次时间文本
-function getTimeSlotText(slotIndex: number): string {
-  return timeSlots[slotIndex]?.time || '';
-}
-
-// 打开时间表弹窗
-function openTimeTable() {
-  showTimeTable.value = true;
-}
-
-// 关闭时间表弹窗
-function closeTimeTable() {
-  showTimeTable.value = false;
-}
-
-// 定位到今天所在的周
-function jumpToToday() {
-  currentWeek.value = currentAcademicWeek.value;
+/** 详情弹层的时间文案：周一 第1-2节 · 08:00-09:40 */
+function courseTimeText(block: ScheduleBlock): string {
+  const weekday = weekdayLabel(block.dayOfWeek);
+  return `${weekday} ${block.sectionText}${block.timeText ? ` · ${block.timeText}` : ''}`;
 }
 </script>
 
 <template>
   <view class="class-tab-container" :style="themeStore.themeStyle">
-    <!-- 毛玻璃顶栏：左侧周次、右侧「今天」按钮（由 MmNavBar 的左右插槽承载） -->
+    <!-- 毛玻璃顶栏：左侧课表名/周次，右侧「今天」；MmNavBar 自带等高占位 -->
     <MmNavBar :show-back="false" align="left">
       <template #left>
-        <view class="week-display">
-          <text class="value highlight">第{{ currentWeek }}/{{ totalWeeks }}周</text>
+        <view class="schedule-head">
+          <!-- 多课表时才出现切换入口（uni picker，无额外依赖） -->
+          <picker v-if="schedules.length > 1" class="schedule-picker" :range="scheduleNames"
+            :value="currentScheduleIndex" @change="onScheduleChange">
+            <view class="schedule-name-row" hover-class="mm-hover">
+              <text class="schedule-name">{{ currentScheduleName }}</text>
+              <text class="picker-arrow">▾</text>
+            </view>
+          </picker>
+          <view v-else class="schedule-name-row">
+            <text class="schedule-name">{{ currentScheduleName }}</text>
+          </view>
+          <text v-if="currentSchedule" class="week-pill">第{{ currentWeek }}/{{ weekCount }}周</text>
         </view>
       </template>
       <template #right>
-        <view class="today-btn" hover-class="mm-hover" @click="jumpToToday">
-          <image src="/static/svg/to.svg" class="arrow-icon" />
+        <view class="today-btn" hover-class="mm-hover" @click="goToday">
+          <text>今天</text>
         </view>
       </template>
     </MmNavBar>
 
-    <!-- 空态：白卡片 + 轻描边，避免整页空白 -->
-    <view v-if="!isLoading && classes.length === 0" class="empty-state">
-      <text class="empty-title">暂无课程</text>
-      <text class="empty-desc">当前学期还没有课程安排</text>
+    <!-- 首屏 loading 骨架 -->
+    <view v-if="showSkeleton" class="skeleton-wrap">
+      <view class="skeleton-week-bar">
+        <view class="skeleton-square"></view>
+        <view class="skeleton-text"></view>
+        <view class="skeleton-square"></view>
+      </view>
+      <view class="skeleton-card">
+        <view class="skeleton-card-head"></view>
+        <view v-for="row in 6" :key="row" class="skeleton-card-row">
+          <view v-for="cell in 7" :key="cell" class="skeleton-cell"></view>
+        </view>
+      </view>
     </view>
 
-    <!-- 课程表 -->
-    <view v-else class="class-table" :class="{ 'skeleton-container': isLoading }">
-      <scroll-view scroll-x="true" class="table-scroll">
-        <view class="class-grid">
-          <view class="time-column">
-            <view class="time-header">
-              <text>{{ padNumber(getDateForDay(currentWeek, 0).month, 2) }}月</text>
+    <!-- 没有任何课表 / 加载失败 -->
+    <view v-else-if="!currentSchedule" class="empty-state">
+      <text class="empty-title">{{ error ? '课表加载失败' : '还没有课表' }}</text>
+      <text class="empty-desc">{{ error || '你的课表还没有同步到这里，稍后再来看看吧' }}</text>
+      <view v-if="error" class="empty-retry" hover-class="mm-hover" @click="refresh">重新加载</view>
+    </view>
+
+    <!-- 课表主体 -->
+    <template v-else>
+      <!-- 周次切换：上一周 / 第 N 周（本周高亮）/ 下一周 -->
+      <view class="week-bar">
+        <view class="week-btn" :class="{ disabled: currentWeek <= 1 }" hover-class="mm-hover" @click="prevWeek">
+          <view class="chev chev-left"></view>
+        </view>
+        <view class="week-center">
+          <view class="week-title-row">
+            <text class="week-title">第 {{ currentWeek }} 周</text>
+            <text v-if="isCurrentWeek" class="week-badge">本周</text>
+          </view>
+          <text class="week-range">{{ weekDateRangeText }}</text>
+        </view>
+        <view class="week-btn" :class="{ disabled: currentWeek >= weekCount }" hover-class="mm-hover" @click="nextWeek">
+          <view class="chev chev-right"></view>
+        </view>
+      </view>
+
+      <!-- 本周无课 / 课表无课程提示 -->
+      <view v-if="hasNoCourseThisWeek && !isRefreshing" class="empty-banner">
+        <text class="empty-banner-title">本周暂无课程</text>
+        <text class="empty-banner-desc">{{ noCourseDesc }}</text>
+      </view>
+
+      <!-- 课表网格：左列固定节次/时间，右侧 7 天横向滚动 -->
+      <view class="grid-card">
+        <view class="grid-inner" :style="{ height: gridHeight + 'px' }">
+          <!-- 左侧固定节次列 -->
+          <view class="section-col">
+            <view class="section-head">
+              <text class="section-head-text">节次</text>
             </view>
-            <view class="time-slot" v-for="slot in displayedTimeSlots" :key="slot.number" hover-class="mm-hover"
-              @click="openTimeTable">
-              <text class="time-slot-number">{{ slot.number }}</text>
+            <view v-for="slot in sectionRows" :key="slot.number" class="section-cell">
+              <text class="section-no">{{ slot.number }}</text>
+              <text class="section-time">{{ slot.startTime }}</text>
             </view>
           </view>
 
-          <!-- 周次循环 -->
-          <view class="day-column" v-for="(day, dayIndex) in weekDays" :key="dayIndex">
-            <view class="day-header" :class="{ 'today-header': isToday(dayIndex) }">
-              <text>
-                {{ padNumber(getDateForDay(currentWeek, dayIndex).month, 2) }}/{{ padNumber(getDateForDay(currentWeek,
-                  dayIndex).day, 2) }}
-              </text>
-              <text>{{ day }}</text>
-              <text v-if="isToday(dayIndex)" class="today-badge">今</text>
-            </view>
-            <view v-for="(_, slotIndex) in displayedTimeSlots" :key="slotIndex" class="course-slot">
-              <template v-if="isLoading">
-                <view class="skeleton-course-item" v-if="(dayIndex + slotIndex) % 3 === 0"></view>
-              </template>
-              <template v-else-if="getClass(currentWeek, dayIndex + 1, slotIndex + 1)">
-                <!-- 课程卡统一走单一强调色，不再按接口返回色值多色混用 -->
-                <view class="course-item" hover-class="mm-hover"
-                  @click="showClassDetail(currentWeek, dayIndex, slotIndex)">
-                  <text class="course-name">{{ getClass(currentWeek, dayIndex + 1, slotIndex + 1)?.name }}</text>
-                  <text class="course-details">{{ getClass(currentWeek, dayIndex + 1,
-                    slotIndex + 1)?.location }} {{ getClass(currentWeek, dayIndex + 1, slotIndex + 1)?.teacher }}</text>
+          <!-- 右侧 7 天网格：scroll-view 横向滚动 -->
+          <scroll-view class="day-scroll" scroll-x="true">
+            <view class="day-grid" :style="{ width: dayGridWidth + 'px' }">
+              <view v-for="day in weekDays" :key="day.dayOfWeek" class="day-col"
+                :class="{ 'is-today': day.isToday }">
+                <view class="day-head" :class="{ 'is-today': day.isToday }">
+                  <text class="day-week">{{ day.label }}</text>
+                  <text class="day-date">{{ day.dateText }}</text>
                 </view>
-              </template>
-              <template v-else>
-                <view class="empty-slot"></view>
-              </template>
-            </view>
-          </view>
-        </view>
-
-        <!-- 展开/折叠控制（仅在没有晚间课程时显示） -->
-        <view v-if="!hasNightClasses" class="fold-toggle" hover-class="mm-hover" @click="toggleFold"
-          :class="{ 'is-expanded': !isFolded }">
-          <view class="fold-btn">
-            <text>{{ isFolded ? '展开晚间课程' : '收起晚间课程' }}</text>
-            <image src="/static/svg/arrow-right.svg" class="toggle-icon" />
-          </view>
-        </view>
-      </scroll-view>
-    </view>
-
-    <!-- 周数选择器：上方周次 chip + 下方翻页按钮，保证每个热区 ≥44px -->
-    <view class="week-selector" :class="{ 'skeleton-selector': isLoading }">
-      <view class="week-list">
-        <view v-for="week in weekRange" :key="week" class="week-item" :class="{ active: week === currentWeek }"
-          hover-class="mm-hover" @click="!isLoading && (currentWeek = week)">
-          {{ week }}
-        </view>
-      </view>
-      <view class="week-btn" hover-class="mm-hover" @click="jumpToFirstWeek"
-        :class="{ disabled: currentWeek <= 1 || isLoading }">
-        <image src="/static/svg/arrow-double-left.svg" class="arrow-icon" />
-      </view>
-      <view class="week-btn" hover-class="mm-hover" @click="changeWeek(-1)"
-        :class="{ disabled: currentWeek <= 1 || isLoading }">
-        <image src="/static/svg/arrow-left.svg" class="arrow-icon" />
-      </view>
-      <view class="week-btn" hover-class="mm-hover" @click="changeWeek(1)"
-        :class="{ disabled: currentWeek >= totalWeeks || isLoading }">
-        <image src="/static/svg/arrow-right.svg" class="arrow-icon" />
-      </view>
-      <view class="week-btn" hover-class="mm-hover" @click="jumpToLastWeek"
-        :class="{ disabled: currentWeek >= totalWeeks || isLoading }">
-        <image src="/static/svg/arrow-double-right.svg" class="arrow-icon" />
-      </view>
-    </view>
-
-    <!-- 时间表弹窗 -->
-    <view v-if="showTimeTable" class="detail-overlay" @click="closeTimeTable">
-      <view class="detail-content time-table-content" @click.stop>
-        <view class="detail-header">
-          <text class="detail-title">作息时间表</text>
-          <text class="detail-close" @click="closeTimeTable">✕</text>
-        </view>
-
-        <view class="detail-body time-table-body">
-          <view class="time-table-list">
-            <view class="time-table-item" v-for="slot in timeSlots" :key="slot.number" hover-class="mm-hover">
-              <view class="time-table-number">
-                <text class="number-badge">{{ slot.number }}</text>
-                <text class="number-text">第{{ slot.number }}节</text>
-              </view>
-              <view class="time-table-time">
-                <text class="time-text">{{ slot.time }}</text>
+                <view class="day-body" :style="{ height: bodyHeight + 'px' }">
+                  <!-- 背景节次行（画分隔线），课程块绝对定位覆盖其上 -->
+                  <view v-for="slot in sectionRows" :key="slot.number" class="slot-row"></view>
+                  <view v-for="block in getDayBlocks(day.dayOfWeek)" :key="block.key" class="course-block"
+                    :style="courseBlockStyle(block)" hover-class="mm-hover" @click="openCourseDetail(block)">
+                    <text class="course-block-name">{{ block.courseName }}</text>
+                    <text v-if="block.location" class="course-block-loc">{{ block.location }}</text>
+                  </view>
+                </view>
               </view>
             </view>
-          </view>
+          </scroll-view>
         </view>
 
-        <view class="detail-footer">
-          <button class="detail-btn" hover-class="mm-hover" @click="closeTimeTable">关闭</button>
+        <view class="grid-footer">
+          <text class="grid-footer-text">{{ currentScheduleName }} · 第 {{ currentWeek }} 周</text>
+          <text class="grid-footer-hint">{{ isRefreshing ? '更新中…' : '左右滑动查看整周' }}</text>
         </view>
       </view>
-    </view>
+    </template>
 
-    <!-- 课程详情弹窗 -->
-    <view v-if="showDetail" class="detail-overlay" @click="closeDetail">
-      <view class="detail-content" @click.stop>
-        <!-- 弹窗头统一用主题渐变（不再按课程色渲染） -->
-        <view class="detail-header">
-          <text class="detail-title">{{ selectedClass?.name }}</text>
-          <text class="detail-close" @click="closeDetail">✕</text>
-        </view>
-
-        <view class="detail-body">
-          <view class="detail-item">
-            <view class="detail-icon">📍</view>
-            <view class="detail-info">
-              <text class="detail-label">上课地点</text>
-              <text class="detail-value">{{ selectedClass?.location }}</text>
-            </view>
+    <!-- 课程详情弹层（只读，无编辑入口） -->
+    <view v-if="activeCourse" class="sheet-overlay" @click="closeCourseDetail">
+      <view class="sheet-card" @click.stop>
+        <view class="sheet-head">
+          <view class="sheet-title-row">
+            <view class="sheet-color-dot"
+              :style="{ backgroundColor: activeCourse.color || 'var(--theme-primary)' }"></view>
+            <text class="sheet-title">{{ activeCourse.courseName }}</text>
           </view>
-
-          <view class="detail-item">
-            <view class="detail-icon">👨‍🏫</view>
-            <view class="detail-info">
-              <text class="detail-label">授课教师</text>
-              <text class="detail-value">{{ selectedClass?.teacher }}</text>
-            </view>
-          </view>
-
-          <view class="detail-item">
-            <view class="detail-icon">📅</view>
-            <view class="detail-info">
-              <text class="detail-label">上课时间</text>
-              <text class="detail-value">
-                {{ weekDays[(selectedClass?.dayOfWeek || 1) - 1] }}
-                第{{ selectedClass?.number.join('、') }}节
-              </text>
-            </view>
-          </view>
-
-          <view class="detail-item">
-            <view class="detail-icon">🕐</view>
-            <view class="detail-info">
-              <text class="detail-label">具体时间</text>
-              <text class="detail-value">
-                {{ getTimeSlotText((selectedClass?.number[0] || 1) - 1) }}
-              </text>
-            </view>
-          </view>
-
-          <view class="detail-item">
-            <view class="detail-icon">📆</view>
-            <view class="detail-info">
-              <text class="detail-label">上课周次</text>
-              <text class="detail-value">
-                第{{ selectedClass?.week.join('、') }}周
-              </text>
-            </view>
-          </view>
-
-          <view v-if="selectedClass?.remark" class="detail-item">
-            <view class="detail-icon">📝</view>
-            <view class="detail-info">
-              <text class="detail-label">备注信息</text>
-              <text class="detail-value">{{ selectedClass?.remark }}</text>
-            </view>
+          <view class="sheet-close" hover-class="mm-hover" @click="closeCourseDetail">
+            <text class="sheet-close-icon">✕</text>
           </view>
         </view>
 
-        <view class="detail-footer">
-          <button class="detail-btn" hover-class="mm-hover" @click="closeDetail">关闭</button>
+        <view class="sheet-body">
+          <view class="sheet-row">
+            <text class="sheet-label">上课时间</text>
+            <text class="sheet-value">{{ courseTimeText(activeCourse) }}</text>
+          </view>
+          <view class="sheet-row">
+            <text class="sheet-label">上课地点</text>
+            <text class="sheet-value">{{ activeCourse.location || '未填写' }}</text>
+          </view>
+          <view class="sheet-row">
+            <text class="sheet-label">授课教师</text>
+            <text class="sheet-value">{{ activeCourse.teacher || '未填写' }}</text>
+          </view>
+          <view class="sheet-row">
+            <text class="sheet-label">上课周次</text>
+            <text class="sheet-value">{{ activeCourse.weekText }}</text>
+          </view>
+          <view v-if="activeCourse.remark" class="sheet-row">
+            <text class="sheet-label">备注</text>
+            <text class="sheet-value">{{ activeCourse.remark }}</text>
+          </view>
+        </view>
+
+        <view class="sheet-footer">
+          <view class="sheet-btn" hover-class="mm-hover" @click="closeCourseDetail">
+            <text>关闭</text>
+          </view>
         </view>
       </view>
     </view>
@@ -401,582 +292,652 @@ function jumpToToday() {
 
 <style scoped lang="scss">
 /* ============================================================
-   课程页：单色风格（浅灰底 + 白卡片 + 单一强调色）
-   —— 所有颜色来自 CSS 变量，统一使用主题色阶，不再按课程色多色渲染
+   课程页（只读课表）：单色风格 + 小程序网格
+   —— 左侧节次列固定、右侧 7 天横向滚动；
+   —— 课程块用接口返回的课程色做低透明度浅底 + 左侧原色条，
+      其余颜色一律走主题 token（白卡片 / 描边 / 文字 / 强调色）。
    ============================================================ */
 
 .class-tab-container {
-  /* 底部安全区由 pages/main 的 .tab-page 统一预留，这里只留模块间距 */
-  padding: var(--page-pad) var(--page-pad) 16px;
+  padding: var(--page-pad);
   box-sizing: border-box;
   background-color: var(--bg-color);
-  min-height: 100vh;
+  min-height: 100%;
 }
 
-// 顶栏内的周次与「今天」按钮（由 MmNavBar 的左右插槽承载，这里只保留控件样式）
-.week-display {
+/* ---------- 顶栏左右插槽 ---------- */
+.schedule-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-
-  .value {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-color);
-
-    &.highlight {
-      background-color: var(--bg-elevated);
-      padding: 2px 12px;
-      border-radius: 999px;
-      border: 1px solid var(--border-color);
-    }
-  }
+  gap: 8px;
+  min-width: 0;
 }
 
+.schedule-picker {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.schedule-name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.schedule-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color);
+  max-width: 120px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.picker-arrow {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.week-pill {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--theme-color-strong);
+  background-color: var(--theme-color-soft);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+/* 「今天」按钮：36px 行内按钮热区（导航栏内），符合移动端点击规范 */
 .today-btn {
-  width: 32px;
-  height: 32px;
-  background-color: var(--bg-elevated);
-  border-radius: 50%;
+  height: 36px;
+  min-width: 52px;
+  padding: 0 12px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s ease, opacity 0.2s ease;
-  border: 1px solid var(--border-color);
-
-  &:active {
-    background-color: var(--surface-soft);
-    transform: scale(0.95);
-  }
-
-  .arrow-icon {
-    width: 16px;
-    height: 16px;
-  }
+  border-radius: 999px;
+  background-color: var(--theme-color-soft);
+  border: 1px solid var(--theme-color-muted);
+  color: var(--theme-color-strong);
+  font-size: 13px;
+  font-weight: 600;
 }
 
-// 空态
+/* ---------- 周次切换条 ---------- */
+.week-bar {
+  margin-top: 12px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+}
+
+.week-btn {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background-color: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  box-sizing: border-box;
+}
+
+.week-btn.disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* 左右 chevron：用边框绘制，颜色随 --text-muted（与 MmNavBar 返回箭头同一技法） */
+.chev {
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border-style: solid;
+  border-color: var(--text-muted);
+  border-width: 0 2px 2px 0;
+}
+
+.chev-left {
+  transform: rotate(135deg);
+  margin-left: 3px;
+}
+
+.chev-right {
+  transform: rotate(-45deg);
+  margin-right: 3px;
+}
+
+.week-center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.week-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.week-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.week-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--theme-color-strong);
+  background-color: var(--theme-color-soft);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.week-range {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ---------- 空态 / 空课提示 ---------- */
 .empty-state {
+  margin-top: 12px;
   padding: 48px 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   background-color: var(--bg-elevated);
   border: 1px solid var(--border-color);
   border-radius: var(--card-radius);
   box-shadow: var(--card-shadow);
-
-  .empty-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-color);
-  }
-
-  .empty-desc {
-    font-size: 12px;
-    color: var(--text-faint);
-  }
 }
 
-// 课程表
-.class-table {
-  background-color: var(--bg-elevated);
+.empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.empty-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.6;
+}
+
+.empty-retry {
+  margin-top: 8px;
+  height: 44px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background-color: var(--theme-color-soft);
+  border: 1px solid var(--theme-color-muted);
+  color: var(--theme-color-strong);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.empty-banner {
+  margin-top: 12px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background-color: var(--surface-soft);
+  border: 1px dashed var(--border-strong);
   border-radius: var(--card-radius);
+}
+
+.empty-banner-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.empty-banner-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ---------- 课表网格 ---------- */
+.grid-card {
+  margin-top: 12px;
+  background-color: var(--bg-elevated);
   border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
   box-shadow: var(--card-shadow);
   overflow: hidden;
 }
 
-.table-scroll {
+.grid-inner {
+  display: flex;
+  align-items: stretch;
   width: 100%;
 }
 
-.class-grid {
-  display: grid;
-  grid-template-columns: 44px repeat(7, minmax(0, 1fr));
-  gap: 1px;
-  background-color: var(--divider-color);
-
-  .time-column,
-  .day-column {
-    background-color: var(--bg-elevated);
-    display: grid;
-    grid-template-rows: 45px;
-    grid-auto-rows: 1fr;
-
-    .time-header,
-    .day-header {
-      background-color: var(--surface-soft);
-      color: var(--text-muted);
-      padding: 6px 2px;
-      text-align: center;
-      font-weight: 600;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      position: relative;
-      overflow: hidden;
-
-      // 今天：浅强调色底 + 强调色文字，保持克制
-      &.today-header {
-        background-color: var(--theme-color-soft);
-        color: var(--theme-color-strong);
-
-        .today-badge {
-          position: absolute;
-          top: 2px;
-          right: 4px;
-          background-color: var(--theme-color-strong);
-          color: var(--theme-action-contrast);
-          font-size: 10px;
-          padding: 1px 4px;
-          border-radius: 999px;
-          font-weight: 600;
-        }
-      }
-    }
-
-    .time-slot {
-      background-color: var(--bg-elevated);
-      padding: 4px 2px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      transition: background-color 0.2s ease;
-      min-height: 64px;
-
-      &:active {
-        background-color: var(--surface-soft);
-
-        .time-slot-number {
-          color: var(--theme-color-strong);
-        }
-      }
-
-      .time-slot-number {
-        font-size: 15px;
-        font-weight: 600;
-        color: var(--text-muted);
-      }
-    }
-
-    .course-slot {
-      min-height: 104px;
-      padding: 2px;
-      position: relative;
-
-      .course-item {
-        background-color: var(--theme-color-softer);
-        border: 1px solid var(--theme-color-soft);
-        border-left: 3px solid var(--theme-color-muted);
-        border-radius: 8px;
-        padding: 6px 4px;
-        height: calc(100% - 4px);
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        transition: transform 0.2s ease;
-
-        &:active {
-          transform: scale(0.98);
-        }
-
-        .course-name {
-          font-weight: 600;
-          color: var(--text-color);
-          font-size: 12px;
-          margin-bottom: 4px;
-          line-height: 1.3;
-          display: -webkit-box;
-          -webkit-box-orient: vertical;
-          -webkit-line-clamp: 2;
-          overflow: hidden;
-          word-break: break-all;
-        }
-
-        .course-details {
-          font-size: 10px;
-          color: var(--text-muted);
-          margin-top: 2px;
-          line-height: 1.2;
-          display: -webkit-box;
-          -webkit-box-orient: vertical;
-          -webkit-line-clamp: 4;
-          overflow: hidden;
-        }
-      }
-
-      .empty-slot {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-      }
-    }
-  }
+/* 左侧固定节次/时间列 */
+.section-col {
+  width: 52px;
+  flex-shrink: 0;
+  background-color: var(--surface-soft);
+  border-right: 1px solid var(--divider-color);
+  box-sizing: border-box;
 }
 
-// 周数选择器
-.week-selector {
+.section-head {
+  height: 42px;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--divider-color);
+  box-sizing: border-box;
+}
+
+.section-head-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.section-cell {
+  height: 62px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-bottom: 1px solid var(--divider-color);
+  box-sizing: border-box;
+}
+
+.section-cell:last-child {
+  border-bottom: none;
+}
+
+.section-no {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+  line-height: 1;
+}
+
+.section-time {
+  font-size: 9px;
+  color: var(--text-faint);
+  line-height: 1;
+}
+
+/* 右侧 7 天：scroll-view 横向滚动 */
+.day-scroll {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  white-space: nowrap;
+}
+
+.day-grid {
+  display: flex;
+  height: 100%;
+  /* 作为 scroll-view 内容宽度固定为 7 列总宽，禁止被 flex 压缩，保证横向滚动 */
+  flex-shrink: 0;
+}
+
+.day-col {
+  width: 78px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.day-col + .day-col {
+  border-left: 1px solid var(--divider-color);
+}
+
+.day-head {
+  height: 42px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  border-bottom: 1px solid var(--divider-color);
+  box-sizing: border-box;
+}
+
+.day-week {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.day-date {
+  font-size: 9px;
+  color: var(--text-faint);
+  line-height: 1;
+}
+
+/* 今天列：表头浅强调色底 + 强调色文字，列底也略作区分 */
+.day-head.is-today {
+  background-color: var(--theme-color-soft);
+}
+
+.day-head.is-today .day-week,
+.day-head.is-today .day-date {
+  color: var(--theme-color-strong);
+}
+
+.day-col.is-today .day-body {
+  background-color: var(--theme-color-softer);
+}
+
+.day-body {
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* 背景节次行（只画分隔线），课程块绝对定位覆盖在上面 */
+.slot-row {
+  height: 62px;
+  border-bottom: 1px solid var(--divider-color);
+  box-sizing: border-box;
+}
+
+.slot-row:last-child {
+  border-bottom: none;
+}
+
+/* 课程块：浅色底 + 左侧原色条；跨行由内联 top/height 控制 */
+.course-block {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 4px;
+  box-sizing: border-box;
+  border-left: 3px solid var(--theme-primary);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.course-block-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-color);
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-all;
+}
+
+.course-block-loc {
+  font-size: 9px;
+  color: var(--text-muted);
+  line-height: 1.2;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.grid-footer {
+  display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--divider-color);
+}
+
+.grid-footer-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.grid-footer-hint {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ---------- 首屏骨架（灰阶全走 token） ---------- */
+.skeleton-wrap {
+  pointer-events: none;
+}
+
+.skeleton-week-bar {
   margin-top: 12px;
-  padding: 12px;
+  height: 64px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   background-color: var(--bg-elevated);
   border: 1px solid var(--border-color);
   border-radius: var(--card-radius);
-  box-shadow: var(--card-shadow);
-  gap: 10px;
-
-  .week-list {
-    order: -1;
-    flex: 0 0 100%;
-    display: flex;
-    gap: 6px;
-
-    .week-item {
-      flex: 1;
-      min-width: 0;
-      height: 44px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background-color: var(--surface-soft);
-      border: 1px solid transparent;
-      border-radius: 10px;
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--text-color);
-      transition: background-color 0.2s ease, color 0.2s ease;
-
-      &.active {
-        background-color: var(--theme-color-soft);
-        border-color: var(--theme-color-muted);
-        color: var(--theme-color-strong);
-        font-weight: 600;
-      }
-    }
-  }
-
-  .week-btn {
-    width: 44px;
-    height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: var(--theme-color-soft);
-    border: 1px solid var(--theme-color-muted);
-    border-radius: 10px;
-    transition: transform 0.2s ease, opacity 0.2s ease;
-
-    &:active {
-      transform: scale(0.94);
-    }
-
-    &.disabled {
-      opacity: 0.35;
-      pointer-events: none;
-    }
-
-    .arrow-icon {
-      width: 20px;
-      height: 20px;
-    }
-  }
+  box-sizing: border-box;
 }
 
-/* ========== 加载骨架 ========== */
-.skeleton-container {
-  pointer-events: none;
-
-  .skeleton-course-item {
-    width: calc(100% - 8px);
-    height: calc(100% - 8px);
-    margin: 4px;
-    background-color: var(--surface-soft);
-    border-radius: 8px;
-    position: relative;
-    overflow: hidden;
-
-    &::after {
-      content: "";
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(90deg, transparent, var(--border-color), transparent);
-      animation: skeleton-loading 1.5s infinite;
-    }
-  }
+.skeleton-square {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background-color: var(--surface-soft);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
 }
 
-.skeleton-selector {
-  opacity: 0.6;
-  pointer-events: none;
+.skeleton-text {
+  flex: 1;
+  height: 28px;
+  border-radius: 8px;
+  background-color: var(--surface-soft);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
 }
 
-@keyframes skeleton-loading {
-  0% {
-    transform: translateX(-100%);
-  }
+.skeleton-card {
+  margin-top: 12px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  overflow: hidden;
+}
 
+.skeleton-card-head {
+  height: 42px;
+  background-color: var(--surface-soft);
+  border-bottom: 1px solid var(--divider-color);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-card-row {
+  display: flex;
+  gap: 4px;
+  padding: 3px 4px;
+}
+
+.skeleton-cell {
+  flex: 1;
+  height: 56px;
+  border-radius: 6px;
+  background-color: var(--surface-soft);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+  0%,
   100% {
-    transform: translateX(100%);
+    opacity: 0.5;
+  }
+
+  50% {
+    opacity: 0.9;
   }
 }
 
-/* ========== 弹层通用 ========== */
-.detail-overlay {
+/* ---------- 课程详情弹层 ---------- */
+.sheet-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: var(--mask-color);
-  backdrop-filter: blur(4px);
   z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
+  background-color: var(--mask-color);
 }
 
-.detail-content {
+.sheet-card {
   width: 100%;
-  max-width: 320px;
+  max-width: 340px;
   background-color: var(--bg-elevated);
   border: 1px solid var(--border-color);
   border-radius: 16px;
   overflow: hidden;
   box-shadow: var(--theme-outer-glow);
-  animation: slideUp 0.25s ease-out;
+  animation: sheet-in 0.2s ease-out;
 }
 
-/* 时间表弹窗特殊样式 */
-.time-table-content {
-  max-width: 300px;
-}
-
-.time-table-body {
-  padding: 0;
-}
-
-.time-table-list {
-  max-height: 320px;
-  overflow-y: auto;
-}
-
-.time-table-item {
+.sheet-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 52px;
-  padding: 10px 16px;
+  gap: 8px;
+  padding: 16px 16px 12px;
   border-bottom: 1px solid var(--divider-color);
-  transition: background-color 0.2s ease;
 }
 
-.time-table-item:last-child {
-  border-bottom: none;
-}
-
-.time-table-item:active {
-  background-color: var(--surface-soft);
-}
-
-.time-table-number {
+.sheet-title-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
-.number-badge {
-  width: 26px;
-  height: 26px;
+.sheet-color-dot {
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background-color: var(--theme-color-soft);
-  border: 1px solid var(--theme-color-muted);
-  color: var(--theme-color-strong);
+  flex-shrink: 0;
+}
+
+.sheet-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-color);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sheet-close {
+  width: 44px;
+  height: 44px;
+  margin: -8px -8px -8px 0;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
-  font-weight: 600;
-  box-sizing: border-box;
+  border-radius: 50%;
 }
 
-.number-text {
+.sheet-close-icon {
+  font-size: 16px;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.sheet-body {
+  padding: 4px 16px;
+}
+
+.sheet-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--divider-color);
+}
+
+.sheet-row:last-child {
+  border-bottom: none;
+}
+
+.sheet-label {
+  width: 64px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.sheet-value {
+  flex: 1;
+  min-width: 0;
   font-size: 14px;
   color: var(--text-color);
-  font-weight: 500;
+  line-height: 1.5;
+  word-break: break-all;
 }
 
-.time-table-time {
-  text-align: right;
+.sheet-footer {
+  padding: 12px 16px 16px;
 }
 
-.time-text {
-  font-size: 14px;
-  color: var(--theme-color-strong);
+.sheet-btn {
+  height: var(--control-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--theme-gradient);
+  color: var(--theme-action-contrast);
+  font-size: 15px;
   font-weight: 600;
 }
 
-@keyframes slideUp {
+@keyframes sheet-in {
   from {
     opacity: 0;
-    transform: translateY(24px);
+    transform: translateY(16px);
   }
 
   to {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-.detail-header {
-  padding: 20px 16px 16px;
-  position: relative;
-  background: var(--theme-gradient);
-}
-
-.detail-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--theme-action-contrast);
-  display: block;
-  margin-bottom: 4px;
-}
-
-.detail-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  font-size: 18px;
-  color: var(--theme-action-contrast);
-  opacity: 0.9;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  transition: opacity 0.2s ease;
-}
-
-.detail-close:active {
-  opacity: 0.6;
-}
-
-.detail-body {
-  padding: 16px;
-}
-
-.detail-item {
-  display: flex;
-  align-items: flex-start;
-  margin-bottom: 10px;
-  padding: 12px;
-  background-color: var(--surface-soft);
-  border-radius: 10px;
-  border-left: 3px solid var(--theme-color-muted);
-}
-
-.detail-item:last-child {
-  margin-bottom: 0;
-}
-
-.detail-icon {
-  font-size: 18px;
-  margin-right: 10px;
-  flex-shrink: 0;
-  line-height: 1.4;
-}
-
-.detail-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.detail-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  display: block;
-  margin-bottom: 2px;
-  font-weight: 500;
-}
-
-.detail-value {
-  font-size: 14px;
-  color: var(--text-color);
-  display: block;
-  line-height: 1.5;
-  word-break: break-all;
-}
-
-.detail-footer {
-  padding: 12px 16px 16px;
-  display: flex;
-  justify-content: center;
-  border-top: 1px solid var(--divider-color);
-}
-
-.detail-btn {
-  width: 100%;
-  height: var(--control-h);
-  text-align: center;
-  background: var(--theme-gradient);
-  color: var(--theme-action-contrast);
-  border: none;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-}
-
-.detail-btn::after {
-  border: none;
-}
-
-/* 折叠控制样式 */
-.fold-toggle {
-  padding: 14px 0;
-  background-color: transparent;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  border-top: 1px solid var(--divider-color);
-}
-
-.fold-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--theme-color-strong);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.toggle-icon {
-  width: 14px;
-  height: 14px;
-  transition: transform 0.25s ease;
-  transform: rotate(90deg);
-  /* 默认向下 */
-}
-
-.is-expanded .toggle-icon {
-  transform: rotate(-90deg);
-  /* 展开时向上 */
 }
 </style>
