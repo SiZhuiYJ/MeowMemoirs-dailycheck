@@ -159,3 +159,42 @@ export function getClientDeviceModel(): string {
   // #endif
   return model;
 }
+
+/** 机持久化设备 ID 的存储 key（配合后端 X-Device-Id 头识别「同一台设备」）。 */
+const DEVICE_ID_STORAGE_KEY = 'mm_device_id';
+
+/** 进程内缓存的设备 ID：读一次本地存储即可，避免每次请求都同步读。 */
+let cachedDeviceId = '';
+
+/**
+ * 本机持久化设备 ID：后端登录记录按设备维度归并，靠这个 ID 识别「同一台设备」。
+ * 优先读本地缓存；没有则用「时间戳 base36 + 随机串」生成并写回。
+ * 清缓存 / 换设备会得到新 ID（预期行为）；读写异常时降级为临时 ID，不抛异常。
+ */
+export function getDeviceId(): string {
+  if (cachedDeviceId) return cachedDeviceId;
+  try {
+    const stored = uni.getStorageSync(DEVICE_ID_STORAGE_KEY);
+    if (typeof stored === 'string' && stored) {
+      cachedDeviceId = stored;
+      return cachedDeviceId;
+    }
+  } catch (e) {
+    // 读缓存失败：继续生成
+  }
+  const generated = generateDeviceId();
+  cachedDeviceId = generated;
+  try {
+    uni.setStorageSync(DEVICE_ID_STORAGE_KEY, generated);
+  } catch (e) {
+    // 写缓存失败：本次会话内复用生成的 ID
+  }
+  return cachedDeviceId;
+}
+
+/** 生成设备 ID：base36 时间戳 + 两段随机串（只含 [a-z0-9-]，长度符合后端 8..64）。 */
+function generateDeviceId(): string {
+  const randomPart =
+    Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+  return `${Date.now().toString(36)}-${randomPart}`;
+}

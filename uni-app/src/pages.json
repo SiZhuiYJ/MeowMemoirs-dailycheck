@@ -109,7 +109,8 @@
         {
             "path": "pages/settings/changelog",
             "style": {
-                "navigationBarTitleText": "更新日志"
+                "navigationBarTitleText": "更新日志",
+                "enablePullDownRefresh": true
             }
         },
         {

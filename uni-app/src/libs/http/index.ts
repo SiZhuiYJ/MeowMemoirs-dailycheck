@@ -9,7 +9,7 @@
  * 6. 参数序列化 (Params Serialization)
  */
 
-import { getClientDeviceModel, getClientPlatform } from '@/utils/systemInfo';
+import { getClientDeviceModel, getClientPlatform, getDeviceId } from '@/utils/systemInfo';
 
 /** 
  * 外部注入的 Auth Store 实例
@@ -159,12 +159,15 @@ const createHttp = (
             headers['Authorization'] = `Bearer ${auth.accessToken}`;
         }
 
-        // 上报客户端平台 / 机型：后端登录记录用来展示设备（取不到就跳过，绝不影响请求）
+        // 上报客户端平台 / 机型 / 设备 ID：后端登录记录按设备维度归并（取不到就跳过，绝不影响请求）
         try {
             const clientPlatform = getClientPlatform();
             if (clientPlatform) headers['X-Client-Platform'] = clientPlatform;
             const clientDevice = getClientDeviceModel();
             if (clientDevice) headers['X-Client-Device'] = clientDevice;
+            const deviceId = getDeviceId();
+            // 调用方显式传了 X-Device-Id 时保持原值，不覆盖
+            if (deviceId && !headers['X-Device-Id']) headers['X-Device-Id'] = deviceId;
         } catch (e) {
             // 系统信息不可用时忽略：后端会用 User-Agent 兜底
         }
@@ -289,8 +292,15 @@ const createHttp = (
                 const response = await coreRequest<T>(options);
                 return response;
             } catch (error: any) {
-                // 401 错误不进行普通重试，由 coreRequest 内部处理刷新逻辑
-                if (error.statusCode === 401 || currentRetry >= retryCount) {
+                // 401 由 coreRequest 内部处理刷新逻辑，这里不重试。
+                // 其它 4xx 是业务/参数错误（409 冲突、400 参数、404 不存在等），重试只会拿到同样结果；
+                // 对「微信 code 只能消费一次」这类一次性凭证接口，重试还会把 code 用废、把 409 变成 401
+                // （绑定微信冲突时就出现过：第一次 409，http 层自动重试同一 code → 微信返回 invalid code → 401）。
+                // 因此只有网络错误与 5xx 才做普通重试。
+                const statusCode = error?.statusCode;
+                const isClientError =
+                    typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500;
+                if (statusCode === 401 || isClientError || currentRetry >= retryCount) {
                     throw error;
                 }
                 // 指数补偿或简单延迟重试

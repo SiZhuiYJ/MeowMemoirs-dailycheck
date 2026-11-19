@@ -3,6 +3,7 @@ import { onLaunch, onShow, onHide } from "@dcloudio/uni-app";
 import { useAuthStore } from './stores/auth';
 import { useThemeStore } from './stores/theme';
 import { resolveApiBase } from './libs/http/apiBase';
+import http from './libs/http/config';
 
 onLaunch(() => {
   console.log("App Launch");
@@ -22,10 +23,25 @@ onLaunch(() => {
     // 已登录时由 pages.json 的首页直接进入主页，无需额外跳转
   }
 });
+/** 活跃上报节流：同一进程 60s 内只上报一次（App onShow 在启动 / 回前台都会触发） */
+let lastActiveReportAt = 0;
+const ACTIVE_REPORT_INTERVAL_MS = 60 * 1000;
+
 onShow(() => {
   console.log("App Show");
   const themeStore = useThemeStore();
   themeStore.updateNavBarColor();
+
+  // 打开小程序 / 从后台回到前台时上报设备活跃（登录记录页「最近活跃时间」的来源）；
+  // 未登录不上报，失败静默忽略，绝不影响用户使用
+  const auth = useAuthStore();
+  if (!auth.isAuthenticated) return;
+  const now = Date.now();
+  if (now - lastActiveReportAt < ACTIVE_REPORT_INTERVAL_MS) return;
+  lastActiveReportAt = now;
+  http.post('/mm/LoginRecords/active').catch(() => {
+    // 活跃上报失败静默忽略（例如离线 / 接口暂不可用）
+  });
 });
 onHide(() => {
   console.log("App Hide");

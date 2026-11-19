@@ -13,6 +13,8 @@ export interface AuthUser {
   nickName: string | null;
   userAccount: string | null;
   avatarKey: string | null;
+  /** 上一次使用的头像 key；null 表示没有可回退的上次头像 */
+  previousAvatarKey: string | null;
   profileBackgroundKey: string | null; // 个人主页背景图 key，null 表示未设置（回退到头像）
   thirdPartyBindings?: ThirdPartyBinding[]; // 新增：第三方绑定信息
 }
@@ -68,6 +70,7 @@ export const useAuthStore = defineStore('auth', {
         nickName: getVal(['nickName', 'NickName']),
         userAccount: getVal(['userAccount', 'UserAccount']),
         avatarKey: getVal(['avatarKey', 'AvatarKey']) || null,
+        previousAvatarKey: getVal(['previousAvatarKey', 'PreviousAvatarKey']) || null,
         profileBackgroundKey: getVal(['profileBackgroundKey', 'ProfileBackgroundKey']) || null,
         thirdPartyBindings: getVal(['thirdPartyBindings', 'ThirdPartyBindings']) || [], // 添加第三方绑定信息
       };
@@ -111,6 +114,11 @@ export const useAuthStore = defineStore('auth', {
 
           const avatarKey = getVal(['avatarKey', 'AvatarKey']);
           if (avatarKey !== undefined) updateData.avatarKey = avatarKey;
+
+          const previousAvatarKey = getVal(['previousAvatarKey', 'PreviousAvatarKey']);
+          if (previousAvatarKey !== undefined) {
+            updateData.previousAvatarKey = previousAvatarKey || null;
+          }
 
           const profileBackgroundKey = getVal(['profileBackgroundKey', 'ProfileBackgroundKey']);
           if (profileBackgroundKey !== undefined) {

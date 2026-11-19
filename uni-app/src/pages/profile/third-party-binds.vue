@@ -355,12 +355,19 @@ async function bindWechat() {
   } catch (error: any) {
     console.error('绑定微信失败:', error);
 
+    // 后端业务错误（400/409/404 等）返回的是纯文本，直接展示服务端文案更准确；
+    // 401 有两种来源：登录态失效（middleware）或微信 code 无效/已使用（code2session 失败）。
+    const serverMessage =
+      typeof error?.data === 'string'
+        ? error.data
+        : error?.data?.message || error?.message;
+
     if (error.statusCode === 409) {
-      notifyError(error.data?.message || '绑定失败：微信账号已被绑定');
+      notifyError(serverMessage || '绑定失败：该微信已绑定其他账号');
     } else if (error.statusCode === 401) {
-      notifyError('用户未登录或登录已过期，请重新登录');
+      notifyError(serverMessage || '用户未登录或登录已过期，请重新登录');
     } else {
-      notifyError(error.data?.message || '绑定失败，请稍后重试');
+      notifyError(serverMessage || '绑定失败，请稍后重试');
     }
   }
 }

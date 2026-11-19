@@ -100,6 +100,10 @@ function handleThumbError() {
 <style scoped lang="scss">
 .mm-lazy-image {
   position: relative;
+  /* 关键：z-index:0 让组件自身形成堆叠上下文。内部的占位图/原图层都用
+     position:absolute + z-index（0/1），若不加这一行，inner 的 z-index 会
+     「逃逸」到外层堆叠上下文，可能盖住组件外的兄弟元素（例如头像上的 ✎ 编辑遮罩层）。 */
+  z-index: 0;
   display: block;
   width: 100%;
   height: 100%;

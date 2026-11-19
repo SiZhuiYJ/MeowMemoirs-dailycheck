@@ -7,16 +7,14 @@ import http from '@/libs/http/config';
 
 const themeStore = useThemeStore();
 
-/** 登录记录状态：current 当前登录 / active 在线 / logged_out 已退出 */
-type LoginStatus = 'current' | 'active' | 'logged_out';
 /** 记录范围：domestic 仅国内 / all 全部 */
 type LoginScope = 'domestic' | 'all';
 /** 分页加载模式：initial 首屏（含切 tab）/ refresh 下拉刷新 / more 触底加载更多 */
 type LoadMode = 'initial' | 'refresh' | 'more';
 
-/** 单条登录记录（字段命名与后端 DTO 的 camelCase 一致） */
+/** 单台登录设备（一台设备一项：最近活跃时间 + 最近一次登录信息，字段命名与后端 DTO 的 camelCase 一致） */
 interface LoginRecordItem {
-  id: number;
+  deviceId: number;
   device?: string | null;
   platform?: string | null;
   loginType?: string | null;
@@ -27,12 +25,14 @@ interface LoginRecordItem {
   district?: string | null;
   isp?: string | null;
   isDomestic?: boolean;
-  status?: LoginStatus | null;
+  /** 是否当前正在查看的设备（服务端按 X-Device-Id / 当前 token sid 判定） */
+  isCurrent?: boolean;
   loginAt?: string | null;
-  logoutAt?: string | null;
+  /** 最近活跃时间（UTC ISO，打开小程序 / 网页时更新） */
+  lastActiveAt?: string | null;
 }
 
-/** GET /mm/LoginRecords 响应体 */
+/** GET /mm/LoginRecords 响应体（items = 每台设备 + 该设备最后一次登录记录） */
 interface LoginRecordsResponse {
   scope?: string;
   page?: number;
@@ -52,19 +52,6 @@ const scopeOptions: ReadonlyArray<{ label: string; value: LoginScope }> = [
   { label: '全部', value: 'all' },
 ];
 
-/** 状态文案 / 胶囊样式 */
-const STATUS_LABELS: Record<LoginStatus, string> = {
-  current: '当前登录',
-  active: '在线',
-  logged_out: '已退出',
-};
-
-const STATUS_CLASSES: Record<LoginStatus, string> = {
-  current: 'is-current',
-  active: 'is-active',
-  logged_out: 'is-logged-out',
-};
-
 /** 登录方式中文文案 */
 const LOGIN_TYPE_LABELS: Record<string, string> = {
   password: '密码登录',
@@ -78,15 +65,15 @@ const LOGIN_TYPE_LABELS: Record<string, string> = {
 
 /** 当前筛选范围：默认「国内」 */
 const scope = ref<LoginScope>('domestic');
-/** 已加载的登录记录（按登录时间倒序） */
+/** 已加载的登录设备（按设备最近活跃时间倒序） */
 const items = ref<LoginRecordItem[]>([]);
 /** 当前已加载到的页码 */
 const page = ref(1);
-/** 当前 scope 下的总条数 */
+/** 当前 scope 下的设备总数 */
 const total = ref(0);
-/** 国内记录总数（顶部摘要用） */
+/** 国内设备总数（顶部摘要用） */
 const domesticTotal = ref(0);
-/** 全部记录总数（顶部摘要用） */
+/** 全部设备总数（顶部摘要用） */
 const allTotal = ref(0);
 /** 首屏 / 切换 scope 的整页加载中 */
 const loading = ref(false);
@@ -111,12 +98,12 @@ const inFlightKeys = new Set<string>();
 /** 首次 onShow 才拉数据，之后回到页面不重复拉（下拉刷新可手动更新） */
 let firstShown = false;
 
-/** 顶部摘要文案 */
+/** 顶部摘要文案（按设备数） */
 const summaryText = computed(() => {
   if (scope.value === 'domestic') {
-    return `国内登录 ${domesticTotal.value} 次`;
+    return `国内设备 ${domesticTotal.value} 台`;
   }
-  return `全部登录 ${allTotal.value} 次（其中国内 ${domesticTotal.value} 次）`;
+  return `全部设备 ${allTotal.value} 台（其中国内 ${domesticTotal.value} 台）`;
 });
 
 /** 已全部加载完（用于「没有更多了」） */
@@ -150,7 +137,7 @@ function parseUtcDate(value: string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** 登录时间格式化为本地 "YYYY-MM-DD HH:mm" */
+/** UTC 时间格式化为本地 "YYYY-MM-DD HH:mm"（登录时间 / 最近活跃时间通用） */
 function formatLoginTime(value: string | null | undefined): string {
   const date = parseUtcDate(value);
   if (!date) return '时间未知';
@@ -159,29 +146,21 @@ function formatLoginTime(value: string | null | undefined): string {
   )}:${pad2(date.getMinutes())}`;
 }
 
-/** 归一化状态：后端异常值按「在线」兜底 */
-function normalizeStatus(status: LoginStatus | null | undefined): LoginStatus {
-  if (status === 'current' || status === 'logged_out') return status;
-  return 'active';
-}
-
-function statusLabel(record: LoginRecordItem): string {
-  return STATUS_LABELS[normalizeStatus(record.status)];
-}
-
-function statusClass(record: LoginRecordItem): string {
-  return STATUS_CLASSES[normalizeStatus(record.status)];
-}
-
 /** 登录方式中文 */
 function loginTypeLabel(loginType: string | null | undefined): string {
   if (!loginType) return '登录';
   return LOGIN_TYPE_LABELS[loginType] ?? '登录';
 }
 
-/** 第三行：登录方式 + 脱敏 IP */
+/** 第三行：地点 · 登录方式 · 脱敏 IP（每项有值才拼接，全部没有时返回空串） */
 function metaText(record: LoginRecordItem): string {
-  const parts: string[] = [loginTypeLabel(record.loginType)];
+  const parts: string[] = [];
+  if (record.location) {
+    parts.push(record.location);
+  }
+  if (record.loginType) {
+    parts.push(loginTypeLabel(record.loginType));
+  }
   if (record.ipMasked) {
     parts.push(`IP ${record.ipMasked}`);
   }
@@ -337,7 +316,10 @@ onReachBottom(() => {
       </view>
     </view>
 
-    <!-- 顶部摘要计数：国内 →「国内登录 N 次」；全部 →「全部登录 N 次（其中国内 N 次）」 -->
+    <!-- 副标题：说明列表语义（一台设备一行，显示最近活跃时间） -->
+    <text class="page-subtitle">每台设备显示最近活跃时间（打开小程序 / 网页时更新）</text>
+
+    <!-- 顶部摘要计数（按设备数）：国内 →「国内设备 N 台」；全部 →「全部设备 N 台（其中国内 N 台）」 -->
     <text v-if="loadedOnce && !loading" class="summary">{{ summaryText }}</text>
 
     <!-- 加载中：2~3 行骨架 -->
@@ -350,16 +332,18 @@ onReachBottom(() => {
 
     <!-- 列表：每行 ≥44px，行间分割线 token -->
     <view v-else-if="items.length > 0" class="page-card record-list">
-      <view v-for="record in items" :key="record.id" class="record-item">
+      <view v-for="record in items" :key="record.deviceId" class="record-item">
         <view class="record-main">
           <text class="device">{{ record.device || '未知设备' }}</text>
-          <text class="status" :class="statusClass(record)">{{ statusLabel(record) }}</text>
+          <!-- 只有当前设备显示「当前设备」徽标；其它设备不显示任何状态标识 -->
+          <text v-if="record.isCurrent" class="status is-current">当前设备</text>
         </view>
         <view class="record-sub">
           <text v-if="record.isDomestic && scope === 'all'" class="domestic-badge">国内</text>
-          <text class="info">{{ record.location || '未知位置' }} · {{ formatLoginTime(record.loginAt) }}</text>
+          <text class="info">最近活跃 {{ formatLoginTime(record.lastActiveAt) }}</text>
         </view>
-        <text class="record-meta">{{ metaText(record) }}</text>
+        <!-- 第三行：地点 · 登录方式 · IP（有值才显示） -->
+        <text v-if="metaText(record)" class="record-meta">{{ metaText(record) }}</text>
       </view>
     </view>
 
@@ -374,7 +358,7 @@ onReachBottom(() => {
 
     <!-- 空态 -->
     <view v-else class="page-card state-card">
-      <text class="state-title">{{ scope === 'domestic' ? '暂无国内登录记录' : '暂无登录记录' }}</text>
+      <text class="state-title">{{ scope === 'domestic' ? '暂无国内登录设备' : '暂无登录设备' }}</text>
       <text class="state-desc">{{
         scope === 'domestic' ? '在常用设备登录后会自动记录' : '登录成功后会自动生成记录'
       }}</text>
@@ -446,6 +430,14 @@ onReachBottom(() => {
   color: var(--theme-color-strong);
 }
 
+/* 副标题：说明「一台设备一行、显示最近活跃时间」 */
+.page-subtitle {
+  display: block;
+  margin: 0 2px 6px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
 /* 摘要计数：12px 弱化 */
 .summary {
   display: block;
@@ -490,7 +482,7 @@ onReachBottom(() => {
   white-space: nowrap;
 }
 
-/* 状态胶囊：普通项次级底；当前登录用主题浅底强调色；在线用成功色 */
+/* 「当前设备」小徽标：主题浅底 + 强调色（只有当前设备显示） */
 .status {
   flex-shrink: 0;
   font-size: 11px;
@@ -504,16 +496,6 @@ onReachBottom(() => {
 .status.is-current {
   color: var(--theme-color-strong);
   background-color: var(--theme-color-soft);
-}
-
-.status.is-active {
-  color: var(--color-success-text);
-  background-color: var(--color-success-soft);
-}
-
-.status.is-logged-out {
-  color: var(--text-faint);
-  background-color: var(--surface-soft);
 }
 
 .record-sub {
@@ -539,7 +521,7 @@ onReachBottom(() => {
   color: var(--text-muted);
 }
 
-/* 第三行：登录方式 + 脱敏 IP，弱化 */
+/* 第三行：地点 · 登录方式 · IP，弱化 */
 .record-meta {
   display: block;
   font-size: 12px;

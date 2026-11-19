@@ -81,6 +81,65 @@ function handlePreviewBackground() {
   });
 }
 
+/** 是否有可用的上次头像（没有时不显示「使用上次头像」入口） */
+const hasPreviousAvatar = computed(() => Boolean(authStore.user?.previousAvatarKey));
+
+/** 上次头像地址（确认对话框里预览用） */
+const previousAvatarUrl = computed(() => {
+  const user = authStore.user;
+  return user?.previousAvatarKey ? `${apiBase.value}/mm/Files/users/${user.userId}/${user.previousAvatarKey}` : '';
+});
+
+/** 上次头像缩略占位图（服务端 96px _thumb） */
+const previousAvatarThumbUrl = computed(() => thumbnailUrl(previousAvatarUrl.value));
+
+/** 「上次头像」确认对话框显隐 / 切换进行中 */
+const showPreviousAvatarDialog = ref(false);
+const switchingPreviousAvatar = ref(false);
+
+function openPreviousAvatarDialog() {
+  if (!hasPreviousAvatar.value) return;
+  showPreviousAvatarDialog.value = true;
+}
+
+function closePreviousAvatarDialog() {
+  // 切换请求进行中时不允许关闭，避免状态错乱
+  if (switchingPreviousAvatar.value) return;
+  showPreviousAvatarDialog.value = false;
+}
+
+/** 使用上次头像：调用后端把当前头像与上次头像互换 */
+async function usePreviousAvatar() {
+  if (switchingPreviousAvatar.value) return;
+
+  switchingPreviousAvatar.value = true;
+  uni.showLoading({ title: '切换中...', mask: true });
+  try {
+    const res = await http.post<{ key: string; previousKey?: string | null }>('/mm/Files/avatar/use-previous');
+    const data = res.data;
+    if (res.statusCode === 200 && data?.key) {
+      authStore.updateUser({
+        avatarKey: data.key,
+        previousAvatarKey: data.previousKey !== undefined ? data.previousKey : null
+      });
+      showPreviousAvatarDialog.value = false;
+      notifySuccess('已切换为上次头像');
+    } else {
+      notifyError('切换上次头像失败');
+    }
+  } catch (error: any) {
+    if (error?.statusCode === 400) {
+      notifyError('暂无可用的上次头像');
+      showPreviousAvatarDialog.value = false;
+    } else {
+      notifyError('切换上次头像失败');
+    }
+  } finally {
+    switchingPreviousAvatar.value = false;
+    uni.hideLoading();
+  }
+}
+
 /** 头像卡右上角「更换背景」入口：按当前状态弹出操作表 */
 function handleBackgroundSettings() {
   const hasCustom = hasCustomBackground.value;
@@ -101,23 +160,46 @@ function handleBackgroundSettings() {
   });
 }
 
-/** 选图 → 1:1 裁剪页 → 上传为新背景 */
+/** 选图 → 1:1 裁剪页（保留原图像素）→ 上传为新背景 */
 function pickAndUploadBackground() {
   uni.chooseImage({
     count: 1,
-    // 背景图铺满整张卡片，允许用户选原图以保留更多细节（裁剪输出 1200px）
+    // 背景图铺满整张卡片：优先选原图，1:1 裁剪后保留裁剪区域的原始像素，不做二次缩放
     sizeType: ['original', 'compressed'],
     sourceType: ['album', 'camera'],
     success: (chooseRes) => {
       const tempFilePath = chooseRes.tempFilePaths?.[0];
       if (!tempFilePath) return;
-      uni.navigateTo({
-        // 背景输出 1200x1200 jpg：500px 铺满手机卡片会明显放大发虚
-        url: `/pages/common/cropper?src=${tempFilePath}&width=1200&height=1200&filetype=jpg&quality=92`,
-        events: {
-          cropSuccess: (data: { tempFilePath?: string }) => {
-            if (data?.tempFilePath) uploadProfileBackground(data.tempFilePath);
+
+      /** 带尺寸跳 1:1 裁剪页：width/height = 输出边长（正方形），filetype=jpg quality=92 */
+      const openCropper = (side: number) => {
+        uni.navigateTo({
+          // 保留裁剪后的原始像素：输出边长 = 原图短边（上限 4096 的微信画布安全上限），
+          // 不再固定 1200px；服务端也不再缩放像素（仅转 WebP + 生成 128px 缩略图），
+          // 单张上传上限 20MB
+          url: `/pages/common/cropper?src=${tempFilePath}&width=${side}&height=${side}&filetype=jpg&quality=92`,
+          events: {
+            cropSuccess: (data: { tempFilePath?: string }) => {
+              if (data?.tempFilePath) uploadProfileBackground(data.tempFilePath);
+            }
           }
+        });
+      };
+
+      // 先读原图宽高：正方形裁剪能保留的最大边长 = 短边；
+      // 4096 是微信 canvas 的安全上限，普通 12MP 手机照片短边约 3024，可保持原像素不被缩小。
+      uni.getImageInfo({
+        src: tempFilePath,
+        success: (info) => {
+          const width = Number(info?.width) || 0;
+          const height = Number(info?.height) || 0;
+          const side = Math.min(width, height, 4096);
+          // 宽高异常（拿不到有效值）时回退 1600，避免生成 width=0 的坏 URL
+          openCropper(side > 0 ? side : 1600);
+        },
+        fail: () => {
+          // 拿不到原图尺寸：回退 1600，保证流程仍可用
+          openCropper(1600);
         }
       });
     }
@@ -178,8 +260,9 @@ async function handleResetBackground() {
 }
 
 function handleEditAvatar() {
+  // 入口始终展示，避免用户以为功能没上线；暂无上次头像时点击给出说明。
   uni.showActionSheet({
-    itemList: ['使用微信头像', '选择照片'],
+    itemList: ['使用微信头像', '选择照片', '使用上次头像'],
     success: async (res) => {
       if (res.tapIndex === 0) {
         // WeChat Avatar
@@ -244,6 +327,18 @@ function handleEditAvatar() {
             }
           }
         });
+      } else if (res.tapIndex === 2) {
+        // 使用上次头像：没有历史时明确提示，有历史则弹窗展示上次头像并确认
+        if (!hasPreviousAvatar.value) {
+          uni.showModal({
+            title: '暂无可用的上次头像',
+            content: '更换一次头像后，这里会展示并可切回上一次使用的头像。',
+            showCancel: false,
+            confirmText: '知道了'
+          });
+          return;
+        }
+        openPreviousAvatarDialog();
       }
     }
   });
@@ -285,8 +380,12 @@ function uploadFile(filePath: string) {
           const data = JSON.parse(uploadRes.data);
           const key = data.key;
           if (key && authStore.user?.userId) {
-            // Update store
-            authStore.updateUser({ avatarKey: key });
+            // 服务端上传成功会返回旧头像 key（首次上传为 null）
+            authStore.updateUser(
+              data.previousKey !== undefined
+                ? { avatarKey: key, previousAvatarKey: data.previousKey }
+                : { avatarKey: key }
+            );
             notifySuccess('头像上传成功');
           } else {
             notifyError('头像上传失败: 无效的响应');
@@ -321,17 +420,21 @@ async function handleAvatarClick() {
     <NotificationSystem />
 
     <!-- 头像卡：先用 128px 缩略占位图铺底，原图加载完成后淡入（渐进/懒加载，见 MmLazyImage）；
-         无自定义背景时回退头像图作背景；点击空白处可预览背景 -->
-    <view class="card profile-header" @click="handlePreviewBackground">
-      <mm-lazy-image v-if="profileBackgroundUrl" class="profile-bg" :src="profileBackgroundUrl"
-        :thumbnail="profileBackgroundThumbUrl" mode="aspectFill" />
+         无自定义背景时回退头像图作背景。背景预览只绑在背景层，头像点击不会误触背景 -->
+    <view class="card profile-header">
+      <view v-if="profileBackgroundUrl" class="profile-bg" @click="handlePreviewBackground">
+        <mm-lazy-image class="profile-bg-img" :src="profileBackgroundUrl" :thumbnail="profileBackgroundThumbUrl"
+          mode="aspectFill" />
+      </view>
       <view class="bg-setting-btn" hover-class="mm-hover" @click.stop="handleBackgroundSettings">
         <view class="bg-setting-icon"></view>
       </view>
       <view class="fade-bottom">
         <view class="avatar-large">
-          <mm-lazy-image v-if="avatarUrl" class="avatar-img" :src="avatarUrl" :thumbnail="avatarThumbUrl"
-            mode="aspectFill" @click.stop="handleViewAvatar" />
+          <!-- 用原生 view 承载点击：小程序里 @click 在自定义组件上不冒泡成 tap，会导致点头像误触发卡片背景预览 -->
+          <view v-if="avatarUrl" class="avatar-click" @click.stop="handleViewAvatar">
+            <mm-lazy-image class="avatar-img" :src="avatarUrl" :thumbnail="avatarThumbUrl" mode="aspectFill" />
+          </view>
           <text v-else class="avatar-text-large" @click.stop="handleViewAvatar">{{ (authStore.user?.nickName ||
             authStore.user?.userAccount ||
             authStore.user?.email ||
@@ -395,6 +498,24 @@ async function handleAvatarClick() {
       <button class="btn-deactivate" hover-class="mm-hover"
         @click="handleNavigate('/pages/profile/deactivate')">注销账号</button>
     </view>
+
+    <!-- 上次头像确认对话框：展示上次使用的头像，用户决定是否切回 -->
+    <view v-if="showPreviousAvatarDialog" class="prev-avatar-mask" @click="closePreviousAvatarDialog">
+      <view class="prev-avatar-dialog" @click.stop>
+        <text class="prev-avatar-title">上次使用的头像</text>
+        <view class="prev-avatar-preview">
+          <mm-lazy-image v-if="previousAvatarUrl" class="prev-avatar-img" :src="previousAvatarUrl"
+            :thumbnail="previousAvatarThumbUrl" mode="aspectFill" />
+        </view>
+        <text class="prev-avatar-tip">切换后当前头像会与上次头像互换，可再次切换回来。</text>
+        <view class="prev-avatar-actions">
+          <button class="prev-avatar-btn" hover-class="mm-hover" :disabled="switchingPreviousAvatar"
+            @click.stop="closePreviousAvatarDialog">取消</button>
+          <button class="prev-avatar-btn is-primary" hover-class="mm-hover" :disabled="switchingPreviousAvatar"
+            @click.stop="usePreviousAvatar">使用该头像</button>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -442,6 +563,12 @@ async function handleAvatarClick() {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+.profile-bg-img {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 /* 「更换背景」入口：半透明毛玻璃圆形按钮，固定在卡片右上角（不遮挡左下头像），
@@ -539,6 +666,15 @@ async function handleAvatarClick() {
   height: 100%;
 }
 
+/* 头像点击热区：用原生 view 承载 @click，保证小程序里点头像只预览头像、不冒泡到卡片 */
+.avatar-click {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 /* fallback 文字：主题强调色，与浅底保持对比 */
 .avatar-text-large {
   font-size: 30px;
@@ -550,6 +686,7 @@ async function handleAvatarClick() {
   position: absolute;
   bottom: 0;
   left: 0;
+  z-index: 2;
   width: 100%;
   height: 24px;
   display: flex;
@@ -639,5 +776,96 @@ async function handleAvatarClick() {
 
 .btn-deactivate::after {
   border: none;
+}
+
+/* ===== 上次头像确认对话框 ===== */
+.prev-avatar-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background-color: var(--mask-color);
+}
+
+.prev-avatar-dialog {
+  width: 100%;
+  max-width: 320px;
+  box-sizing: border-box;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+}
+
+.prev-avatar-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.prev-avatar-preview {
+  width: 180px;
+  height: 180px;
+  margin: 16px 0 12px;
+  overflow: hidden;
+  border-radius: 12px;
+  background-color: var(--theme-color-soft);
+}
+
+.prev-avatar-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.prev-avatar-tip {
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.prev-avatar-actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  margin-top: 16px;
+}
+
+.prev-avatar-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--control-h);
+  padding: 0;
+  margin: 0;
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-color);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: normal;
+}
+
+.prev-avatar-btn::after {
+  border: none;
+}
+
+.prev-avatar-btn.is-primary {
+  background-color: var(--theme-color);
+  border-color: var(--theme-color);
+  color: #ffffff;
 }
 </style>
