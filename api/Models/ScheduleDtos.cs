@@ -1,0 +1,172 @@
+using System;
+using System.Collections.Generic;
+
+namespace api.Models;
+
+/// <summary>
+/// 课表概要（列表页使用）。
+/// </summary>
+public class ScheduleSummaryDto
+{
+    /// <summary>课表 ID</summary>
+    public ulong Id { get; set; }
+
+    /// <summary>课表名称</summary>
+    public string ScheduleName { get; set; } = string.Empty;
+
+    /// <summary>开课日期（yyyy-MM-dd）</summary>
+    public string StartTime { get; set; } = string.Empty;
+
+    /// <summary>学期总周数</summary>
+    public int WeekCount { get; set; }
+
+    /// <summary>作息时间表（每个元素是一节课的时间段，如 "08:00-08:45"）</summary>
+    public List<string> Timetable { get; set; } = new();
+
+    /// <summary>备注</summary>
+    public string? Remark { get; set; }
+
+    /// <summary>课程数量</summary>
+    public int CourseCount { get; set; }
+
+    /// <summary>创建时间</summary>
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>更新时间</summary>
+    public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// 课表详情（含课程与上课时间段，课表页/小程序课表页使用）。
+/// </summary>
+public class ScheduleDetailDto : ScheduleSummaryDto
+{
+    /// <summary>课程列表</summary>
+    public List<CourseDto> Courses { get; set; } = new();
+}
+
+/// <summary>
+/// 课程。
+/// </summary>
+public class CourseDto
+{
+    /// <summary>课程 ID</summary>
+    public ulong Id { get; set; }
+
+    /// <summary>所属课表 ID</summary>
+    public ulong ScheduleId { get; set; }
+
+    /// <summary>课程名称</summary>
+    public string CourseName { get; set; } = string.Empty;
+
+    /// <summary>课程颜色（十六进制）</summary>
+    public string Color { get; set; } = string.Empty;
+
+    /// <summary>备注</summary>
+    public string? Remark { get; set; }
+
+    /// <summary>上课时间段</summary>
+    public List<CourseTimeDto> Times { get; set; } = new();
+}
+
+/// <summary>
+/// 课程时间段。
+/// </summary>
+public class CourseTimeDto
+{
+    /// <summary>时间段 ID</summary>
+    public ulong Id { get; set; }
+
+    /// <summary>所属课程 ID</summary>
+    public ulong CourseId { get; set; }
+
+    /// <summary>上课地点</summary>
+    public string Location { get; set; } = string.Empty;
+
+    /// <summary>任课教师</summary>
+    public string Teacher { get; set; } = string.Empty;
+
+    /// <summary>周次（如 [1,2,3]）</summary>
+    public List<int> WeekList { get; set; } = new();
+
+    /// <summary>节次（如 [1,2]）</summary>
+    public List<int> SectionList { get; set; } = new();
+
+    /// <summary>星期几：1-7（周一到周日）</summary>
+    public int DayOfWeek { get; set; }
+
+    /// <summary>备注</summary>
+    public string? Remark { get; set; }
+}
+
+/// <summary>
+/// 新建 / 编辑课表请求。
+/// </summary>
+public class ScheduleEditDto
+{
+    /// <summary>课表 ID（0 或省略表示新建）</summary>
+    public ulong Id { get; set; }
+
+    /// <summary>课表名称</summary>
+    public string ScheduleName { get; set; } = string.Empty;
+
+    /// <summary>开课日期（yyyy-MM-dd）</summary>
+    public string StartTime { get; set; } = string.Empty;
+
+    /// <summary>学期总周数</summary>
+    public int WeekCount { get; set; } = 20;
+
+    /// <summary>作息时间表（每节课的时间段）</summary>
+    public List<string> Timetable { get; set; } = new();
+
+    /// <summary>备注</summary>
+    public string? Remark { get; set; }
+}
+
+/// <summary>
+/// 新建 / 编辑课程请求（包含该课程的全部上课时间段）。
+/// </summary>
+public class CourseEditDto
+{
+    /// <summary>课程 ID（0 或省略表示新建）</summary>
+    public ulong Id { get; set; }
+
+    /// <summary>课程名称</summary>
+    public string CourseName { get; set; } = string.Empty;
+
+    /// <summary>课程颜色（十六进制，如 #9b4f93）</summary>
+    public string Color { get; set; } = "#9b4f93";
+
+    /// <summary>备注</summary>
+    public string? Remark { get; set; }
+
+    /// <summary>上课时间段（至少一条）</summary>
+    public List<CourseTimeEditDto> Times { get; set; } = new();
+}
+
+/// <summary>
+/// 新建 / 编辑课程时间段请求。
+/// </summary>
+public class CourseTimeEditDto
+{
+    /// <summary>时间段 ID（0 或省略表示新增）</summary>
+    public ulong Id { get; set; }
+
+    /// <summary>上课地点</summary>
+    public string Location { get; set; } = string.Empty;
+
+    /// <summary>任课教师</summary>
+    public string Teacher { get; set; } = string.Empty;
+
+    /// <summary>周次列表</summary>
+    public List<int> WeekList { get; set; } = new();
+
+    /// <summary>节次列表</summary>
+    public List<int> SectionList { get; set; } = new();
+
+    /// <summary>星期几：1-7</summary>
+    public int DayOfWeek { get; set; }
+
+    /// <summary>备注</summary>
+    public string? Remark { get; set; }
+}
