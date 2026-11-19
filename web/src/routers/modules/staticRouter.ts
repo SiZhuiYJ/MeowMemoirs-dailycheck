@@ -31,6 +31,13 @@ export const staticRouter: RouteRecordRaw[] = [
           isAffix: "0", // 是否缓存固定路由[0是，1否]
         },
       },
+      {
+        // 课表页：顶部顶栏入口跳转 /schedule
+        path: "/schedule",
+        name: "schedule",
+        component: () => import("@/views/schedule/index.vue"),
+        meta: { title: "课表" },
+      },
     ],
   },
   {
@@ -137,6 +144,19 @@ export const staticRouter: RouteRecordRaw[] = [
           title: "登录记录",
           enName: "LoginRecords",
           icon: "User",
+          isHide: "1",
+          isLink: "",
+          isKeepAlive: "0",
+          isFull: "1",
+        },
+      },
+      {
+        path: "/setting/changelog", // [唯一]
+        component: () => import("@/views/setting/changelog/index.vue"),
+        meta: {
+          title: "更新日志",
+          enName: "Changelog",
+          icon: "Document",
           isHide: "1",
           isLink: "",
           isKeepAlive: "0",

@@ -13,6 +13,7 @@ import { notifySuccess, notifyError } from "@/utils/notification";
 import { APP_TITLE } from "@/config";
 import { getUserAvatarSources } from "@/utils/avatar";
 import { storeToRefs } from "pinia";
+import { useRoute } from "vue-router";
 import router from "@/routers/index";
 import { maskEmail, maskString } from "@/utils/auth";
 import { useTheme } from "@/composables/use-theme";
@@ -53,6 +54,28 @@ const SunIcon = {
     ]),
 };
 
+// 顶部导航图标：首页（与主题切换按钮同一套圆形按钮样式）
+const HomeIcon = {
+  render: () =>
+    h("svg", { viewBox: "0 0 24 24", width: "1.2em", height: "1.2em" }, [
+      h("path", {
+        fill: "currentColor",
+        d: "M12 3l9 8h-3v9h-5v-6h-2v6H6v-9H3l9-8z",
+      }),
+    ]),
+};
+
+// 顶部导航入口：首页（当前路由高亮）
+const route = useRoute();
+const isHomeActive = computed(
+  () => route.path === "/home" || route.path === "/",
+);
+
+function goToNav(path: string): void {
+  if (route.path === path) return;
+  void router.push(path);
+}
+
 const authStore = useAuthStore();
 
 // 主题状态与切换动画统一由 use-theme 管理：
@@ -72,6 +95,8 @@ function handleCommand(command: string): void {
   } else if (command === "chat") {
     // openProfileDialog();
     router.push("/chat");
+  } else if (command === "schedule") {
+    router.push("/schedule");
   } else if (command === "changePassword") {
     openChangePasswordDialog();
   } else if (command === "themeColor") {
@@ -242,6 +267,13 @@ async function handleDeactivateConfirm(): Promise<void> {
   <header class="topbar">
     <div class="brand">{{ APP_TITLE }}</div>
     <div class="right">
+      <!-- 页面导航：首页（课表入口在右上角用户下拉列表里） -->
+      <nav class="topbar-nav" aria-label="页面导航">
+        <button type="button" class="topbar-nav-icon" :class="{ 'is-active': isHomeActive }" title="首页"
+          aria-label="首页" :aria-current="isHomeActive ? 'page' : undefined" @click="goToNav('/home')">
+          <component :is="HomeIcon" />
+        </button>
+      </nav>
       <button type="button" class="theme-toggle-icon" @click="toggleTheme"
         :title="theme === 'dark' ? '切换到白昼模式' : '切换到暗夜模式'"
         :aria-label="theme === 'dark' ? '切换到白昼模式' : '切换到暗夜模式'"
@@ -276,10 +308,13 @@ async function handleDeactivateConfirm(): Promise<void> {
           <SettingsMenuItem :index="3" :is-open="isOpen" @click="handleCommand('chat')">
             飞猫传书
           </SettingsMenuItem>
-          <SettingsMenuItem class="user-menu-danger" :index="4" :is-open="isOpen" @click="handleCommand('deactivate')">
+          <SettingsMenuItem :index="4" :is-open="isOpen" @click="handleCommand('schedule')">
+            课程表
+          </SettingsMenuItem>
+          <SettingsMenuItem class="user-menu-danger" :index="5" :is-open="isOpen" @click="handleCommand('deactivate')">
             注销账号
           </SettingsMenuItem>
-          <SettingsMenuItem :index="5" :is-open="isOpen" @click="handleCommand('logout')">
+          <SettingsMenuItem :index="6" :is-open="isOpen" @click="handleCommand('logout')">
             退出登录
           </SettingsMenuItem>
         </template>
@@ -400,6 +435,47 @@ async function handleDeactivateConfirm(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+// 页面导航入口（课表 / 首页）：与主题切换按钮同一套圆形按钮样式
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.topbar-nav-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: var(--theme-color-soft);
+    border-color: var(--theme-color-muted);
+    color: var(--theme-color-strong);
+  }
+
+  &.is-active {
+    background: var(--theme-color-soft);
+    border-color: var(--theme-color-muted);
+    color: var(--theme-color-strong);
+  }
+}
+
+// 窄屏（手机竖屏）顶栏空间有限：隐藏文字品牌名，
+// 优先保证「首页 / 主题 / 用户菜单」这几个入口都能放下。
+@media (max-width: 480px) {
+  .brand {
+    display: none;
+  }
 }
 
 // 用户菜单：SettingsMenu 默认宽度（7.5~10rem）放不下头像 + 邮箱，

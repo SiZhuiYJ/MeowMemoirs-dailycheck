@@ -1,0 +1,1035 @@
+////
+/// 课表页样式（全局，由 views/schedule/index.vue 用 <style> @use 引入）。
+///
+/// 命名统一用 schedule- / timetable- 前缀，避免与其它页面冲突。
+/// 颜色一律走主题 token：
+///   --bg-color / --bg-elevated / --surface-soft / --border-color
+///   --text-color / --text-muted / --theme-color-* / --theme-outer-glow-*
+/// 课程块是唯一的例外 —— 颜色来自数据里的 hex，用 color-mix 与卡片底混合出浅底。
+////
+
+/* ========== 页面骨架 ========== */
+// el-scrollbar 是页面根节点，父级 .main 是 align-items:center 的 flex 列，
+// 不给 width:100% 时容器会按内容宽度收缩 —— 加载态内容少就会缩成一条窄条。
+.schedule-scrollbar {
+  width: 100%;
+}
+
+.schedule-scroll-view {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 16px 20px calc(16px + var(--safe-bottom));
+  background: var(--bg-color);
+  color: var(--text-color);
+}
+
+.schedule-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.schedule-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--theme-outer-glow-lighter);
+}
+
+/* ========== 工具栏 ========== */
+.schedule-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+}
+
+.schedule-toolbar-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.schedule-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.schedule-term-select {
+  width: 190px;
+}
+
+.schedule-term-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.schedule-term-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.schedule-term-range {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 周次切换：‹ 第 N 周 ▾ › + 今天 */
+.schedule-week-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.schedule-week-select {
+  width: 112px;
+}
+
+/* ========== 按钮 ========== */
+.schedule-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+  color: var(--text-color);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    opacity 0.18s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--surface-soft);
+    border-color: var(--theme-color-muted);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  &.is-primary {
+    border-color: transparent;
+    background: var(--theme-gradient);
+    color: var(--theme-action-contrast);
+    box-shadow: var(--theme-outer-glow-lighter);
+
+    &:hover:not(:disabled) {
+      border-color: transparent;
+      opacity: 0.92;
+      background: var(--theme-gradient);
+    }
+  }
+
+  &.is-ghost {
+    border-color: var(--theme-color-muted);
+    background: var(--theme-color-soft);
+    color: var(--theme-color-strong);
+
+    &:hover:not(:disabled) {
+      border-color: var(--theme-color-strong);
+      background: var(--theme-color-soft);
+      color: var(--theme-color-deep);
+    }
+  }
+
+  &.is-active {
+    border-color: var(--theme-color-muted);
+    background: var(--theme-color-soft);
+    color: var(--theme-color-strong);
+  }
+
+  &.is-danger {
+    border-color: color-mix(in srgb, var(--el-color-danger, #ef4444) 55%, var(--border-color));
+    background: transparent;
+    color: var(--el-color-danger, #ef4444);
+
+    &:hover:not(:disabled) {
+      border-color: var(--el-color-danger, #ef4444);
+      background: color-mix(in srgb, var(--el-color-danger, #ef4444) 10%, transparent);
+    }
+  }
+
+  &.is-icon {
+    width: 32px;
+    padding: 0;
+    font-size: 16px;
+  }
+
+  &.is-small {
+    height: 26px;
+    padding: 0 9px;
+    font-size: 12px;
+    border-radius: 7px;
+  }
+}
+
+.schedule-link-btn {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--theme-color-strong);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+/* ========== 空态 / 加载 ========== */
+/* 加载骨架和真实布局同构：左网格 + 右课程栏，高度接近真实课表区 */
+.schedule-loading-body {
+  align-items: stretch;
+}
+
+.schedule-loading {
+  padding: 20px 24px;
+  min-height: 460px;
+}
+
+.schedule-loading-side {
+  padding: 16px;
+  min-height: 460px;
+}
+
+.schedule-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 56px 24px;
+  text-align: center;
+}
+
+.schedule-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--theme-color-soft);
+  border: 1px solid var(--theme-color-muted);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.schedule-empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.schedule-empty-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ========== 主体两栏 ========== */
+.schedule-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 272px;
+  gap: 14px;
+  align-items: start;
+}
+
+.schedule-grid-card {
+  overflow: hidden;
+}
+
+.schedule-grid-empty {
+  padding: 10px 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--divider-color, var(--border-color));
+  background: var(--surface-soft);
+}
+
+/* 周信息条 */
+.schedule-week-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.schedule-week-strip-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+// 「本周」小徽标：当前查看的周 = 今天所在周时显示
+.schedule-week-strip-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--theme-color-soft);
+  color: var(--theme-color-strong);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.schedule-week-strip-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ========== 课表网格 ========== */
+.timetable-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.timetable {
+  display: grid;
+  grid-template-columns: 64px repeat(7, minmax(88px, 1fr));
+  grid-auto-rows: var(--schedule-row-h, 56px);
+  gap: 1px;
+  min-width: 680px;
+  background: var(--border-color);
+}
+
+.timetable-corner {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.timetable-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 6px 2px;
+  background: var(--surface-soft);
+
+  &.is-today {
+    background: var(--theme-color-soft);
+
+    .timetable-day-name {
+      color: var(--theme-color-strong);
+    }
+  }
+}
+
+.timetable-day-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.timetable-day-date {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.timetable-time {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 2px;
+  background: var(--bg-elevated);
+}
+
+.timetable-section-no {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.timetable-section-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.25;
+}
+
+.timetable-cell {
+  background: var(--bg-elevated);
+
+  &.is-today {
+    background: var(--theme-color-softer);
+  }
+}
+
+/* 课程块：数据色浅底 + 左侧色条，文字仍是主题文字色 */
+.timetable-block {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 3px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid var(--course-border);
+  border-left: 3px solid var(--course-color);
+  border-radius: 8px;
+  background: var(--course-bg);
+  color: var(--text-color);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
+
+  &:hover {
+    z-index: 2;
+    transform: translateY(-1px);
+    box-shadow: var(--theme-outer-glow-lighter);
+  }
+
+  &:focus-visible {
+    z-index: 2;
+    outline: 2px solid var(--theme-color-strong);
+    outline-offset: 1px;
+  }
+
+  &.is-active {
+    z-index: 2;
+    box-shadow: 0 0 0 2px var(--theme-color-strong);
+  }
+
+  // 只占一节时高度有限，隐藏教师那行，避免文字被裁一半
+  &.is-compact .timetable-block-meta.is-teacher {
+    display: none;
+  }
+}
+
+.timetable-block-name {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-color);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.timetable-block-meta {
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ========== 右侧栏 ========== */
+.schedule-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.schedule-side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.schedule-side-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--theme-color-soft);
+  color: var(--theme-color-strong);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.schedule-side-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.schedule-side-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.16s ease;
+
+  &:hover {
+    background: var(--surface-soft);
+  }
+}
+
+.schedule-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+
+  &.is-lg {
+    width: 12px;
+    height: 12px;
+    margin-top: 3px;
+  }
+}
+
+.schedule-side-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.schedule-side-item-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.schedule-side-item-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.schedule-side-empty {
+  padding: 12px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.schedule-side-sub {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.schedule-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.schedule-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  .schedule-dot {
+    margin-top: 0;
+  }
+}
+
+/* ========== 弹窗外壳 ========== */
+.schedule-dialog {
+  border-radius: 14px;
+  background: var(--bg-elevated);
+
+  .el-dialog__title {
+    color: var(--text-color);
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .el-dialog__header {
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .el-dialog__body {
+    padding-top: 14px;
+    color: var(--text-color);
+  }
+}
+
+.schedule-dialog-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.schedule-footer-spacer {
+  flex: 1;
+}
+
+/* ========== 弹窗表单 ========== */
+.schedule-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: min(62vh, 620px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.schedule-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.schedule-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+
+  > span {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+}
+
+.schedule-input,
+.schedule-textarea {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-color);
+  font-family: inherit;
+  font-size: 13px;
+  box-sizing: border-box;
+
+  &::placeholder {
+    color: var(--text-muted);
+  }
+
+  &:focus {
+    outline: none;
+    border-color: var(--theme-color-strong);
+    box-shadow: 0 0 0 2px var(--theme-color-soft);
+  }
+}
+
+.schedule-textarea {
+  height: auto;
+  min-height: 60px;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.schedule-date-picker,
+.schedule-select {
+  width: 100% !important;
+}
+
+.schedule-sub-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+/* 时间段卡片 */
+.schedule-time-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.schedule-time-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.schedule-chip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.schedule-mini-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.schedule-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.schedule-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 28px;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease;
+
+  &:hover {
+    border-color: var(--theme-color-muted);
+    color: var(--theme-color-strong);
+  }
+
+  &.is-active {
+    border-color: var(--theme-color-muted);
+    background: var(--theme-color-soft);
+    color: var(--theme-color-strong);
+    font-weight: 600;
+  }
+
+  &.is-block {
+    flex-direction: column;
+    min-width: 52px;
+    height: auto;
+    padding: 4px 6px;
+    gap: 1px;
+    border-radius: 8px;
+  }
+}
+
+.schedule-chip-strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.schedule-chip-sub {
+  font-size: 9px;
+  font-weight: 400;
+}
+
+/* 课程颜色选择 */
+.schedule-color-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 32px;
+}
+
+.schedule-color-swatch {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
+
+  &:hover {
+    transform: scale(1.08);
+  }
+
+  &.is-active {
+    border-color: var(--bg-elevated);
+    box-shadow: 0 0 0 2px var(--theme-color-strong);
+  }
+}
+
+.schedule-color-custom-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.schedule-color-custom {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+
+  &::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+
+  &::-webkit-color-swatch {
+    border: none;
+    border-radius: 50%;
+  }
+}
+
+/* 作息时间编辑行 */
+.schedule-timetable-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.schedule-timetable-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.schedule-timetable-index {
+  flex-shrink: 0;
+  width: 52px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ========== 课程详情弹窗 ========== */
+.schedule-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.schedule-detail-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.schedule-detail-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.schedule-detail-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.schedule-detail-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.schedule-detail-times {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.schedule-detail-time {
+  padding: 9px 11px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--surface-soft);
+
+  &.is-current {
+    border-color: var(--theme-color-muted);
+    background: var(--theme-color-soft);
+  }
+}
+
+.schedule-detail-time-head {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.schedule-detail-time-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.schedule-detail-time-remark {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ========== 响应式：≤900px 单栏 + 横向滚动 ========== */
+@media (max-width: 900px) {
+  .schedule-scroll-view {
+    padding: 12px 12px calc(12px + var(--safe-bottom));
+  }
+
+  .schedule-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .schedule-toolbar-main {
+    justify-content: space-between;
+  }
+
+  .schedule-term-select {
+    width: 100%;
+  }
+
+  .schedule-toolbar-actions {
+    justify-content: flex-start;
+  }
+
+  .schedule-week-nav {
+    flex: 1;
+  }
+
+  .schedule-week-select {
+    flex: 1;
+    width: auto;
+  }
+
+  .schedule-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .schedule-side {
+    display: none;
+  }
+
+  .schedule-loading-side {
+    display: none;
+  }
+
+  .schedule-loading {
+    min-height: 340px;
+  }
+
+  // 窄屏弹窗铺满（EP 的宽度是行内样式，必须 !important 才能覆盖）
+  .schedule-dialog {
+    width: 94% !important;
+    max-width: 660px;
+    margin-top: 8vh !important;
+  }
+
+  .schedule-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+// 横屏手机等矮视口：压缩行高，尽量让整张课表一屏可见
+html[data-short="true"] {
+  .schedule-scroll-view {
+    padding-top: 10px;
+  }
+
+  .timetable {
+    --schedule-row-h: 48px;
+  }
+}
