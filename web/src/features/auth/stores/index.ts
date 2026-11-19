@@ -45,6 +45,7 @@ export const useAuthStore = defineStore("auth", () => {
       nickName: payload.nickName,
       userAccount: payload.userAccount,
       avatarKey: payload.avatarKey || null,
+      previousAvatarKey: payload.previousAvatarKey || null,
       profileBackgroundKey: payload.profileBackgroundKey || null,
     };
     accessToken.value = payload.token;
@@ -207,6 +208,8 @@ export const useAuthStore = defineStore("auth", () => {
     userAccount?: string;
     nickName?: string;
     avatarKey?: string;
+    /** 上一次使用的头像 key；传 null 表示清空，undefined 表示本次不改。 */
+    previousAvatarKey?: string | null;
     profileBackgroundKey?: string | null;
     thirdPartyBindings?: ThirdPartyBinding[]; // 新增：第三方绑定信息
   }): void {
@@ -217,6 +220,8 @@ export const useAuthStore = defineStore("auth", () => {
         user.value.nickName = payload.nickName;
       if (payload.avatarKey !== undefined)
         user.value.avatarKey = payload.avatarKey;
+      if (payload.previousAvatarKey !== undefined)
+        user.value.previousAvatarKey = payload.previousAvatarKey;
       if (payload.profileBackgroundKey !== undefined)
         user.value.profileBackgroundKey = payload.profileBackgroundKey;
       if (payload.thirdPartyBindings !== undefined) {

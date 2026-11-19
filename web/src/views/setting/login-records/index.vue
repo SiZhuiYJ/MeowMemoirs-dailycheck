@@ -2,19 +2,11 @@
 import type {
   LoginRecordItem,
   LoginScope,
-  LoginStatus,
 } from "@/features/setting/types";
 import { SettingApi } from "@/features/setting/api";
 
 /** 每页条数（与后端默认值一致）。 */
 const PAGE_SIZE = 20;
-
-/** 状态文案 */
-const STATUS_LABELS: Record<LoginStatus, string> = {
-  current: "当前登录",
-  active: "在线",
-  logged_out: "已退出",
-};
 
 /** 登录方式中文文案（后端新增取值时兜底为「登录」） */
 const LOGIN_TYPE_LABELS: Record<string, string> = {
@@ -28,7 +20,7 @@ const LOGIN_TYPE_LABELS: Record<string, string> = {
 const scope = ref<LoginScope>("domestic");
 const items = ref<LoginRecordItem[]>([]);
 const page = ref(1);
-/** 当前 scope 下的总条数 */
+/** 当前 scope 下的设备总数 */
 const total = ref(0);
 const domesticTotal = ref(0);
 const allTotal = ref(0);
@@ -51,13 +43,13 @@ let requestSeq = 0;
 
 const summaryText = computed(() => {
   if (scope.value === "domestic") {
-    return `国内登录 ${domesticTotal.value} 次`;
+    return `国内设备 ${domesticTotal.value} 台`;
   }
-  return `全部登录 ${allTotal.value} 次（其中国内 ${domesticTotal.value} 次）`;
+  return `全部设备 ${allTotal.value} 台（其中国内 ${domesticTotal.value} 台）`;
 });
 
 const emptyText = computed(() =>
-  scope.value === "domestic" ? "暂无国内登录记录" : "暂无登录记录",
+  scope.value === "domestic" ? "暂无国内登录设备" : "暂无登录设备",
 );
 
 const hasMore = computed(
@@ -90,8 +82,8 @@ function parseUtcDate(value: string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** 登录时间格式化为本地 "YYYY-MM-DD HH:mm" */
-function formatLoginTime(value: string | null | undefined): string {
+/** 时间格式化为本地 "YYYY-MM-DD HH:mm"（登录时间 / 最近活跃时间共用） */
+function formatLocalTime(value: string | null | undefined): string {
   const date = parseUtcDate(value);
   if (!date) return "时间未知";
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(
@@ -99,33 +91,14 @@ function formatLoginTime(value: string | null | undefined): string {
   )} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 }
 
-/** 归一化状态：异常值按「在线」兜底。 */
-function normalizeStatus(status: LoginStatus | null | undefined): LoginStatus {
-  if (status === "current" || status === "logged_out") return status;
-  return "active";
-}
-
-function statusLabel(item: LoginRecordItem): string {
-  return STATUS_LABELS[normalizeStatus(item.status)];
-}
-
-function statusTagType(
-  item: LoginRecordItem,
-): "primary" | "success" | "info" {
-  const status = normalizeStatus(item.status);
-  if (status === "current") return "primary";
-  if (status === "logged_out") return "info";
-  return "success";
-}
-
 function loginTypeLabel(loginType: string | null | undefined): string {
   if (!loginType) return "登录";
   return LOGIN_TYPE_LABELS[loginType] ?? "登录";
 }
 
-/** 第三行：登录方式 + 脱敏 IP（有 IP 才追加）。 */
+/** 第三行：地点 · 登录方式 · 脱敏 IP（IP 有才显示）。 */
 function metaText(item: LoginRecordItem): string {
-  const parts: string[] = [loginTypeLabel(item.loginType)];
+  const parts: string[] = [item.location || "未知位置", loginTypeLabel(item.loginType)];
   if (item.ipMasked) {
     parts.push(`IP ${item.ipMasked}`);
   }
@@ -241,7 +214,7 @@ onMounted(() => {
         <div class="records-heading">
           <h3 class="setting-title">登录记录</h3>
           <p class="setting-subtitle">
-            记录每次成功登录的设备与 IP 归属地，默认只显示国内登录。
+            每台设备显示最近活跃时间（打开小程序 / 网页时更新），默认只显示国内登录。
           </p>
         </div>
 
@@ -266,22 +239,27 @@ onMounted(() => {
       </div>
 
       <!-- 空态 -->
-      <el-empty v-else-if="items.length === 0" :description="emptyText" :image-size="72" />
+      <el-empty v-else-if="items.length === 0" :description="emptyText" :image-size="72">
+        <p v-if="scope === 'domestic'" class="records-empty-desc">
+          在常用设备登录后会自动记录
+        </p>
+      </el-empty>
 
-      <!-- 列表 -->
+      <!-- 列表：一台设备一行（该设备最后一次登录记录 + 最近活跃时间） -->
       <ul v-else class="records-list">
-        <li v-for="item in items" :key="item.id" class="record-item">
+        <li v-for="item in items" :key="item.deviceId" class="record-item">
           <div class="record-top">
             <span class="record-device">{{ item.device || "未知设备" }}</span>
-            <el-tag size="small" :type="statusTagType(item)" effect="light">
-              {{ statusLabel(item) }}
+            <!-- 只有当前请求所在设备才显示状态徽标，其它设备不显示 -->
+            <el-tag v-if="item.isCurrent" size="small" type="primary" effect="light">
+              当前设备
             </el-tag>
           </div>
 
           <div class="record-sub">
             <span v-if="scope === 'all' && item.isDomestic" class="record-domestic">国内</span>
             <span class="record-info">
-              {{ item.location || "未知位置" }} · {{ formatLoginTime(item.loginAt) }}
+              最近活跃 {{ formatLocalTime(item.lastActiveAt) }}
             </span>
           </div>
 
@@ -305,7 +283,7 @@ onMounted(() => {
 
 <style scoped lang="scss">
 // 页面骨架（.setting-subpage / .setting-card / 标题 / 副标题）见
-// features/setting/style/index.scss，这里只写列表 / 状态 / 筛选的布局。
+// features/setting/style/index.scss，这里只写列表 / 空态 / 筛选的布局。
 .records-header {
   display: flex;
   flex-wrap: wrap;
@@ -328,6 +306,13 @@ onMounted(() => {
 
 .records-skeleton {
   padding: 4px 0;
+}
+
+.records-empty-desc {
+  margin: 4px 0 0;
+  color: var(--chat-muted);
+  font-size: 11px;
+  line-height: 17px;
 }
 
 .records-state {

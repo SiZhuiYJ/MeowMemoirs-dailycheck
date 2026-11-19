@@ -4,6 +4,7 @@
  * 特性：
  * - 接受 `File | Blob | string(URL)` 作为输入
  * - 支持设置 `quality`（0-1）和 `maxWidth` / `maxHeight`，保留宽高比
+ * - 支持 `maxPixels` 调整画布像素上限（默认 16MP；需要保留原像素的大图可放宽）
  * - 支持返回 `Blob`、`DataURL` 或 `File`
  * - 支持 HEIC/HEIF：浏览器不能直接解码的格式会先经 heic2any 解成 JPEG
  *
@@ -17,6 +18,11 @@ export type ConvertOptions = {
     quality?: number; // 0 - 1
     maxWidth?: number;
     maxHeight?: number;
+    /**
+     * 画布像素上限（宽 × 高），默认 MAX_CANVAS_PIXELS（16MP）。
+     * 需要保留大图原像素时（如背景图上传）可显式放宽。
+     */
+    maxPixels?: number;
     output?: 'blob' | 'dataURL' | 'file';
     fileName?: string; // used when output==='file'
 };
@@ -26,12 +32,14 @@ export type ExtractVideoFrameOptions = ConvertOptions & {
 };
 
 /**
- * 画布像素硬上限（约 4096×4096）。
+ * 画布像素默认硬上限（约 4096×4096）。
  *
  * 为什么要这个：手机原图动辄 4000×3000（12MP），全尺寸建画布 = 位图 48MB
  * + canvas 48MB + 编码缓冲，Chrome 移动端渲染进程常直接被 OOM 杀掉，
  * 用户看到的是「选完文件页面自己刷新了」。调用方忘了传 maxWidth 时，
  * 这里必须兜住，宁可降分辨率也不能让页面崩。
+ *
+ * 特殊场景需要保留原像素时，可通过 `ConvertOptions.maxPixels` 显式放宽。
  */
 const MAX_CANVAS_PIXELS = 16 * 1024 * 1024;
 
@@ -129,11 +137,16 @@ function calcSize(srcWidth: number, srcHeight: number, maxWidth?: number, maxHei
     return { w, h };
 }
 
-/** 把目标尺寸压到 MAX_CANVAS_PIXELS 以内（等比），防止画布本身把渲染进程撑爆。 */
-function clampPixels(w: number, h: number) {
+/**
+ * 把目标尺寸压到 maxPixels（默认 MAX_CANVAS_PIXELS）以内（等比），防止画布本身把渲染进程撑爆。
+ * @param w - 目标宽度
+ * @param h - 目标高度
+ * @param maxPixels - 允许的最大像素数（宽 × 高）
+ */
+function clampPixels(w: number, h: number, maxPixels = MAX_CANVAS_PIXELS) {
     const pixels = w * h;
-    if (pixels <= MAX_CANVAS_PIXELS) return { w, h };
-    const scale = Math.sqrt(MAX_CANVAS_PIXELS / pixels);
+    if (pixels <= maxPixels) return { w, h };
+    const scale = Math.sqrt(maxPixels / pixels);
     return { w: Math.max(1, Math.round(w * scale)), h: Math.max(1, Math.round(h * scale)) };
 }
 
@@ -161,7 +174,12 @@ type Drawable = {
  * 手机端（尤其 12MP 以上原图）渲染进程很容易被 OOM 杀掉 ——
  * 用户看到的现象就是「选完文件，页面自己刷新了」。
  */
-async function decodeForDraw(blob: Blob, maxWidth?: number, maxHeight?: number): Promise<Drawable> {
+async function decodeForDraw(
+    blob: Blob,
+    maxWidth?: number,
+    maxHeight?: number,
+    maxPixels?: number,
+): Promise<Drawable> {
     let sourceSize: { width: number; height: number } | null = null;
     try {
         sourceSize = await measureImage(blob);
@@ -179,7 +197,7 @@ async function decodeForDraw(blob: Blob, maxWidth?: number, maxHeight?: number):
             throw new Error('Image size is invalid');
         }
         const sized = calcSize(w, h, maxWidth, maxHeight);
-        const target = clampPixels(sized.w, sized.h);
+        const target = clampPixels(sized.w, sized.h, maxPixels ?? MAX_CANVAS_PIXELS);
         return {
             drawable: decoded,
             width: target.w,
@@ -189,7 +207,7 @@ async function decodeForDraw(blob: Blob, maxWidth?: number, maxHeight?: number):
     }
 
     const sized = calcSize(sourceSize.width, sourceSize.height, maxWidth, maxHeight);
-    const target = clampPixels(sized.w, sized.h);
+    const target = clampPixels(sized.w, sized.h, maxPixels ?? MAX_CANVAS_PIXELS);
     const needDownscale = target.w !== sourceSize.width || target.h !== sourceSize.height;
 
     if (needDownscale && typeof createImageBitmap === 'function') {
@@ -233,7 +251,7 @@ async function decodeForDraw(blob: Blob, maxWidth?: number, maxHeight?: number):
  * @returns Promise<Blob> - 转换后的 WebP Blob
  */
 export async function convertToWebPBlob(input: File | Blob | string, options: ConvertOptions = {}): Promise<Blob> {
-    const { quality = 0.8, maxWidth, maxHeight } = options;
+    const { quality = 0.8, maxWidth, maxHeight, maxPixels } = options;
     const rawBlob = await fetchToBlobIfNeeded(input);
 
     // HEIC/HEIF 先解成 JPEG：canvas / createImageBitmap / Image 都不认 HEIC。
@@ -241,7 +259,7 @@ export async function convertToWebPBlob(input: File | Blob | string, options: Co
     const blob = await toBrowserDecodableBlob(rawBlob);
 
     // For GIFs: canvas will draw only the first frame (animated GIFs will be flattened)
-    const source = await decodeForDraw(blob, maxWidth, maxHeight);
+    const source = await decodeForDraw(blob, maxWidth, maxHeight, maxPixels);
 
     const canvas = document.createElement('canvas');
     canvas.width = source.width;

@@ -2,11 +2,11 @@
 import { storeToRefs } from "pinia";
 import ProgressiveAvatar from "@/components/ProgressiveAvatar/index.vue";
 import ImageUploader from "@/features/file/components/ImageUploader.vue";
-import { dataURLToFile } from "@/features/setting/composables/useImage";
 import { SettingApi } from "@/features/setting/api";
 import { useAuthStore } from "@/stores";
 import { notifyError, notifySuccess } from "@/utils/notification";
 import { getUserAvatarSources } from "@/utils/avatar";
+import { convertToWebP } from "@/utils/convertToWebP";
 
 const authStore = useAuthStore();
 const { user } = storeToRefs(authStore);
@@ -75,17 +75,28 @@ function onCropped(data: string) {
 async function saveBackground() {
   if (!croppedData.value || uploading.value) return;
 
-  const file = dataURLToFile(croppedData.value, "profile-background.png");
-  if (!file) {
-    notifyError("裁剪结果无效，请重新选择图片");
-    return;
-  }
-
-  const formData = new FormData();
-  formData.append("file", file);
-
   uploading.value = true;
   try {
+    // 裁剪结果是未压缩的 PNG dataURL。这里按「裁剪后的原始像素」转成 WebP
+    // （maxPixels 放宽到 64MP，正常裁剪图不会被降采样）；服务端收到 webp 会
+    // 直通存储，不再二次编码/缩放，最终像素 = 裁剪像素。
+    let webpFile: File;
+    try {
+      webpFile = (await convertToWebP(croppedData.value, {
+        quality: 0.92,
+        maxPixels: 64 * 1024 * 1024,
+        output: "file",
+        fileName: "profile-background.webp",
+      })) as File;
+    } catch (error) {
+      console.error("[setting/appearance] 背景图转 WebP 失败", error);
+      notifyError("背景图处理失败，请重试");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", webpFile);
+
     const res = await SettingApi.UploadProfileBackground(formData);
     const key = res.data?.key;
     if (!key) {
@@ -196,10 +207,10 @@ async function restoreDefault() {
         <h3 class="setting-title">关于背景图</h3>
       </div>
       <p class="setting-desc">
-        支持 JPG / PNG / WebP / HEIC 等常见图片格式，服务端会统一转成 WebP 并压缩到最长边 1600px，同时生成缩略占位图。
+        按 1:1 裁剪后上传，保留裁剪后的原始像素（服务端不缩放），服务端仅将图片转成 WebP 并生成 128px 缩略图。
       </p>
       <p class="setting-desc">
-        未设置自定义背景时，头像卡使用头像图作背景；恢复默认不会删除已上传的图片文件。
+        支持 JPG / PNG / WebP / HEIC 等常见格式，单张最大 20MB。未设置自定义背景时，头像卡使用头像图作背景；恢复默认不会删除已上传的图片文件。
       </p>
     </div>
   </div>

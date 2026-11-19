@@ -13,6 +13,7 @@ const menuList = ref([
     { name: "密码修改", path: "/setting/password" },
     { name: "平台绑定", path: "/setting/bind" },
     { name: "登录记录", path: "/setting/login-records" },
+    { name: "更新日志", path: "/setting/changelog" },
     { name: "注销账号", path: "/setting/deactivate" },
 ]);
 

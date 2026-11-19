@@ -19,7 +19,12 @@ export async function uploadFile(file: File, loading: Ref<boolean>) {
 
     const key = response.data.key;
     if (key && authStore.user?.userId) {
-      authStore.updateUser({ avatarKey: key });
+      // 服务端上传成功后会返回旧头像 key（首次上传为 null）。
+      // previousKey 未返回（老后端）时传 undefined，updateUser 会保持原值。
+      authStore.updateUser({
+        avatarKey: key,
+        previousAvatarKey: response.data.previousKey,
+      });
       notifySuccess("头像上传成功");
       return;
     }

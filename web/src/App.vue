@@ -2,6 +2,8 @@
 import { ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { telemetry } from "@/libs/telemetry";
+import http from "@/libs/http";
+import { useAuthStore } from "@/stores";
 
 /**
  * 埋点诊断入口（悬浮按钮）。
@@ -98,7 +100,24 @@ const elementComponentSize = computed<"default" | "small">(() =>
 /** 首屏空闲后才挂载通知系统（它带着 gsap）。 */
 const notificationsReady = ref(false);
 
+/**
+ * 打开网页时上报一次设备活跃（登录记录页的「最近活跃」以此为准）。
+ * 未登录或上报失败都静默忽略：活跃上报不能影响页面启动。
+ */
+function reportDeviceActivity() {
+  const authStore = useAuthStore();
+  if (!authStore.accessToken) return;
+
+  http
+    .post("/mm/LoginRecords/active", undefined, { showError: false })
+    .catch(() => {
+      // 静默失败：后端也有 try/catch 兜底，用户无感
+    });
+}
+
 onMounted(() => {
+  reportDeviceActivity();
+
   const enable = () => {
     notificationsReady.value = true;
   };

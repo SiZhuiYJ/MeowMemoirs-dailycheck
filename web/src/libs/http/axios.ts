@@ -13,6 +13,7 @@ import router from "@/routers/index";
 import { httpConfig as defaultHttpConfig, type HttpConfig } from "./config";
 import type { ApiResponse, HttpRequestConfig } from "./type";
 import { telemetry } from "@/libs/telemetry";
+import { getDeviceId } from "@/utils/device";
 
 /**
  * HTTP 客户端封装：
@@ -82,13 +83,18 @@ class MM {
   }
 
   /**
-   * 请求拦截：注入 accessToken。
+   * 请求拦截：注入 accessToken 与设备 ID。
    */
   private async handleRequest(config: InternalAxiosRequestConfig): Promise<InternalAxiosRequestConfig> {
     const auth = useAuthStore();
     config.headers = this.normalizeHeaders(config.headers);
     if (auth.accessToken && !config.skipAuth) {
       config.headers.set("Authorization", `Bearer ${auth.accessToken}`);
+    }
+    // 本机持久化设备 ID：登录接口据此把多次登录归并到同一台设备。
+    // 调用方显式设置 X-Device-Id 时不覆盖（便于联调 / 特殊场景指定设备）。
+    if (!config.headers.has("X-Device-Id")) {
+      config.headers.set("X-Device-Id", getDeviceId());
     }
     return Promise.resolve(config);
   }

@@ -53,6 +53,28 @@ const avatarSources = computed(() =>
     : { src: '', thumbnailSrc: '' },
 );
 
+/**
+ * 主页顶部头像卡背景图：优先用户自定义背景（/setting/appearance 设置），
+ * 未设置时回退用头像图作背景（与小程序个人主页头像卡一致）。
+ */
+const backgroundSources = computed(() =>
+  profile.value
+    ? getUserAvatarSources(
+      profile.value.userId,
+      profile.value.profileBackgroundKey || profile.value.avatarKey,
+    )
+    : { src: '', thumbnailSrc: '' },
+);
+
+/** 背景大图加载完成后淡入（缩略图先铺底，避免大图加载前空白）。 */
+const backgroundLoaded = ref(false);
+watch(
+  () => backgroundSources.value.src,
+  () => {
+    backgroundLoaded.value = false;
+  },
+);
+
 const joinedAtText = computed(() =>
   profile.value ? formatChatDateTime(profile.value.createdAt) || '未知' : '—',
 );
@@ -273,27 +295,37 @@ async function copyAccount() {
         <el-scrollbar class="user-home-scrollbar">
           <div class="user-home-scroll-content">
             <section v-if="profile" class="user-home-card">
-              <div class="user-home-hero">
-                <ProgressiveAvatar class="user-home-avatar" :src="avatarSources.src"
-                  :thumbnail-src="avatarSources.thumbnailSrc" :size="96" shape="square">
-                  {{ displayName.slice(0, 1) }}
-                </ProgressiveAvatar>
-                <div class="user-home-identity">
-                  <h2>{{ displayName }}</h2>
-                  <div class="user-home-account">
-                    <span>{{ profile.userAccount || '未设置账号' }}</span>
-                    <el-button v-if="profile.userAccount" link :icon="CopyDocument"
-                      @click="copyAccount">
-                      复制账号
-                    </el-button>
-                  </div>
-                  <div class="user-home-badges">
-                    <span class="badge">{{ relationshipText }}</span>
-                    <span v-if="profile.isBlocked" class="badge blocked">已拉黑</span>
-                    <span v-else-if="profile.isBlockedByTarget" class="badge blocked">对方已拉黑你</span>
-                    <span class="badge" :class="{ frozen: profile.status !== 'active' }">
-                      {{ profile.status === 'active' ? '账号正常' : '账号已冻结' }}
-                    </span>
+              <!-- 类似小程序个人主页头像卡：自定义背景（未设置回退头像图）+ 底部渐变保证文字可读 -->
+              <div class="user-home-banner" :class="{ 'is-empty': !backgroundSources.src }">
+                <template v-if="backgroundSources.src">
+                  <img v-if="backgroundSources.thumbnailSrc" class="user-home-banner-thumb"
+                    :src="backgroundSources.thumbnailSrc" alt="" aria-hidden="true" />
+                  <img class="user-home-banner-bg" :class="{ 'is-loaded': backgroundLoaded }"
+                    :src="backgroundSources.src" alt="" @load="backgroundLoaded = true" />
+                  <div class="user-home-banner-fade" aria-hidden="true"></div>
+                </template>
+
+                <div class="user-home-hero">
+                  <ProgressiveAvatar class="user-home-avatar" :src="avatarSources.src"
+                    :thumbnail-src="avatarSources.thumbnailSrc" :size="96" shape="square">
+                    {{ displayName.slice(0, 1) }}
+                  </ProgressiveAvatar>
+                  <div class="user-home-identity">
+                    <h2>{{ displayName }}</h2>
+                    <div class="user-home-account">
+                      <span>{{ profile.userAccount || '未设置账号' }}</span>
+                      <el-button v-if="profile.userAccount" link :icon="CopyDocument" @click="copyAccount">
+                        复制账号
+                      </el-button>
+                    </div>
+                    <div class="user-home-badges">
+                      <span class="badge">{{ relationshipText }}</span>
+                      <span v-if="profile.isBlocked" class="badge blocked">已拉黑</span>
+                      <span v-else-if="profile.isBlockedByTarget" class="badge blocked">对方已拉黑你</span>
+                      <span class="badge" :class="{ frozen: profile.status !== 'active' }">
+                        {{ profile.status === 'active' ? '账号正常' : '账号已冻结' }}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -437,16 +469,74 @@ async function copyAccount() {
   padding: 24px;
 }
 
+.user-home-banner {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  max-width: 700px;
+  aspect-ratio: 1 / 1;
+  padding: 18px;
+  overflow: hidden;
+  border: 1px solid var(--chat-border);
+  border-radius: 16px;
+  // 没有背景图（也没有头像）时的兜底底色：主题浅色块上文字仍可读。
+  background: var(--chat-accent-soft);
+  isolation: isolate;
+
+  &.is-empty {
+    min-height: 140px;
+  }
+}
+
+// 缩略图先铺底（模糊放大遮掉小图边缘），原图加载完再淡入。
+.user-home-banner-thumb,
+.user-home-banner-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.user-home-banner-thumb {
+  filter: blur(8px);
+  transform: scale(1.06);
+}
+
+.user-home-banner-bg {
+  opacity: 0;
+  transition: opacity 0.32s ease;
+
+  &.is-loaded {
+    opacity: 1;
+  }
+}
+
+// 底部渐变压到面板底色，保证昵称 / 标签在任意背景图上都可读。
+.user-home-banner-fade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg,
+      transparent 38%,
+      color-mix(in srgb, var(--chat-surface-solid) 90%, transparent) 100%);
+}
+
 .user-home-hero {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 18px;
+  width: 100%;
+  min-width: 0;
 }
 
 .user-home-avatar {
   flex-shrink: 0;
   color: var(--chat-text);
   font-size: 32px;
+  border: 2px solid var(--chat-surface-solid);
+  border-radius: 14px;
   background: var(--chat-accent-soft);
 }
 
@@ -556,6 +646,17 @@ async function copyAccount() {
 
   .user-home-card {
     padding: 16px;
+  }
+
+  // 窄屏上背景卡片矮一档：给下方信息块留出高度。
+  .user-home-banner {
+    min-height: 170px;
+    padding: 14px;
+    border-radius: 12px;
+
+    &.is-empty {
+      min-height: 120px;
+    }
   }
 
   .user-home-hero {

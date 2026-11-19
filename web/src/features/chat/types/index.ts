@@ -191,6 +191,8 @@ export interface UserProfile {
   userAccount?: string | null;
   nickName?: string | null;
   avatarKey?: string | null;
+  /** 个人主页头像卡自定义背景图 key；未设置时回退用头像图作背景。 */
+  profileBackgroundKey?: string | null;
   createdAt: string;
   isSelf: boolean;
   isFriend: boolean;
