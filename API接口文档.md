@@ -1,6 +1,6 @@
 # DailyCheck API 接口文档（按最新控制器同步）
 
-> 更新时间：2026-11-18  
+> 更新时间：2026-11-19  
 > 服务基路径：`/mm`  
 > 认证方式：`Authorization: Bearer <access_token>`（标记匿名的接口除外）
 
@@ -47,14 +47,30 @@
 > 传字符串则设置为该背景图 key，传空字符串 `""` 表示清除（恢复默认背景），不传或传 `null` 表示不修改。
 > 另外，登录 / 注册 / 刷新令牌 / 微信登录绑定等接口返回的 `AuthResponse` 同样包含 `profileBackgroundKey`。
 
-### 1.3 登录记录
+> 上次头像字段说明：`GET /me`（`UserBasicResponse`）返回 `previousAvatarKey`，登录 / 注册 / 刷新令牌 /
+> 微信登录绑定等接口返回的 `AuthResponse` 同样包含该字段；`POST /profile` 传 `avatarKey` 时，
+> 服务端会在更新前把旧头像记入 `previous_avatar_key`。客户端的「使用上次头像」入口**始终显示**，
+> `previousAvatarKey` 为 `null` 时点击会提示「更换一次头像后可用」（切换接口见 §4.2）。
+
+### 1.3 登录设备列表（最后活跃时间）
 
 控制器：`LoginRecordsController`（不属于 `/mm/auth` 前缀）  
 路由前缀：`/mm/LoginRecords`
 
+> **数据模型（v3，两张表）**：
+> - `user_login_devices`：登录设备表，一台设备一行，`(user_id, device_key)` 唯一；
+>   记录设备展示名 / 平台 / 首次登录时间 / 最后一次登录时间 / **最后活跃时间 `last_active_at`** / 最后一次登录记录ID；
+> - `user_login_records`：登录记录表，每次**成功登录**一行，`device_id` 指向目标登录设备。
+>
+> 页面只展示「该账号**每台设备 + 该设备最后一次登录记录 + 最后活跃时间**」，一台设备一行，
+> **只标记当前设备**，其它设备不再显示在线 / 已退出状态。
+> 历史数据迁移：旧记录按 `(user_id, platform, device)` 归并为 `device_key = legacy:<md5>` 的设备并回填
+> `device_id`；`last_active_at` 回填为原 `last_login_at`，不丢数据。
+
 | 方法 | 路径 | 认证 | 说明 |
 |---|---|---|---|
-| GET | `/mm/LoginRecords?page=1&pageSize=20&scope=domestic` | 是 | 分页获取当前登录用户的登录记录（国内 / 全部） |
+| GET | `/mm/LoginRecords?page=1&pageSize=20&scope=domestic` | 是 | 分页获取当前用户的登录设备列表（每台设备最后一次登录记录 + 最后活跃时间） |
+| POST | `/mm/LoginRecords/active` | 是 | 上报当前设备活跃（打开小程序 / 网页时调用），返回 `lastActiveAt` |
 
 查询参数：
 
@@ -62,21 +78,21 @@
 |---|---|---|---|
 | `page` | int | `1` | 页码，小于 1 按 1 处理 |
 | `pageSize` | int | `20` | 每页数量，取值夹到 `1..50` |
-| `scope` | string | `domestic` | `domestic`=仅国内（默认）；`all`=全部（含境外 / 内网）；非法值按 `domestic` |
+| `scope` | string | `domestic` | `domestic`=最后一次登录为国内的设备（默认）；`all`=全部设备（含境外 / 内网）；非法值按 `domestic` |
 
-响应示例（200，`scope=domestic`）：
+GET 响应示例（200，`scope=all`，计数均为**设备数**）：
 
 ```json
 {
-  "scope": "domestic",
+  "scope": "all",
   "page": 1,
   "pageSize": 20,
   "total": 3,
-  "domesticTotal": 3,
-  "allTotal": 5,
+  "domesticTotal": 2,
+  "allTotal": 3,
   "items": [
     {
-      "id": 12,
+      "deviceId": 5,
       "device": "iPhone 13 · 微信",
       "platform": "mp-weixin",
       "loginType": "password",
@@ -87,36 +103,53 @@
       "district": "金水",
       "isp": "联通",
       "isDomestic": true,
-      "status": "current",
-      "loginAt": "2026-11-18T02:30:00Z",
-      "logoutAt": null
+      "lastActiveAt": "2026-11-19T07:30:00Z",
+      "isCurrent": true,
+      "loginAt": "2026-11-18T02:30:00Z"
     }
   ]
 }
 ```
 
+`POST /mm/LoginRecords/active`（需认证，无请求体）响应示例（200）：
+
+```json
+{
+  "lastActiveAt": "2026-11-19T07:30:00Z"
+}
+```
+
 规则说明：
 
-- **数据来源**：每次**成功登录**写一条 `user_login_records`；`loginType` 取值
-  `password`（邮箱/用户名密码登录）/ `email-code`（验证码登录）/ `wechat`（微信注册 / 登录 / 一键登录）/
-  `register`（邮箱注册）/ `email-change`（换绑邮箱后重新签发令牌）。`POST /auth/refresh` 只是同设备续期，**不记录**。
-- **国内 / 境外**：`isDomestic=1` 表示 IP 命中 GeoCN（MaxMind 判定为中国大陆的网段）。
-  国内记录带 `province / city / district / isp`（省市区为简称，如 河南 / 郑州 / 金水），
-  `location` 归一化为「省 · 市」（市为空只显省）；境外为「境外」，内网 / 回环为「本地网络」，
-  GeoCN 库未加载时为「未知位置」。省 = 编码/10000*10000、市 = 编码/100*100、区 = 编码；
-  直辖市省名等于市名时只保留省名。
-- **状态三态**：`current` = 该条记录的 `sessionId` 与当前请求令牌的 sid 一致（当前登录）；
-  `logged_out` = 该记录已登出（`logoutAt` 非空）或被撤销（设备级撤销标记 / 账号级撤销时间戳）；
-  其余为 `active`（仍在线）。登出 / 全部登出 / 注销 / 改密后对应记录变为 `logged_out`。
-- **分页与排序**：按 `loginAt` 倒序（同一时间按 id 倒序）；响应同时返回
-  `total`（当前 scope 总数）、`domesticTotal`（国内总数）、`allTotal`（全部总数）。
+- **设备识别（`X-Device-Id`）**：客户端生成并持久化一个设备 ID，放在请求头 `X-Device-Id`
+  （只接受 `[A-Za-z0-9._:-]`，长度 8..64；web 用 `localStorage`、uni-app 用本地存储）。
+  没有该头的旧客户端由后端用 UA 指纹兜底：`"ua:" + SHA256(platform + "|" + deviceDisplay)` 取前 32 位 hex。
+  清缓存 / 换浏览器 = 新设备，这是预期行为。
+- **最后活跃时间（`lastActiveAt`）**：活跃 = 打开小程序 / 网页的时间。客户端启动 / 回到前台时调
+  `POST /mm/LoginRecords/active` 上报（建议客户端节流，同一进程 60s 内最多一次）；登录本身也算活跃，
+  登录成功时同步刷新。新设备第一次上报但还没登录过时，会创建一条**没有登录记录**的设备
+  （GET 结果里 `location` 等登录字段为 `null`，`loginAt` 兜底为该设备创建时间）。
+- **当前设备（`isCurrent`）**：优先用请求头 `X-Device-Id` 匹配设备 `device_key`；没有该头时兜底用该设备
+  最后一条登录记录的 `session_id` 与当前令牌 sid 比对。只有 `isCurrent=true` 的设备前端才显示「当前设备」，
+  其它设备不显示任何状态（不返回在线 / 已退出）。
+- **同设备复用 / 新设备创建**：同一 `(user_id, device_key)` 再次登录时复用设备
+  （`first_login_at` 不变、`last_login_at` / `last_active_at` 更新、设备展示信息刷新），只新增一条登录记录；
+  新设备先创建设备行再写记录。`POST /auth/refresh` 只是同设备续期，**不新增设备 / 记录**。
+- **国内 / 境外**：按每台设备**最后一次登录记录**的 `isDomestic` 判定（`isDomestic=1` 表示 IP 命中
+  GeoCN，即 MaxMind 判定为中国大陆的网段）。国内项带 `province / city / district / isp`
+  （省市区为简称，如 河南 / 郑州 / 金水），`location` 归一化为「省 · 市」（市为空只显省）；
+  境外为「境外」，内网 / 回环为「本地网络」，GeoCN 库未加载时为「未知位置」。
+  省 = 编码/10000*10000、市 = 编码/100*100、区 = 编码；直辖市省名等于市名时只保留省名。
+- **分页与排序**：按设备最后活跃时间 `lastActiveAt` 倒序（同一时间按 deviceId 倒序，当前设备通常最前）；
+  响应同时返回 `total`（当前 scope 设备数）、`domesticTotal`（最后登录为国内的设备数）、
+  `allTotal`（全部设备数）。
 - **IP 脱敏**：`ipMasked` 中 IPv4 只保留前两段（`222.137.*.*`），IPv6 只保留前两组（`240e:476:*`），
   无 IP 时为 `null`；真实 IP 不对外返回。
-- **设备信息**：优先取前端请求头 `X-Client-Platform` / `X-Client-Device`（小程序上报机型），
+- **设备展示名**：优先取前端请求头 `X-Client-Platform` / `X-Client-Device`（小程序上报机型），
   否则由 User-Agent 解析兜底（如 `iPhone`、`Android 13`、`Chrome · Windows`）。
-- **时间**：`loginAt` / `logoutAt` 均为 UTC，JSON 为 ISO 8601（带 `Z`）。
-- 未携带有效访问令牌（或令牌已撤销）返回 `401`。
-- 只查询当前登录用户自己的记录，不存在越权读取他人记录的入口。
+- **时间**：`lastActiveAt` / `loginAt` 均为 UTC，JSON 为 ISO 8601（带 `Z`）。
+- `POST /mm/LoginRecords/active` 上报失败不影响客户端打开应用（服务端内部吞异常只打日志）。
+- 未携带有效访问令牌（或令牌已撤销）返回 `401`；只查询当前登录用户自己的设备，不存在越权读取他人设备的入口。
 
 ---
 
@@ -176,7 +209,8 @@
 
 | 方法 | 路径 | 认证 | 说明 |
 |---|---|---|---|
-| POST | `/avatar` | 是 | 上传头像（返回 `key`） |
+| POST | `/avatar` | 是 | 上传头像（返回 `key` 与 `previousKey`） |
+| POST | `/avatar/use-previous` | 是 | 切回上次头像（当前 / 上次头像互换，返回 `key` 与 `previousKey`） |
 | POST | `/profile-background` | 是 | 上传 / 更换个人主页背景（返回 `key`） |
 | DELETE | `/profile-background` | 是 | 恢复默认背景（清空 `profileBackgroundKey`） |
 | GET | `/users/{userId}/{key}` | 否 | 获取公开头像 / 背景图 |
@@ -184,7 +218,7 @@
 | GET | `/images/{fileKey}` | 是 | 获取私有图片 |
 
 上传限制：
-- 单文件最大 10MB
+- 单文件最大 10MB；**个人主页背景图单独放宽到 20MB**（保留原像素后原始 JPEG/WebP 可能更大）
 - 必须是图片文件，支持 JPG / PNG / GIF / WebP / BMP / SVG / ICO / **HEIC / HEIF**
 - HEIC/HEIF 会由服务端解码后统一转换为 WebP 存储（聊天图片同样适用）
 
@@ -219,12 +253,14 @@ curl -X POST "http://localhost:5210/mm/files/profile-background" \
 ```
 
 失败响应：
-- `400`：文件为空（`文件不能为空`）或格式不支持；
+- `400`：文件为空（`文件不能为空`）、格式不支持、超过 20MB，或尺寸过大（最长边 > 8192px，返回 `背景图尺寸过大（最长边不能超过 8192px）`）；
 - `404`：用户不存在。
 
 限制与存储：
-- 单文件最大 10MB，支持格式与头像一致：JPG / PNG / GIF / WebP / BMP / SVG / ICO / **HEIC / HEIF**。
-- 服务端统一转换为有损 WebP（质量 85），最长边压缩到 **1600px** 以内（只缩不放）。
+- 客户端按 1:1 裁剪成正方形后上传；服务端**不缩放像素**，保留裁剪后的原始分辨率。
+- 单文件最大 **20MB**，支持格式与头像一致：JPG / PNG / GIF / WebP / BMP / SVG / ICO / **HEIC / HEIF**。
+- 已是 WebP 的输入**原样存储**（零重编码，像素 / 画质无损）；其它格式解码后转有损 WebP（质量 85），保留原始分辨率。
+- 最长边安全上限 **8192px**，超出返回 `400`「背景图尺寸过大（最长边不能超过 8192px）」。
 - 同时预处理缩略占位图 `{key}_thumb.webp`（有损 WebP 质量 70，最长边 ≤128px）；客户端传了 `thumbnail` 就用它，未传则由服务端从原图自动生成。
 - 缩略占位图用于前端**渐进加载**：头像卡先渲染小体积缩略图，原图下载完成后淡入，避免整卡等待大图。
 - 文件存储于公开用户目录 `api/uploads/public/users/{userId}/`，与头像同目录、内容哈希命名。
@@ -254,6 +290,59 @@ curl -X POST "http://localhost:5210/mm/files/profile-background" \
 - 缩略占位图：`GET /mm/files/users/{userId}/{key}?thumbnail=true`（同样匿名、同样缓存头；`thumbnail=true` 也接受 `1` / `yes`）；缩略图不存在时回退返回原图；
 - `key` / `thumbnailKey` 变化即 URL 变化，可安全长期缓存；
 - 前端头像卡渐进加载：先请求 `?thumbnail=true` 显示占位图，原图加载完成后再淡入；无自定义背景时回退的头像图同样可用 `?thumbnail=true` 作占位。
+
+### 4.2 头像与「使用上次头像」
+
+#### 上传头像
+
+`POST /mm/files/avatar`（需认证）
+
+请求：`multipart/form-data`，字段 `file`。
+
+成功响应（200）：
+
+```json
+{
+  "key": "7c31f3be1578d0ba9cbe6ba7cc5f653eea4b86ae4392ccfa92ffd4de8c77eb03",
+  "previousKey": "f056e9a0c3d61b7e2a9f45d8c0b7e6a13d5c8f9b2e7a4d6c0b3e8f1a5d9c7b2e"
+}
+```
+
+说明：
+- 服务端在把 `avatar_key` 更新为新值前，会先把原来的 `avatar_key` 记录到 `previous_avatar_key`；
+- `previousKey` 为本次更新前的旧头像 key，**首次上传头像时为 `null`**；
+- `POST /mm/auth/profile` 传 `avatarKey` 时同样维护 `previous_avatar_key`（新值写入前记录旧头像）。
+
+#### 使用上次头像（当前 / 上次头像互换）
+
+`POST /mm/files/avatar/use-previous`（需认证，无请求体）
+
+- 把当前头像与上次头像**互换**，无需重新上传图片；连续调用可来回切换；
+- 只互换 `avatar_key` / `previous_avatar_key` 两个字段，头像文件本身不删除、不改名。
+
+成功响应（200）：
+
+```json
+{
+  "key": "f056e9a0c3d61b7e2a9f45d8c0b7e6a13d5c8f9b2e7a4d6c0b3e8f1a5d9c7b2e",
+  "previousKey": "7c31f3be1578d0ba9cbe6ba7cc5f653eea4b86ae4392ccfa92ffd4de8c77eb03"
+}
+```
+
+失败响应：
+- `400`：没有可用的上次头像（`previous_avatar_key` 为 `NULL`，例如从未换过头像或已被切回消耗）；
+- `404`：用户不存在。
+
+#### 头像读取
+
+不变：`GET /mm/files/users/{userId}/{key}`（匿名，`Cache-Control: public, max-age=86400, immutable`）；
+`?thumbnail=true` 返回 96px 缩略图（不存在时回退原图）。
+
+#### 客户端行为
+
+- 小程序「个人信息」页点头像 → 操作表新增「使用上次头像」（入口始终显示；暂无上次头像时点击给出提示），
+  有上次头像时弹出对话框展示，确认后调用 `POST /mm/files/avatar/use-previous`；
+- Web「设置 → 头像修改」页同样有「使用上次头像」按钮与 `el-dialog` 确认弹窗（无上次头像时按钮禁用并带说明）。
 
 ---
 
@@ -536,3 +625,203 @@ Hub 路径：`/hubs/chat`（JWT 鉴权，客户端通过 `access_token` Query �
   - `GET /mm/checkins/calendar?planId=...` -> `GET /mm/checkins/plans/{planId}/calendar`
   - `GET /mm/checkins/detail?planId=...` -> `GET /mm/checkins/plans/{planId}/details`
 
+---
+
+## 7. 更新日志（Changelog）
+
+控制器：`ChangelogController`  
+路由前缀：`/mm/Changelog`
+
+> **数据来源与方案（Markdown 文件 + 进程内解析，不落数据库、无迁移）**：
+> 更新日志正文保存在 API 源码内的 Markdown 文件 `api/Resources/changelog/CHANGELOG.md`
+> （Keep a Changelog 风格，随 git 版本化、随发布打包——`api.csproj` 的 `Resources/**`
+> 会把它拷进输出目录），服务端把文件解析成结构化 JSON 返回。
+> 解析结果由单例服务缓存在进程内，按文件「最后修改时间 + 长度」判断是否需要重新解析：
+> 改完 Markdown 文件后下一次请求即生效（生产环境随发布生效），无需重启服务，
+> 也无数据库表 / 迁移 / 种子数据。
+>
+> **为什么用 Markdown 文件而不是数据库表**：更新日志是**随代码发布的内容**，和版本号、
+> 功能改动一起走 git 评审与回滚；没有后台录入需求，写成文件比「建表 + 管理接口 + 迁移」
+> 更简单，也方便开发在一个文件里维护所有版本。
+>
+> 解析异常不阻断接口：文件缺失 / 解析为空 / 读取失败时返回空列表（200），前端页面照常打开。
+
+| 方法 | 路径 | 认证 | 说明 |
+|---|---|---|---|
+| GET | `/mm/Changelog?limit=20` | 否（匿名公开） | 获取更新日志版本列表（按日期倒序，含最新版本号 / 日期） |
+
+查询参数：
+
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `limit` | int | `20` | 最多返回的版本条目数，服务端夹到 `1..50`（小于 1 按 1，大于 50 按 50）；不影响返回的 `total` |
+
+GET 响应示例（200，`GET /mm/Changelog?limit=2`；`total=4` 表示共解析出 4 个版本，`items` 只返回前 2 个）：
+
+```json
+{
+  "latestVersion": "1.2.0",
+  "latestDate": "2026-11-19",
+  "total": 4,
+  "items": [
+    {
+      "version": "1.2.0",
+      "date": "2026-11-19",
+      "sections": [
+        {
+          "title": "新增",
+          "items": [
+            "设置页新增「更新日志」：小程序与 Web 均可查看本页内容",
+            "登录记录页展示每台设备的「最后活跃时间」"
+          ]
+        },
+        {
+          "title": "优化",
+          "items": ["登录记录按设备归并展示，并标记当前设备"]
+        }
+      ]
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-11-15",
+      "sections": [
+        {
+          "title": "新增",
+          "items": ["小程序全面接入单色主题"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Markdown 源文件格式（`api/Resources/changelog/CHANGELOG.md`，Keep a Changelog 风格）：
+
+```markdown
+# 更新日志
+
+<!-- 维护说明放注释里，解析器会忽略 -->
+
+## [1.2.0] - 2026-11-19
+
+### 新增
+
+- 设置页新增「更新日志」页面
+
+### 修复
+
+- 登录记录最后活跃时间展示异常
+```
+
+规则说明：
+
+- **版本标题**：`## [1.2.0] - 2026-11-19`；方括号版本号必填，` - ` 后的日期可省略——
+  省略时该条目 `date` 为 `null`（排序时排到最后）。
+- **分组标题**：`### 新增 / ### 优化 / ### 修复`，标题文本原样作为 `sections[].title`，可自行扩展
+  （如 `### 安全`）；条目没有 `###` 分组时服务端兜底归入「变更」分组；版本下没有任何条目时
+  `sections` 为 `[]`（空数组）。
+- **条目**：以 `- ` 开头（也接受 `*` / `+`），一条一行；返回的是去掉列表标记后的纯文本，
+  **服务端不做 Markdown 渲染**（行内 `**加粗**` 等标记会原样返回），客户端按纯文本展示。
+- **忽略内容**：`<!-- -->` 注释块、`#` 大标题等其它 Markdown 标题（版本 `##` / 分组 `###` 除外）
+  会被忽略；空行与缩进不影响解析。
+- **排序**：`items` 按 `date` 倒序，日期相同按版本号倒序（`1.2.0 > 1.1.9`）；新版本建议写在文件最上面，
+  但返回顺序始终由服务端重新排序。
+- **latest**：`latestVersion` / `latestDate` 取排序后的第一条；没有任何数据时均为 `null`
+  （第一条没有日期时 `latestDate` 为 `null`）。
+- **total 与 limit**：`total` 是解析出的**全部版本数**，不受 `limit` 影响；`items` 最多返回 `limit` 个版本。
+- **匿名公开**：无需 `Authorization` 请求头；路由大小写不敏感（`/mm/Changelog` 与 `/mm/changelog` 等价，
+  OpenAPI 中写作 `/changelog`，其 servers 已含 `/mm` 前缀）。
+- **缺失降级**：数据文件缺失 / 解析为空 / 读取失败时仍返回 `200`，`items: []`、`total: 0`、
+  `latestVersion` / `latestDate` 均为 `null`，不返回 5xx，不阻断前端。
+- **缓存失效**：解析结果按「文件最后修改时间 + 文件长度」缓存在进程内（单例服务）；修改 Markdown
+  文件后下一次请求自动重新解析生效，生产环境随发布的新文件生效（无需重启）。
+- 数据文件路径可用配置 `Changelog:FilePath` 覆盖（相对路径基于 ContentRoot）；
+  读取异常时返回上一次成功解析的缓存内容（可能为空）。
+
+
+---
+
+## 8. 课表（Schedule）
+
+控制器：`ScheduleController`  
+路由前缀：`/mm/Schedule`  
+认证方式：`Authorization: Bearer <access_token>`（全部接口需要登录）
+
+> 数据来源：原「MeowMemoirs 课表项目」的 Schedule / Course / CourseTime 三层模型，
+> 已迁移进当前后端。建表脚本：`sql/2026-11-19_schedule_schema.sql`
+> （表：`schedules` / `courses` / `course_times`，全部伪删除）。
+
+### 8.1 接口列表
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/mm/Schedule` | 当前用户的课表列表（概要，含课程数量） |
+| GET | `/mm/Schedule/{id}` | 课表详情（课表信息 + 课程列表 + 每门课的上课时间段） |
+| POST | `/mm/Schedule` | 新建 / 更新课表（`id=0` 新建；同时保存作息时间表） |
+| DELETE | `/mm/Schedule/{id}` | 删除课表（伪删除，连带课程与时间段） |
+| GET | `/mm/Schedule/{id}/Course/{courseId}` | 课程详情（含全部时间段） |
+| POST | `/mm/Schedule/{id}/Course` | 新建 / 更新课程（`id=0` 新建；`times` 整体替换，未出现的旧时间段自动伪删除） |
+| DELETE | `/mm/Schedule/{id}/Course/{courseId}` | 删除课程（伪删除，连带时间段） |
+
+### 8.2 数据结构
+
+```ts
+interface ScheduleSummary {
+  id: number;
+  scheduleName: string;
+  startTime: string;    // "yyyy-MM-dd"，学期第一周周一
+  weekCount: number;    // 1-100
+  timetable: string[];  // 每节课时间，如 ["08:00-08:45", ...]，长度 = 节次数
+  remark: string | null;
+  courseCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ScheduleDetail extends ScheduleSummary {
+  courses: Course[];
+}
+
+interface Course {
+  id: number;
+  scheduleId: number;
+  courseName: string;
+  color: string;        // #RRGGBB
+  remark: string | null;
+  times: CourseTime[];
+}
+
+interface CourseTime {
+  id: number;
+  courseId: number;
+  location: string;
+  teacher: string;
+  weekList: number[];   // 周次，如 [1,2,3]
+  sectionList: number[];// 节次，如 [1,2]（1 表示第 1 节）
+  dayOfWeek: number;    // 1-7（周一到周日）
+  remark: string | null;
+}
+```
+
+请求体：
+
+```jsonc
+// POST /mm/Schedule
+{ "id": 0, "scheduleName": "2026 春季学期", "startTime": "2026-09-01",
+  "weekCount": 20, "timetable": ["08:00-08:45", "08:55-09:40"], "remark": "" }
+
+// POST /mm/Schedule/{id}/Course
+{ "id": 0, "courseName": "高等数学", "color": "#9b4f93", "remark": "",
+  "times": [
+    { "id": 0, "location": "A101", "teacher": "张老师", "dayOfWeek": 1,
+      "weekList": [1,2,3,4], "sectionList": [1,2], "remark": "" }
+  ] }
+```
+
+### 8.3 约定
+
+- **周次计算**：`当前周 = clamp(floor((今天 - startTime)/7天) + 1, 1, weekCount)`。
+- **节次**：`sectionList` 对应 `timetable` 的下标（1-based）；多节连上（如 `[1,2]`）前端网格跨行合并。
+- **一门课多段**：`times` 中每项是一段（不同星期 / 周次 / 地点 / 教师）。
+- **删除**均为伪删除，查询自动过滤；课表 / 课程 / 时间段数据归属当前登录用户，越权返回 404。
+- 前端：Web 使用 `web/src/features/schedule/`，小程序使用 `uni-app/src/features/Curriculum/useSchedule.ts`。

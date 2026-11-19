@@ -18,7 +18,7 @@
 │   ├── Hubs/            # SignalR ChatHub（/hubs/chat）
 │   ├── Infrastructure/  # JWT、Redis 校验中间件、邮件、文件、密码哈希
 │   ├── Models/          # 请求/响应 DTO
-│   ├── Resources/       # 邮件模板、IP 归属地离线数据（ipTo/）
+│   ├── Resources/       # 邮件模板、IP 归属地离线数据（ipTo/）、更新日志 Markdown（changelog/）
 │   └── appsettings.json # 配置模板（占位符，见下方「配置」）
 ├── web/                 # Vue 3 前端
 │   └── src/             # features / components / views / stores / libs
@@ -55,13 +55,13 @@
 建表（仅结构，三个文件自带 `CREATE DATABASE`，按顺序执行即可）：
 
 ```bash
-mysql -u root < sql/2026-11-04_schema_01_user.sql      # 用户与账号（10 张表）
+mysql -u root < sql/2026-11-04_schema_01_user.sql      # 用户与账号（11 张表）
 mysql -u root < sql/2026-11-04_schema_02_chat.sql      # 聊天与群聊（8 张表）
 mysql -u root < sql/2026-11-04_schema_03_checkin.sql   # 打卡（3 张表）
 ```
 
 > 三个文件由 MariaDB 13 导出，`utf8mb4_unicode_ci`，MySQL 8 / MariaDB 10.4+ 均可直接导入，
-> 共覆盖 21 张表。它们**只含结构、不含数据**——真实数据里有邮箱、密码哈希和聊天正文，
+> 共覆盖 22 张表。它们**只含结构、不含数据**——真实数据里有邮箱、密码哈希和聊天正文，
 > 不能进公开仓库。含数据的版本由 `bash tools/dev-verify/gen-full-dump.sh` 生成到
 > `sql/private/`（已被 `.gitignore` 忽略，只留本地做备份）。
 
@@ -78,6 +78,12 @@ mysql -u root dailycheck < sql/2026-10-23_user_blocks.sql
 mysql -u root dailycheck < sql/2026-11-18_user_profile_background.sql
 # 登录记录表（user_login_records）——小程序「登录记录」页缺了会 500
 mysql -u root dailycheck < sql/2026-11-18_user_login_records.sql
+# 登录设备表（user_login_devices）+ 登录记录表加 device_id 并回填旧数据
+mysql -u root dailycheck < sql/2026-11-18_user_login_devices.sql
+# 登录设备「最后活跃时间」（user_login_devices.last_active_at）
+mysql -u root dailycheck < sql/2026-11-19_user_login_devices_activity.sql
+# 上次头像回退（users.previous_avatar_key）
+mysql -u root dailycheck < sql/2026-11-19_user_previous_avatar.sql
 ```
 
 > 早期 MySQL 8 的导出已归档到 `sql/legacy/`，仅在考古时使用。导入 MariaDB 时注意两点：
@@ -111,6 +117,17 @@ export ASPNETCORE_ENVIRONMENT=Development
 export ConnectionStrings__Default='server=127.0.0.1;database=dailycheck;charset=utf8;uid=root;pwd=<你的密码>;port=3306'
 export Redis__Configuration='127.0.0.1:6379,password=<你的密码>,defaultDatabase=0,abortConnect=false,ssl=false'
 ```
+
+> **微信登录 / 邮件验证码的敏感项**：`Wechat__AppId`、`Wechat__AppSecret`、
+> `Smtp__UserAccount`、`Smtp__Password`、`Smtp__FromAddress`（备份通道再加
+> `SmtpBackup__UserAccount` / `SmtpBackup__Password` / `SmtpBackup__FromAddress`）
+> 也必须用真实值覆盖，否则：
+> - 小程序 `wechat/login-auto` 会因占位符 appid 收到微信返回的 `invalid appid` → 前端 401「一键登录失效」；
+> - 注册 / 邮箱验证码登录 / 改密 / 换绑 / 注销的验证码邮件发送失败。
+>
+> 本机生产环境的这些密钥放在 `~/.config/notebook/`（`wechat_appid`、`wechat_secret`、
+> `smtp_account`、`smtp_password`，权限 600，不入库），由 runit 服务脚本与
+> `~/notebook-devstack.sh` 以环境变量注入。
 
 > **IP 归属地数据（登录记录页用）**：`appsettings.json` 的 `GeoIp` 节指向
 > `Resources/ipTo/GeoCN.mmdb` 与同目录的 `full.txt` / `short.txt`（相对程序输出目录）。
@@ -155,19 +172,26 @@ npm run dev
 | 好友 Friends | 好友申请、好友列表、用户拉黑 / 黑名单（拉黑后禁止对方加好友、单聊与搜索；主页仍可查看，群聊不受影响） |
 | 聊天 Chat | 会话/群聊、成员与角色、入群申请、消息收发、已读回执、文件消息、SignalR 实时推送 |
 | 文件 Files | 上传、预览、下载（图片转 WebP、HEIC/HEIF 适配、SHA256 去重） |
-| 登录记录 LoginRecords | 记录每次成功登录的 IP / 设备 / 时间；用 GeoCN 离线库把 IP 解析成国内省市，小程序按「国内 / 全部」分页查看，可识别当前设备、已退出与境外登录 |
+| 登录记录 LoginRecords | 登录设备表 + 登录记录表：小程序 / web 设置页展示该账号的**设备列表**，只标记「当前设备」，每台设备显示最近活跃时间（打开小程序 / 网页时更新）与上次登录的 IP 归属地 |
 
-> **登录记录（国内）**
+> **登录设备（国内）**
 >
-> - 每次成功登录（密码 / 验证码 / 微信 / 注册后自动登录）写入 `user_login_records`，记录
->   `sid`、IP、User-Agent、设备名与登录时间；`refresh` 只是同一设备续期，不重复记。
+> - 两张表：`user_login_devices`（每台设备一行，`device_key` = 客户端持久化的
+>   `X-Device-Id` 头，缺头时用 `ua:` + UA 指纹兜底；含 `last_login_at` 与 `last_active_at`）与
+>   `user_login_records`（每次成功登录一条，`device_id` 标记目标登录设备）。
+> - 同设备再次登录 = 复用设备行、只追加一条登录记录并更新「最后登录」指针；
+>   新设备 = 先建设备行再写记录。`refresh` 只是同一设备续期，不重复记。
+> - **活跃时间**：客户端打开小程序 / 打开网页时调 `POST /mm/LoginRecords/active`
+>   （带 `X-Device-Id`）刷新该设备的 `last_active_at`；登录本身也会刷新。
+> - 页面展示该账号的**设备列表**（一台设备一行）：设备名、仅对当前设备标记「当前设备」、
+>   最近活跃时间、上次登录的 IP 归属地 / 登录方式 / 脱敏 IP。
 > - IP 归属地由 **GeoCN 离线库**解析（只收录中国大陆 IP 段）：命中 → `is_domestic=1`，
 >   地点如「河南 · 郑州」；未命中 → 境外（私有 / 回环地址记为「本地网络」）。
 >   数据文件在 `api/Resources/ipTo/`，`GeoCN.mmdb` 体积大不入库，用
 >   `bash tools/geocn/fetch-geocn.sh` 拉取（详见 `tools/geocn/README.md`）。
-> - 记录失败**不影响登录**；mmdb 缺失时只是地点显示「未知位置」，登录与页面其它功能照常。
-> - 接口：`GET /mm/LoginRecords?page=&pageSize=&scope=domestic|all`，返回当前设备状态
->   （`current` / `active` / `logged_out`）与脱敏 IP。
+> - 记录 / 活跃上报失败**不影响登录与使用**；mmdb 缺失时只是地点显示「未知位置」。
+> - 接口：`GET /mm/LoginRecords?page=&pageSize=&scope=domestic|all`（三个计数均为设备数，
+>   每项含 `isCurrent` / `lastActiveAt` 与脱敏 IP）、`POST /mm/LoginRecords/active`。
 
 > **图片格式**：JPG / PNG / GIF / WebP / BMP / SVG / ICO 以及 iPhone 默认的
 > **HEIC / HEIF** 均可上传。Web 端用 `heic2any` 在浏览器内先解码再转 WebP；

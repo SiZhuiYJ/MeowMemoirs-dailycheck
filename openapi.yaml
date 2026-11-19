@@ -43,6 +43,8 @@ tags:
     description: 打卡记录管理接口
   - name: Files
     description: 文件上传管理接口
+  - name: Changelog
+    description: 更新日志（公开接口，无需认证）
 
 paths:
   # 认证相关接口
@@ -317,14 +319,18 @@ paths:
   /login-records:
     get:
       tags: [Authentication]
-      summary: 获取登录记录
+      summary: 获取登录设备列表（最后活跃时间）
       description: |
-        分页返回当前登录用户的登录记录，按登录时间倒序。
-        - `scope=domestic`（默认）：只返回中国大陆 IP 记录（GeoCN 命中）；
-        - `scope=all`：返回全部记录（含境外 / 内网）。
-        每条记录包含设备、登录方式、归一化地点、脱敏 IP、状态与 UTC 时间。
-        只记录成功登录，`/auth/refresh` 不会新增记录；
-        登出 / 全部登出 / 注销 / 改密后对应记录状态变为 `logged_out`。
+        分页返回当前登录用户的**登录设备列表**：一台设备一项，展示该设备最后一次登录记录、
+        最后活跃时间与是否为当前设备，按设备最后活跃时间倒序。数据来自
+        `user_login_devices`（设备表，含 `last_active_at`）与 `user_login_records`（登录记录表）。
+        - `scope=domestic`（默认）：只返回最后一次登录为国内（GeoCN 命中中国大陆）的设备；
+        - `scope=all`：返回全部设备（含最后一次登录为境外 / 内网，以及只上报过活跃、没有登录记录的设备）。
+        计数均为**设备数**。设备由客户端持久化的 `X-Device-Id` 请求头识别，
+        同一设备再次登录会复用设备并只新增登录记录；没有该头的旧客户端用 UA 指纹兜底。
+        只记录成功登录，`/auth/refresh` 不会新增设备 / 记录。
+        每项 `isCurrent` 标记当前请求所在设备（优先按 `X-Device-Id` 匹配，无头时兜底比对最后一条登录记录的 sid）；
+        其它设备不再返回在线 / 已退出状态。
       security:
         - bearerAuth: []
       parameters:
@@ -352,7 +358,7 @@ paths:
             type: string
             enum: [domestic, all]
             default: domestic
-          description: 记录范围，默认 domestic（国内）；非法值按 domestic 处理
+          description: 设备范围，默认 domestic（最后一次登录为国内）；非法值按 domestic 处理
       responses:
         '200':
           description: 获取成功
@@ -360,6 +366,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LoginRecordListResponse'
+        '401':
+          description: 未登录或登录状态已失效
+
+  /login-records/active:
+    post:
+      tags: [Authentication]
+      summary: 上报当前设备活跃
+      description: |
+        客户端打开小程序 / 网页（含登录后）时调用，更新当前请求所在设备的最后活跃时间
+        （`user_login_devices.last_active_at`），不写登录记录。
+        设备识别与登录一致：优先请求头 `X-Device-Id`，没有该头时用 UA 指纹兜底；
+        第一次见到的新设备会创建一条没有登录记录的设备。
+        上报失败不影响客户端打开应用（服务端内部吞异常只记日志）。
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 上报成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginRecordActiveResponse'
         '401':
           description: 未登录或登录状态已失效
 
@@ -559,7 +587,10 @@ paths:
     post:
       tags: [Files]
       summary: 上传头像
-      description: 上传用户头像图片（支持 JPG/PNG/GIF/WebP/BMP/HEIC/HEIF，服务端统一转 WebP）
+      description: |
+        上传用户头像图片（支持 JPG/PNG/GIF/WebP/BMP/HEIC/HEIF，服务端统一转 WebP）。
+        上传成功时把旧头像记录到 `previous_avatar_key`，并返回旧头像 key（`previousKey`，首次上传为 null），
+        供「使用上次头像」切回。
       security:
         - bearerAuth: []
       requestBody:
@@ -584,6 +615,39 @@ paths:
                   key:
                     type: string
                     description: 头像文件Key
+                  previousKey:
+                    type: string
+                    nullable: true
+                    description: 上传前的旧头像Key（首次上传为 null）；用于「使用上次头像」切回
+
+  /files/avatar/use-previous:
+    post:
+      tags: [Files]
+      summary: 使用上次头像
+      description: |
+        把当前头像与上一次使用的头像互换（连续调用可来回切换），无需重新上传图片。
+        需登录，无请求体；只互换 `avatar_key` / `previous_avatar_key`，头像文件本身不删除、不改名。
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 切换成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    description: 切换后的当前头像Key
+                  previousKey:
+                    type: string
+                    nullable: true
+                    description: 切换后的上次头像Key
+        '400':
+          description: 没有可用的上次头像（previous_avatar_key 为 null）
+        '404':
+          description: 用户不存在
 
   /files/profile-background:
     post:
@@ -591,8 +655,12 @@ paths:
       summary: 上传 / 更换个人主页背景
       description: |
         上传当前用户的个人主页背景图，上传成功后自动写入 `profile_background_key`。
-        原图统一转有损 WebP（质量 85）并把最长边压缩到 1600px 以内；
-        可选字段 `thumbnail` 用于上传缩略占位图；不传时服务端从原图自动生成 `{key}_thumb`（有损 WebP 质量 70、最长边 128px）。
+        客户端按 1:1 裁剪成正方形后上传；服务端**不缩放像素**，保留裁剪后的原始分辨率：
+        - 已是 WebP 的输入原样存储（零重编码，像素 / 画质无损）；
+        - 其它格式解码后转有损 WebP（质量 85），保留原始分辨率；
+        - 最长边安全上限 8192px，超出返回 400「背景图尺寸过大（最长边不能超过 8192px）」；
+        - 单文件最大 20MB。
+        可选字段 `thumbnail` 用于上传缩略占位图；不传时服务端从原图自动生成 `{key}_thumb`（有损 WebP 质量 70、最长边 ≤128px）。
         支持 JPG/PNG/GIF/WebP/BMP/SVG/ICO/HEIC/HEIF。
       security:
         - bearerAuth: []
@@ -608,7 +676,7 @@ paths:
                 file:
                   type: string
                   format: binary
-                  description: 背景图片文件（≤10MB）
+                  description: 背景图片文件（≤20MB，最长边 ≤8192px；已是 WebP 时原样存储、零重编码）
                 thumbnail:
                   type: string
                   format: binary
@@ -628,7 +696,7 @@ paths:
                     type: string
                     description: 缩略占位图Key（`{key}_thumb`），用于渐进加载占位
         '400':
-          description: 文件为空或格式不支持
+          description: 文件为空、格式不支持、超过 20MB 或尺寸过大（最长边 > 8192px）
         '404':
           description: 用户不存在
     delete:
@@ -744,6 +812,41 @@ paths:
         '404':
           description: 图片文件不存在或无访问权限
 
+  # 更新日志相关接口
+  /changelog:
+    get:
+      tags: [Changelog]
+      summary: 获取更新日志
+      description: |
+        **公开接口，无需认证**（不需要 `Authorization` 请求头）。
+        数据源是随源码发布的 Markdown 文件 `api/Resources/changelog/CHANGELOG.md`
+        （Keep a Changelog 风格，随 git 版本化、随发布打包），服务端解析成结构化 JSON，
+        **不落数据库、无迁移**；进程内按「文件最后修改时间 + 文件长度」缓存，
+        修改文件后下一次请求自动重新解析生效。
+        返回解析出的版本列表（按日期倒序，日期相同按版本号倒序）、最新版本号 / 日期，
+        以及解析出的全部版本数 `total`（不受 `limit` 影响）。
+        - `limit`：最多返回的版本条目数，默认 20，服务端夹到 1..50（小于 1 按 1，大于 50 按 50）；
+        - `total`：解析出的全部版本数，不受 `limit` 影响；
+        - 数据文件缺失 / 解析为空 / 读取失败时仍返回 200，`items: []`、`total: 0`、latest 均为 null。
+      security: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+          description: 最多返回的版本条目数，默认 20，服务端夹到 1..50（小于 1 按 1，大于 50 按 50）
+      responses:
+        '200':
+          description: 获取成功（数据文件缺失 / 解析为空时也返回 200，items 为空数组）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangelogListResponse'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -839,6 +942,10 @@ components:
         avatarKey:
           type: string
           description: 头像文件Key
+        previousAvatarKey:
+          type: string
+          nullable: true
+          description: 上一次使用的头像Key（null 表示没有可回退的旧头像；通过「使用上次头像」切换后可来回互换）
         profileBackgroundKey:
           type: string
           nullable: true
@@ -873,6 +980,10 @@ components:
           type: string
         avatarKey:
           type: string
+        previousAvatarKey:
+          type: string
+          nullable: true
+          description: 上一次使用的头像Key（null 表示没有可回退的旧头像）
         profileBackgroundKey:
           type: string
           nullable: true
@@ -908,7 +1019,7 @@ components:
           description: 新昵称
         avatarKey:
           type: string
-          description: 头像文件Key
+          description: 头像文件Key（更新时服务端会把旧头像记入 previousAvatarKey，供「使用上次头像」切回）
         profileBackgroundKey:
           type: string
           nullable: true
@@ -1197,10 +1308,10 @@ components:
     LoginRecordItem:
       type: object
       properties:
-        id:
+        deviceId:
           type: integer
           format: int64
-          description: 记录ID
+          description: 登录设备ID（user_login_devices.id），前端列表 key
         device:
           type: string
           description: 设备展示名，如 iPhone 13 · 微信
@@ -1238,19 +1349,17 @@ components:
         isDomestic:
           type: boolean
           description: 是否中国大陆 IP
-        status:
+        lastActiveAt:
           type: string
-          enum: [current, active, logged_out]
-          description: 记录状态：current=当前登录，active=在线，logged_out=已退出
+          format: date-time
+          description: 最后活跃时间（UTC，打开小程序 / 网页时更新，登录也算活跃）
+        isCurrent:
+          type: boolean
+          description: 是否当前请求所在设备（优先 X-Device-Id 匹配，无头时兜底比对最后一条登录记录的 sid）
         loginAt:
           type: string
           format: date-time
-          description: 登录时间（UTC）
-        logoutAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: 退出 / 被撤销时间（UTC，未退出为 null）
+          description: 该设备最后一次登录时间（UTC；从未登录过的设备退化为设备创建时间）
 
     LoginRecordListResponse:
       type: object
@@ -1267,18 +1376,88 @@ components:
           description: 每页数量
         total:
           type: integer
-          description: 当前 scope 下的记录总数
+          description: 当前 scope 下的设备数
         domesticTotal:
           type: integer
-          description: 国内登录记录总数
+          description: 最后一次登录为国内的设备数
         allTotal:
           type: integer
-          description: 全部登录记录总数（含境外 / 内网）
+          description: 全部设备数（含最后登录为境外 / 内网的设备）
         items:
           type: array
           items:
             $ref: '#/components/schemas/LoginRecordItem'
-          description: 当前页的登录记录
+          description: 当前页的登录设备（每台设备一项，按最后活跃时间倒序）
+
+    LoginRecordActiveResponse:
+      type: object
+      properties:
+        lastActiveAt:
+          type: string
+          format: date-time
+          description: 本次上报后的最后活跃时间（UTC）
+
+    # 更新日志相关模型
+    ChangelogSection:
+      type: object
+      description: 更新日志的一个分组（对应 Markdown 源文件的 `### 标题`）
+      properties:
+        title:
+          type: string
+          description: 分组标题（如 新增 / 优化 / 修复，可自行扩展；条目没有 ### 分组时兜底为「变更」）
+          example: 新增
+        items:
+          type: array
+          items:
+            type: string
+          description: 分组下的条目，均为纯文本（服务端不做 Markdown 渲染）
+          example:
+            - 设置页新增「更新日志」页面
+
+    ChangelogEntry:
+      type: object
+      description: 一个版本的更新日志（对应 Markdown 源文件的 `## [版本号] - 日期` 区块）
+      properties:
+        version:
+          type: string
+          description: 版本号（如 1.2.0，来自 Markdown 版本标题）
+          example: 1.2.0
+        date:
+          type: string
+          format: date
+          nullable: true
+          description: 发布日期，`YYYY-MM-DD`；Markdown 标题省略日期时为 null（排序时排到最后）
+          example: '2026-11-19'
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChangelogSection'
+          description: 该版本的分组列表，可能为空数组
+
+    ChangelogListResponse:
+      type: object
+      description: 更新日志列表响应（GET /mm/Changelog）
+      properties:
+        latestVersion:
+          type: string
+          nullable: true
+          description: 最新版本号（排序后第一条；没有任何更新日志时为 null）
+          example: 1.2.0
+        latestDate:
+          type: string
+          format: date
+          nullable: true
+          description: 最新版本的发布日期（排序后第一条；没有更新日志或该条无日期时为 null）
+          example: '2026-11-19'
+        total:
+          type: integer
+          description: 解析出的全部版本数（不受 limit 影响，可用于显示「共 N 个版本」）
+          example: 4
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChangelogEntry'
+          description: 当前返回的版本条目，按日期倒序（日期相同按版本号倒序），最多 limit 条
 
 externalDocs:
   description: 查看更多文档

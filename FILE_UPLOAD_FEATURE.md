@@ -106,6 +106,9 @@ Response 200:
 - 自动转换为WebP
 - 需要手动更新会话的 `avatarKey` 字段
 
+> 注意：用户头像上传 `POST /mm/files/avatar` 的成功响应为 `{ "key": "...", "previousKey": "<旧头像key或null>" }`；
+> 另有 `POST /mm/files/avatar/use-previous` 可切回上次头像（详见 `API接口文档.md` §4.2）。
+
 ### 4. 获取会话头像
 
 ```http

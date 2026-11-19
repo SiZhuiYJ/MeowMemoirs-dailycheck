@@ -691,6 +691,55 @@
             <response code="401">用户认证失败或会话已过期</response>
             <response code="404">用户不存在</response>
         </member>
+        <member name="T:api.Controllers.ChangelogController">
+             <summary>
+             更新日志接口（公开，无需登录）。
+            
+             <para>
+             数据源是随源码发布的 Markdown 文件 <c>Resources/changelog/CHANGELOG.md</c>，
+             由 <see cref="T:api.Infrastructure.IChangelogService"/> 解析成结构化 JSON，**不落数据库**：
+             更新日志属于发布内容，跟版本号一起走 git 评审 / 回滚，不需要后台录入与迁移。
+             </para>
+             <para>
+             小程序与 Web 的设置页「更新日志」共用这个接口；条目是纯文本，
+             客户端直接渲染，不需要 Markdown 渲染器。
+             </para>
+             </summary>
+        </member>
+        <member name="M:api.Controllers.ChangelogController.#ctor(api.Infrastructure.IChangelogService)">
+             <summary>
+             更新日志接口（公开，无需登录）。
+            
+             <para>
+             数据源是随源码发布的 Markdown 文件 <c>Resources/changelog/CHANGELOG.md</c>，
+             由 <see cref="T:api.Infrastructure.IChangelogService"/> 解析成结构化 JSON，**不落数据库**：
+             更新日志属于发布内容，跟版本号一起走 git 评审 / 回滚，不需要后台录入与迁移。
+             </para>
+             <para>
+             小程序与 Web 的设置页「更新日志」共用这个接口；条目是纯文本，
+             客户端直接渲染，不需要 Markdown 渲染器。
+             </para>
+             </summary>
+        </member>
+        <member name="F:api.Controllers.ChangelogController.DefaultLimit">
+            <summary>默认返回的版本条目数。</summary>
+        </member>
+        <member name="F:api.Controllers.ChangelogController.MaxLimit">
+            <summary>最多返回的版本条目数。</summary>
+        </member>
+        <member name="M:api.Controllers.ChangelogController.GetChangelog(System.Nullable{System.Int32})">
+             <summary>
+             获取更新日志版本列表（按发布日期倒序）。
+            
+             <para>
+             公开接口，不需要访问令牌；<c>total</c> 是解析出的全部版本数（不受 <c>limit</c> 影响），
+             <c>items</c> 才是本次返回的版本。数据文件缺失时返回 200 + 空列表，不阻断前端页面。
+             </para>
+             </summary>
+             <param name="limit">最多返回的版本数，可选，默认 20，取值夹到 1..50。</param>
+             <returns>更新日志列表（含最新版本号 / 日期）。</returns>
+             <response code="200">获取成功（文件缺失时 items 为空数组）</response>
+        </member>
         <member name="T:api.Controllers.ChatController">
             <summary>
             聊天会话与消息管理接口。
@@ -1213,6 +1262,20 @@
             <response code="400">文件为空或格式不支持</response>
             <response code="404">用户不存在</response>
         </member>
+        <member name="M:api.Controllers.FilesController.UsePreviousAvatar">
+            <summary>
+            使用上次头像接口：把当前头像与上次头像互换。
+            无需重新上传图片（两张图都已在公开用户目录中），连续调用可来回切换。
+            </summary>
+            <remarks>
+            返回：{ "key": "切换后的当前头像key", "previousKey": "切换后的上次头像key" }
+            错误：400 暂无可用的上次头像（previous_avatar_key 为 NULL）；404 用户不存在。
+            </remarks>
+            <returns>成功时返回200 OK，包含互换后的头像 key。</returns>
+            <response code="200">切换成功</response>
+            <response code="400">暂无可用的上次头像</response>
+            <response code="404">用户不存在</response>
+        </member>
         <member name="M:api.Controllers.FilesController.UploadProfileBackground(Microsoft.AspNetCore.Http.IFormFile,Microsoft.AspNetCore.Http.IFormFile)">
              <summary>
              上传/更换个人主页背景图接口。
@@ -1224,9 +1287,12 @@
              不需要额外的 GET 接口。
             
              处理流程：
-             1. 图片格式与大小校验（≤10MB，与头像一致，含 HEIC/HEIF）
-             2. 原图统一转有损 WebP，最长边压缩到 1600px（背景整卡铺满，不需要原图尺寸）
-             3. 预处理缩略占位图（最长边 128px，存为 {key}_thumb.webp）：
+             1. 图片格式与大小校验（≤20MB，含 HEIC/HEIF）
+             2. 保留客户端 1:1 裁剪后的原始像素（服务端不缩放）：
+                • 已是 WebP 的输入原样存储（零重编码，像素 / 画质无损）；
+                • 其它格式转有损 WebP（质量 85），保留原始分辨率；
+                • 最长边安全上限 8192px，超出返回 400「背景图尺寸过大（最长边不能超过 8192px）」
+             3. 预处理缩略占位图（最长边 ≤128px，存为 {key}_thumb.webp）：
                 客户端传了 thumbnail 就用它，否则服务端从原图生成 —— 前端先显示占位图、原图下载完再淡入
              4. 内容哈希作为 fileKey，相同图片自动去重复用
              5. 更新 users.profile_background_key
@@ -1237,11 +1303,11 @@
              前端通过 /mm/Files/users/{userId}/{key} 展示原图，
              通过 /mm/Files/users/{userId}/{key}?thumbnail=true 展示缩略占位图。
              </remarks>
-             <param name="file">待上传的背景原图文件。</param>
+             <param name="file">待上传的背景原图文件（最长边 ≤8192px）。</param>
              <param name="thumbnail">可选的缩略占位图文件；不传时服务端从原图自动生成。</param>
              <returns>成功时返回200 OK，包含原图与缩略图文件Key。</returns>
              <response code="200">背景图上传成功</response>
-             <response code="400">文件为空或格式不支持</response>
+             <response code="400">文件为空、格式不支持、超过 20MB 或尺寸过大（最长边 &gt; 8192px）</response>
              <response code="404">用户不存在</response>
         </member>
         <member name="M:api.Controllers.FilesController.DeleteProfileBackground">
@@ -1593,56 +1659,71 @@
         </member>
         <member name="T:api.Controllers.LoginRecordsController">
              <summary>
-             登录记录相关接口。
+             登录记录相关接口（设备列表 + 最后活跃时间）。
             
              <para>
-             数据来源为 <c>user_login_records</c>：每次成功登录写一条（IP / 设备 / 登录方式 /
-             GeoCN 离线解析出的国内省市区），登出 / 撤销 / 改密时回填退出时间。
-             本接口只返回当前登录用户自己的记录。
+             数据来源为两张表：<c>user_login_devices</c>（一台设备一行，(user_id, device_key) 唯一，
+             带 <c>last_active_at</c>）与 <c>user_login_records</c>（每次成功登录一条）。
+             GET 返回当前用户**每台设备 + 该设备最后一次登录记录 + 最后活跃时间**（一台设备一项），
+             按设备最后活跃时间倒序；POST /active 用于客户端打开小程序 / 网页时上报活跃。
              </para>
              </summary>
         </member>
-        <member name="M:api.Controllers.LoginRecordsController.#ctor(api.Data.DailyCheckDbContext,StackExchange.Redis.IConnectionMultiplexer)">
+        <member name="M:api.Controllers.LoginRecordsController.#ctor(api.Data.DailyCheckDbContext)">
              <summary>
-             登录记录相关接口。
+             登录记录相关接口（设备列表 + 最后活跃时间）。
             
              <para>
-             数据来源为 <c>user_login_records</c>：每次成功登录写一条（IP / 设备 / 登录方式 /
-             GeoCN 离线解析出的国内省市区），登出 / 撤销 / 改密时回填退出时间。
-             本接口只返回当前登录用户自己的记录。
+             数据来源为两张表：<c>user_login_devices</c>（一台设备一行，(user_id, device_key) 唯一，
+             带 <c>last_active_at</c>）与 <c>user_login_records</c>（每次成功登录一条）。
+             GET 返回当前用户**每台设备 + 该设备最后一次登录记录 + 最后活跃时间**（一台设备一项），
+             按设备最后活跃时间倒序；POST /active 用于客户端打开小程序 / 网页时上报活跃。
              </para>
              </summary>
         </member>
         <member name="M:api.Controllers.LoginRecordsController.GetLoginRecords(System.Int32,System.Int32,System.String,System.Threading.CancellationToken)">
              <summary>
-             分页获取当前登录用户的登录记录。
+             分页获取当前登录用户的登录设备列表（每台设备附带该设备最后一次登录记录）。
             
              <para>
-             <c>scope=domestic</c>（默认）只返回中国大陆 IP 记录；<c>scope=all</c> 返回全部记录
-             （含境外 / 内网）。每条记录带 <c>status</c> 三态：
-             <c>current</c>（当前请求令牌对应的设备会话）、<c>logged_out</c>（已登出 / 被撤销）、
-             <c>active</c>（仍在线）。
+             <c>scope=domestic</c>（默认）只返回「最后一次登录为国内」的设备；<c>scope=all</c> 返回
+             全部设备（含最后登录为境外 / 内网）。计数均为**设备数**。
+             每项带 <c>lastActiveAt</c>（最后活跃时间）与 <c>isCurrent</c>（是否当前请求所在设备）：
+             优先用请求头 <c>X-Device-Id</c> 匹配设备，没有该头时兜底用该设备最后一条登录记录的
+             <c>session_id</c> 与当前令牌 sid 比对。按设备最后活跃时间倒序。
              </para>
              </summary>
              <param name="page">页码，默认 1，小于 1 按 1 处理。</param>
              <param name="pageSize">每页数量，默认 20，取值夹到 1..50。</param>
-             <param name="scope">记录范围：domestic（默认，国内）/ all（全部），非法值按 domestic。</param>
+             <param name="scope">设备范围：domestic（默认，国内）/ all（全部），非法值按 domestic。</param>
              <param name="cancellationToken">取消标记。</param>
-             <returns>分页登录记录，含 total / domesticTotal / allTotal 计数。</returns>
+             <returns>分页登录设备，含 total / domesticTotal / allTotal 设备计数。</returns>
              <response code="200">获取成功</response>
              <response code="401">未登录或登录状态已失效</response>
         </member>
-        <member name="M:api.Controllers.LoginRecordsController.ResolveStatus(System.String,System.String,System.DateTime,System.Nullable{System.DateTime},System.Nullable{System.Int64},System.Collections.Generic.HashSet{System.String})">
+        <member name="M:api.Controllers.LoginRecordsController.ReportActive(api.Infrastructure.ILoginRecordService,System.Threading.CancellationToken)">
             <summary>
-            计算单条记录状态：current（当前请求令牌对应的会话）→ logged_out（已退出 / 被撤销）→ active。
+            上报当前设备活跃（客户端打开小程序 / 网页时调用）：更新该设备的最后活跃时间。
+            设备识别与登录一致（<c>X-Device-Id</c>，无头时 UA 指纹）；未见过的新设备会创建一条设备记录
+            （没有登录记录）。上报失败不影响客户端打开应用（服务内部吞异常只打日志）。
             </summary>
-            <param name="sessionId">记录的设备会话标识。</param>
-            <param name="currentSessionId">当前请求令牌的 sid。</param>
-            <param name="loginAt">登录时间（UTC）。</param>
-            <param name="logoutAt">退出时间（UTC，未退出为 null）。</param>
-            <param name="revokedBefore">账号级撤销时间戳（epoch 秒），无则 null。</param>
-            <param name="revokedSids">已撤销的设备 sid 集合。</param>
-            <returns>current / logged_out / active。</returns>
+            <param name="loginRecordService">登录记录服务（依赖注入）。</param>
+            <param name="cancellationToken">取消标记。</param>
+            <returns>本次上报后的最后活跃时间（UTC）。</returns>
+            <response code="200">上报成功，返回 lastActiveAt</response>
+            <response code="401">未登录或登录状态已失效</response>
+        </member>
+        <member name="M:api.Controllers.LoginRecordsController.ResolveIsCurrent(System.String,api.Data.UserLoginRecord,System.String,System.String)">
+            <summary>
+            判断某台设备是否是当前请求所在设备：
+            优先用请求头 <c>X-Device-Id</c> 匹配 <c>device_key</c>；
+            没有该头（旧客户端）时兜底用该设备最后一条登录记录的 <c>session_id</c> 与当前令牌 sid 比对。
+            </summary>
+            <param name="deviceKey">设备的 device_key。</param>
+            <param name="record">该设备最后一次登录记录（可能为空）。</param>
+            <param name="currentDeviceKey">当前请求头解析出的 device key（无则为 null）。</param>
+            <param name="currentSessionId">当前令牌的 sid。</param>
+            <returns>是当前设备返回 true。</returns>
         </member>
         <member name="M:api.Controllers.LoginRecordsController.MaskIp(System.String)">
             <summary>IP 脱敏：IPv4 只留前两段（222.137.*.*）；IPv6 只留前两组（240e:476:*）；空 IP 返回 null。</summary>
@@ -1653,11 +1734,6 @@
             <summary>把数据库读出的 datetime（Kind=Unspecified，实际为 UTC）标记为 UTC，保证 JSON 带 Z。</summary>
             <param name="value">数据库时间。</param>
             <returns>Kind=Utc 的时间。</returns>
-        </member>
-        <member name="M:api.Controllers.LoginRecordsController.ToEpochSeconds(System.DateTime)">
-            <summary>把 UTC 时间转成 Unix 秒。</summary>
-            <param name="value">UTC 时间。</param>
-            <returns>Unix 秒。</returns>
         </member>
         <member name="M:api.Controllers.LoginRecordsController.GetCurrentSessionId">
             <summary>从当前访问令牌读取设备会话标识 sid。</summary>
@@ -1910,6 +1986,66 @@
             从当前访问令牌中解析用户 ID。
             </summary>
             <returns>当前登录用户的 ID。</returns>
+        </member>
+        <member name="T:api.Controllers.ScheduleController">
+             <summary>
+             课表接口（Schedule / Course / CourseTime 三层模型）。
+            
+             数据来源：原「MeowMemoirs 课表项目」的 Schedule + Course + CourseTime 结构，
+             已迁移进当前后端（表：schedules / courses / course_times）。
+            
+             权限：所有接口都需要登录（JWT），并且只能操作当前用户自己的课表。
+             删除：全部使用 is_deleted 伪删除，查询时过滤。
+             </summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.#ctor(api.Data.DailyCheckDbContext)">
+             <summary>
+             课表接口（Schedule / Course / CourseTime 三层模型）。
+            
+             数据来源：原「MeowMemoirs 课表项目」的 Schedule + Course + CourseTime 结构，
+             已迁移进当前后端（表：schedules / courses / course_times）。
+            
+             权限：所有接口都需要登录（JWT），并且只能操作当前用户自己的课表。
+             删除：全部使用 is_deleted 伪删除，查询时过滤。
+             </summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.GetMySchedules">
+            <summary>
+            获取当前用户的课表列表（概要，不含课程明细）。
+            </summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.GetSchedule(System.UInt64)">
+            <summary>
+            获取课表详情：课表信息 + 课程列表 + 每门课的上课时间段。
+            </summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.SaveSchedule(api.Models.ScheduleEditDto)">
+            <summary>
+            新建或更新课表（id = 0 表示新建）。
+            </summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.DeleteSchedule(System.UInt64)">
+            <summary>
+            删除课表（伪删除，同时伪删除其下课程与时间段）。
+            </summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.GetCourse(System.UInt64,System.UInt64)">
+            <summary>
+            获取某门课程的详情（含全部时间段）。
+            </summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.SaveCourse(System.UInt64,api.Models.CourseEditDto)">
+            <summary>
+            新建或更新课程（id = 0 表示新建；times 会整体替换，未出现的旧时间段会被伪删除）。
+            </summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.DeleteCourse(System.UInt64,System.UInt64)">
+            <summary>
+            删除课程（伪删除，同时伪删除其下时间段）。
+            </summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.NormalizeTimetable(System.Collections.Generic.List{System.String})">
+            <summary>校验并规范化作息时间表；格式不合法返回 null。</summary>
         </member>
         <member name="T:api.Controllers.TelemetryController">
              <summary>
@@ -2672,10 +2808,132 @@
             更新时间
             </summary>
         </member>
+        <member name="T:api.Data.Course">
+            <summary>
+            课程（课表下的一门课，具体上课时间在 course_times 表里，可有多段）。
+            </summary>
+        </member>
+        <member name="P:api.Data.Course.Id">
+            <summary>主键 ID</summary>
+        </member>
+        <member name="P:api.Data.Course.ScheduleId">
+            <summary>所属课表 ID</summary>
+        </member>
+        <member name="P:api.Data.Course.CourseName">
+            <summary>课程名称</summary>
+        </member>
+        <member name="P:api.Data.Course.Color">
+            <summary>课程颜色（十六进制，如 #9b4f93）</summary>
+        </member>
+        <member name="P:api.Data.Course.Remark">
+            <summary>备注</summary>
+        </member>
+        <member name="P:api.Data.Course.IsDeleted">
+            <summary>是否伪删除：0正常，1已删除</summary>
+        </member>
+        <member name="P:api.Data.Course.CreatedAt">
+            <summary>创建时间</summary>
+        </member>
+        <member name="P:api.Data.Course.UpdatedAt">
+            <summary>更新时间</summary>
+        </member>
+        <member name="P:api.Data.Course.Schedule">
+            <summary>所属课表（导航属性）</summary>
+        </member>
+        <member name="T:api.Data.CourseTime">
+            <summary>
+            课程时间段（一门课可以有多段：不同周次/星期/节次/地点）。
+            </summary>
+        </member>
+        <member name="P:api.Data.CourseTime.Id">
+            <summary>主键 ID</summary>
+        </member>
+        <member name="P:api.Data.CourseTime.CourseId">
+            <summary>所属课程 ID</summary>
+        </member>
+        <member name="P:api.Data.CourseTime.Location">
+            <summary>上课地点</summary>
+        </member>
+        <member name="P:api.Data.CourseTime.Teacher">
+            <summary>任课教师</summary>
+        </member>
+        <member name="P:api.Data.CourseTime.WeekListJson">
+            <summary>周次列表（JSON 数组字符串，如 [1,2,3]）</summary>
+        </member>
+        <member name="P:api.Data.CourseTime.SectionListJson">
+            <summary>节次列表（JSON 数组字符串，如 [1,2]）</summary>
+        </member>
+        <member name="P:api.Data.CourseTime.DayOfWeek">
+            <summary>星期几：1-7（周一到周日）</summary>
+        </member>
+        <member name="P:api.Data.CourseTime.Remark">
+            <summary>备注</summary>
+        </member>
+        <member name="P:api.Data.CourseTime.IsDeleted">
+            <summary>是否伪删除：0正常，1已删除</summary>
+        </member>
+        <member name="P:api.Data.CourseTime.CreatedAt">
+            <summary>创建时间</summary>
+        </member>
+        <member name="P:api.Data.CourseTime.UpdatedAt">
+            <summary>更新时间</summary>
+        </member>
+        <member name="P:api.Data.CourseTime.Course">
+            <summary>所属课程（导航属性）</summary>
+        </member>
+        <member name="T:api.Data.DailyCheckDbContext">
+             <summary>
+             课表相关实体的映射（Schedule / Course / CourseTime）。
+            
+             单独放在 partial 文件里而不是改 DailyCheckDbContext.cs 主文件：
+             该文件是由 EF scaffold 生成的大文件，重新 scaffold 时会被覆盖，
+             这里通过 OnModelCreatingPartial 挂载，迁移不会丢。
+             </summary>
+        </member>
+        <member name="P:api.Data.DailyCheckDbContext.UserLoginDevices">
+            <summary>
+            用户登录设备（一台设备一行，(user_id, device_key) 唯一）。
+            </summary>
+        </member>
         <member name="P:api.Data.DailyCheckDbContext.UserLoginRecords">
             <summary>
             用户登录记录（含IP归属地）。
             </summary>
+        </member>
+        <member name="T:api.Data.Schedule">
+            <summary>
+            课表（一个用户可以有多个学期间的课表）。
+            </summary>
+        </member>
+        <member name="P:api.Data.Schedule.Id">
+            <summary>主键 ID</summary>
+        </member>
+        <member name="P:api.Data.Schedule.UserId">
+            <summary>所属用户 ID</summary>
+        </member>
+        <member name="P:api.Data.Schedule.ScheduleName">
+            <summary>课表名称（如：2026 春季学期）</summary>
+        </member>
+        <member name="P:api.Data.Schedule.StartTime">
+            <summary>开课日期（学期第一周的周一）</summary>
+        </member>
+        <member name="P:api.Data.Schedule.WeekCount">
+            <summary>学期总周数</summary>
+        </member>
+        <member name="P:api.Data.Schedule.TimetableJson">
+            <summary>作息时间表（JSON 数组字符串，如 ["08:00-08:45","08:55-09:40"]）</summary>
+        </member>
+        <member name="P:api.Data.Schedule.Remark">
+            <summary>备注</summary>
+        </member>
+        <member name="P:api.Data.Schedule.IsDeleted">
+            <summary>是否伪删除：0正常，1已删除</summary>
+        </member>
+        <member name="P:api.Data.Schedule.CreatedAt">
+            <summary>创建时间</summary>
+        </member>
+        <member name="P:api.Data.Schedule.UpdatedAt">
+            <summary>更新时间</summary>
         </member>
         <member name="T:api.Data.SoftDeleteLog">
             <summary>
@@ -2745,6 +3003,11 @@
         <member name="P:api.Data.User.AvatarKey">
             <summary>
             头像图片URL
+            </summary>
+        </member>
+        <member name="P:api.Data.User.PreviousAvatarKey">
+            <summary>
+            上一次使用的头像存储标识（NULL 表示没有可回退的上次头像）
             </summary>
         </member>
         <member name="P:api.Data.User.ProfileBackgroundKey">
@@ -3076,6 +3339,66 @@
             更新时间
             </summary>
         </member>
+        <member name="T:api.Data.UserLoginDevice">
+            <summary>
+            用户登录设备表
+            </summary>
+        </member>
+        <member name="P:api.Data.UserLoginDevice.Id">
+            <summary>
+            主键ID
+            </summary>
+        </member>
+        <member name="P:api.Data.UserLoginDevice.UserId">
+            <summary>
+            用户ID
+            </summary>
+        </member>
+        <member name="P:api.Data.UserLoginDevice.DeviceKey">
+            <summary>
+            客户端持久化设备ID（X-Device-Id 头，或 UA 指纹兜底）
+            </summary>
+        </member>
+        <member name="P:api.Data.UserLoginDevice.Device">
+            <summary>
+            设备展示名（最近一次登录）
+            </summary>
+        </member>
+        <member name="P:api.Data.UserLoginDevice.Platform">
+            <summary>
+            平台（最近一次登录）
+            </summary>
+        </member>
+        <member name="P:api.Data.UserLoginDevice.FirstLoginAt">
+            <summary>
+            首次登录时间（UTC）
+            </summary>
+        </member>
+        <member name="P:api.Data.UserLoginDevice.LastLoginAt">
+            <summary>
+            最后一次登录时间（UTC）
+            </summary>
+        </member>
+        <member name="P:api.Data.UserLoginDevice.LastActiveAt">
+            <summary>
+            最后活跃时间（UTC，打开小程序 / 网页时更新）
+            </summary>
+        </member>
+        <member name="P:api.Data.UserLoginDevice.LastLoginRecordId">
+            <summary>
+            最后一次登录记录ID（user_login_records.id）
+            </summary>
+        </member>
+        <member name="P:api.Data.UserLoginDevice.CreatedAt">
+            <summary>
+            创建时间（UTC）
+            </summary>
+        </member>
+        <member name="P:api.Data.UserLoginDevice.UpdatedAt">
+            <summary>
+            更新时间（UTC）
+            </summary>
+        </member>
         <member name="T:api.Data.UserLoginRecord">
             <summary>
             用户登录记录表（含IP归属地）
@@ -3089,6 +3412,11 @@
         <member name="P:api.Data.UserLoginRecord.UserId">
             <summary>
             用户ID
+            </summary>
+        </member>
+        <member name="P:api.Data.UserLoginRecord.DeviceId">
+            <summary>
+            目标登录设备ID（user_login_devices.id）
             </summary>
         </member>
         <member name="P:api.Data.UserLoginRecord.SessionId">
@@ -3255,6 +3583,96 @@
             </summary>
             <returns>用户 ID。</returns>
         </member>
+        <member name="T:api.Infrastructure.IChangelogService">
+            <summary>
+            更新日志读取服务：把随源码发布的 Markdown 文件解析成结构化版本条目。
+            </summary>
+        </member>
+        <member name="M:api.Infrastructure.IChangelogService.GetEntries">
+            <summary>
+            获取全部版本条目（按发布日期倒序，日期相同按版本号倒序）。
+            文件缺失 / 读取失败时返回空列表，永不抛异常。
+            </summary>
+            <returns>版本条目只读列表。</returns>
+        </member>
+        <member name="T:api.Infrastructure.ChangelogService">
+             <summary>
+             基于 <c>Resources/changelog/CHANGELOG.md</c> 的更新日志服务。
+            
+             <para>
+             为什么用 Markdown 文件而不是数据库表：更新日志是**随代码发布的内容**，
+             和版本号 / 功能改动一起走 git 评审与回滚，不需要后台录入界面，也不需要迁移与种子数据；
+             发布时由.csproj 的 <c>Resources\**</c> 规则自动拷进输出目录。
+             </para>
+             <para>
+             单例注册：解析结果常驻内存，按文件「最后修改时间 + 长度」判断是否需要重新读取，
+             因此生产环境零读取开销，开发环境改完 md 文件立刻生效。
+             </para>
+             <para>
+             Markdown 格式约定见文件头注释：
+             <c>## [1.2.0] - 2026-11-19</c> 版本标题、<c>### 新增</c> 分组、<c>- 条目</c> 列表；
+             <c>#</c> 大标题与 <c>&lt;!-- --&gt;</c> 注释会被忽略。
+             </para>
+             </summary>
+        </member>
+        <member name="F:api.Infrastructure.ChangelogService.DefaultRelativePath">
+            <summary>默认数据文件（相对 ContentRoot；发布 / 开发目录下都有 Resources 副本）。</summary>
+        </member>
+        <member name="F:api.Infrastructure.ChangelogService.VersionHeadingRegex">
+            <summary>版本标题：## [1.2.0] - 2026-11-19（日期可省略）。</summary>
+        </member>
+        <member name="F:api.Infrastructure.ChangelogService.SectionHeadingRegex">
+            <summary>分组标题：### 新增。</summary>
+        </member>
+        <member name="F:api.Infrastructure.ChangelogService.BulletRegex">
+            <summary>条目：- 文本（也接受 * / + 开头）。</summary>
+        </member>
+        <member name="F:api.Infrastructure.ChangelogService.FallbackSectionTitle">
+            <summary>条目没有 ### 分组时的兜底分组标题。</summary>
+        </member>
+        <member name="F:api.Infrastructure.ChangelogService._sync">
+            <summary>缓存读写锁：GetEntries 会被并发请求调用，文件只有在锁内读取。</summary>
+        </member>
+        <member name="M:api.Infrastructure.ChangelogService.#ctor(Microsoft.Extensions.Hosting.IHostEnvironment,Microsoft.Extensions.Configuration.IConfiguration,Microsoft.Extensions.Logging.ILogger{api.Infrastructure.ChangelogService})">
+            <summary>
+            创建更新日志服务。
+            </summary>
+            <param name="environment">宿主环境，用于定位 ContentRoot。</param>
+            <param name="configuration">配置，支持 <c>Changelog:FilePath</c> 覆盖数据文件路径。</param>
+            <param name="logger">日志。</param>
+        </member>
+        <member name="M:api.Infrastructure.ChangelogService.GetEntries">
+            <inheritdoc />
+        </member>
+        <member name="M:api.Infrastructure.ChangelogService.Parse(System.String)">
+            <summary>
+            解析 Markdown 文本。解析器刻意保持宽松：无法识别的行直接忽略，不抛异常。
+            </summary>
+            <param name="markdown">Markdown 全文。</param>
+            <returns>按发布日期倒序的版本条目。</returns>
+        </member>
+        <member name="M:api.Infrastructure.ChangelogService.ParseDate(System.String)">
+            <summary>把 <c>YYYY-MM-DD</c> 解析成日期；格式非法返回 null（排序时排到最后）。</summary>
+            <param name="date">日期字符串。</param>
+            <returns>日期；解析失败为 null。</returns>
+        </member>
+        <member name="T:api.Infrastructure.ChangelogService.ChangelogVersionComparer">
+            <summary>
+            版本号比较器：优先按 <see cref="T:System.Version"/>（1.2.0 &gt; 1.1.9），
+            非数字版本（如 <c>1.2.0-beta</c>）回退到字符串比较，保证排序稳定不抛异常。
+            </summary>
+        </member>
+        <member name="F:api.Infrastructure.ChangelogService.ChangelogVersionComparer.Instance">
+            <summary>共享实例。</summary>
+        </member>
+        <member name="M:api.Infrastructure.ChangelogService.ChangelogVersionComparer.Compare(System.String,System.String)">
+            <inheritdoc />
+        </member>
+        <member name="M:api.Infrastructure.ChangelogService.ChangelogVersionComparer.ParseVersion(System.String)">
+            <summary>解析数字版本号（忽略前导 v）。</summary>
+            <param name="raw">原始版本号。</param>
+            <returns>可比较的版本；无法解析为 null。</returns>
+        </member>
         <member name="T:api.Infrastructure.ClientContextResolver">
              <summary>
              客户端信息解析：真实 IP、平台与设备展示名。
@@ -3275,6 +3693,14 @@
             </summary>
             <param name="httpContext">当前 HTTP 上下文。</param>
             <returns>归一化后的 IP 字符串；无法取得时返回 null。</returns>
+        </member>
+        <member name="M:api.Infrastructure.ClientContextResolver.ResolveDeviceId(Microsoft.AspNetCore.Http.HttpContext)">
+            <summary>
+            解析客户端持久化设备 ID（请求头 <c>X-Device-Id</c>）。
+            只保留 <c>[A-Za-z0-9._:-]</c> 字符，清洗后长度必须为 8..64，否则返回 null（由调用方兜底 UA 指纹）。
+            </summary>
+            <param name="httpContext">当前 HTTP 上下文。</param>
+            <returns>合法的设备 ID；未上报或不合规返回 null。</returns>
         </member>
         <member name="M:api.Infrastructure.ClientContextResolver.ResolveDevice(Microsoft.AspNetCore.Http.HttpContext)">
             <summary>
@@ -3350,13 +3776,23 @@
             <param name="cancellationToken">取消操作标记。</param>
         </member>
         <member name="M:api.Infrastructure.LocalFileService.SaveProfileBackgroundAsync(System.UInt64,Microsoft.AspNetCore.Http.IFormFile,Microsoft.AspNetCore.Http.IFormFile,System.Threading.CancellationToken)">
-            <summary>
-            保存个人主页背景图：与头像共用公开用户目录（便于复用
-            GET /mm/Files/users/{userId}/{key} 公开读取），最长边不超过 1600px，
-            有损 WebP（质量 85）兼顾清晰度与体积。
-            同时预处理缩略占位图（最长边 128px，存为 {key}_thumb.webp）供前端渐进加载：
-            优先使用客户端上传的 thumbnail，未上传则由服务端从原图自动生成。
-            </summary>
+             <summary>
+             保存个人主页背景图：与头像共用公开用户目录（便于复用
+             GET /mm/Files/users/{userId}/{key} 公开读取）。
+            
+             保留客户端 1:1 裁剪后的**原始像素**（服务端不缩放），只做格式转换与缩略图：
+             · 输入已是 WebP：原样落盘（零重编码，像素 / 画质无损）；
+             · 其它格式（jpg/png/heic/gif 等）：解码后以 WebP 质量 85 编码，保留原始分辨率；
+             · 最长边安全上限 8192px，超限抛异常「背景图尺寸过大（最长边不能超过 8192px）」；
+             · 同时预处理缩略占位图（最长边 ≤128px，存为 {key}_thumb.webp）供前端渐进加载：
+               优先使用客户端上传的 thumbnail，未上传则由服务端从原图自动生成。
+            
+             实现注意（2026-11-18）：大图转码采用「只解码一次 + Rgba32 编码」。
+             ImageSharp 3.1.12 在 Android/arm64 上对 3 字节 RGB 图做 WebP 有损编码时，
+             会走到 `Pad3Shuffle4` 的 SIMD 通道填充路径（曾在 3000×3000 背景图上触发
+             native SIGSEGV 直接终止进程）；先转 Rgba32 再编码可绕开该路径，
+             同时主图与缩略图共用一次解码结果，显著降低内存峰值（原实现会整图解码两次）。
+             </summary>
         </member>
         <member name="M:api.Infrastructure.LocalFileService.SaveChatFileAsync(System.UInt64,System.UInt64,Microsoft.AspNetCore.Http.IFormFile,System.Threading.CancellationToken)">
             <inheritdoc/>
@@ -3389,6 +3825,30 @@
             复用「同内容」的已有记录：补齐可能被清理掉的物理文件、复活软删除记录，
             然后把文件信息原样返回。调用方拿到的是同一个 fileKey，发的第二条消息照样能显示。
             </summary>
+        </member>
+        <member name="M:api.Infrastructure.LocalFileService.ValidateProfileBackgroundSourceAsync(Microsoft.AspNetCore.Http.IFormFile,System.Threading.CancellationToken)">
+            <summary>
+            背景图解码 / 直通落盘前的尺寸校验：非 HEIC 输入用 Identify 只读文件头取宽高，
+            最长边超过 <see cref="F:api.Infrastructure.LocalFileService.ProfileBackgroundMaxDimension"/> 直接拒绝，避免无谓的大图解码。
+            </summary>
+        </member>
+        <member name="M:api.Infrastructure.LocalFileService.SaveProfileBackgroundThumbnailFromImageAsync(SixLabors.ImageSharp.Image,System.String,System.Threading.CancellationToken)">
+            <summary>
+            从已解码的原图生成背景缩略占位图（最长边 ≤128px、只缩不放），落盘为 WebP。
+            与主图共用同一次解码结果，不再二次解码原图（降低大图内存峰值）。
+            </summary>
+        </member>
+        <member name="M:api.Infrastructure.LocalFileService.SaveImageAsWebpDirectAsync(SixLabors.ImageSharp.Image,System.String,System.Threading.CancellationToken,System.Int32)">
+            <summary>
+            把已解码图像有损编码为 WebP 并落盘。
+            并发同名内容上传时目标文件已存在即复用；其它失败清理半截文件后抛「图片处理失败」。
+            </summary>
+        </member>
+        <member name="M:api.Infrastructure.LocalFileService.EnsureProfileBackgroundDimensionWithinLimit(System.Int32,System.Int32)">
+            <summary>最长边安全上限校验（背景图保留原像素，仅防超大图）。</summary>
+        </member>
+        <member name="M:api.Infrastructure.LocalFileService.TryDeleteFile(System.String)">
+            <summary>尽力删除文件（清理失败不影响主错误抛出）。</summary>
         </member>
         <member name="M:api.Infrastructure.LocalFileService.LoadImageForConversionAsync(System.IO.Stream,System.String,System.Threading.CancellationToken)">
             <summary>
@@ -3725,19 +4185,35 @@
         </member>
         <member name="T:api.Infrastructure.ILoginRecordService">
             <summary>
-            登录记录服务接口：登录成功时记录 IP / 设备 / 归属地，登出 / 撤销时回填退出时间。
+            登录记录服务接口：登录成功时确定「目标登录设备」并记录一次登录，登出 / 撤销时回填退出时间。
             所有方法都**绝不抛异常**，失败只打日志，不能影响登录 / 登出主流程。
             </summary>
         </member>
         <member name="M:api.Infrastructure.ILoginRecordService.RecordLoginAsync(api.Data.User,System.String,System.String,Microsoft.AspNetCore.Http.HttpContext,System.Threading.CancellationToken)">
             <summary>
-            登录成功后调用：解析客户端 IP / 设备 / User-Agent / GeoIP 归属地并写入一条登录记录。
+            登录成功后调用：
+            1. 按 <c>X-Device-Id</c>（无则 UA 指纹）确定设备 key；
+            2. 同一 (user_id, device_key) 复用已有设备，否则新建设备；
+            3. 写入一条登录记录（含 <c>device_id</c>），并把设备的「最后登录」指针更新到该记录。
             内部 try/catch + ILogger，失败只打日志，不影响登录。
             </summary>
             <param name="user">已登录用户。</param>
             <param name="loginType">登录方式：password/email-code/wechat/register/email-change。</param>
             <param name="sessionId">设备会话标识（JWT sid，刷新沿用）。</param>
             <param name="httpContext">当前 HTTP 上下文（用于取 IP / 设备头 / UA）。</param>
+            <param name="ct">取消标记。</param>
+            <returns>异步任务。</returns>
+        </member>
+        <member name="M:api.Infrastructure.ILoginRecordService.TouchDeviceAsync(System.UInt64,Microsoft.AspNetCore.Http.HttpContext,System.Threading.CancellationToken)">
+            <summary>
+            上报「设备活跃」（打开小程序 / 网页时调用；登录本身也会更新活跃时间）。
+            设备识别与登录一致（<c>X-Device-Id</c>，无头时 UA 指纹）：
+            设备已存在 → 更新展示名 / 平台 / <c>last_active_at</c> / <c>updated_at</c>（不写登录记录）；
+            设备不存在 → 创建设备（first/last_login_at = now、last_active_at = now、last_login_record_id = null）。
+            内部 try/catch + ILogger，**绝不抛异常**（活跃上报失败不能影响用户打开应用）。
+            </summary>
+            <param name="userId">用户 ID。</param>
+            <param name="httpContext">当前 HTTP 上下文（用于取设备头 / UA）。</param>
             <param name="ct">取消标记。</param>
             <returns>异步任务。</returns>
         </member>
@@ -3762,15 +4238,31 @@
             基于 <see cref="T:api.Data.DailyCheckDbContext"/> 与 <see cref="T:api.Infrastructure.IGeoIpService"/> 的登录记录服务实现。
             </summary>
         </member>
+        <member name="F:api.Infrastructure.LoginRecordService.FallbackDeviceKeyPrefix">
+            <summary>UA 指纹兜底设备 key 的前缀与哈希长度（hex 字符数）。</summary>
+        </member>
+        <member name="F:api.Infrastructure.LoginRecordService.FallbackDeviceKeyHashLength">
+            <summary>UA 指纹兜底时截取的 SHA256 hex 前 32 位。</summary>
+        </member>
         <member name="M:api.Infrastructure.LoginRecordService.RecordLoginAsync(api.Data.User,System.String,System.String,Microsoft.AspNetCore.Http.HttpContext,System.Threading.CancellationToken)">
             <summary>
-            登录成功后调用：解析客户端 IP / 设备 / User-Agent / GeoIP 归属地并写入一条登录记录。
+            登录成功后调用：确定目标登录设备 → 写登录记录 → 回写设备的最后登录指针。
             内部 try/catch + ILogger，失败只打日志，不影响登录。
             </summary>
             <param name="user">已登录用户。</param>
             <param name="loginType">登录方式：password/email-code/wechat/register/email-change。</param>
             <param name="sessionId">设备会话标识（JWT sid，刷新沿用）。</param>
             <param name="httpContext">当前 HTTP 上下文（用于取 IP / 设备头 / UA）。</param>
+            <param name="ct">取消标记。</param>
+            <returns>异步任务。</returns>
+        </member>
+        <member name="M:api.Infrastructure.LoginRecordService.TouchDeviceAsync(System.UInt64,Microsoft.AspNetCore.Http.HttpContext,System.Threading.CancellationToken)">
+            <summary>
+            上报「设备活跃」：设备识别与登录一致，存在则刷新 last_active_at，不存在则创建设备。
+            不写登录记录；内部 try/catch + ILogger，绝不抛异常。
+            </summary>
+            <param name="userId">用户 ID。</param>
+            <param name="httpContext">当前 HTTP 上下文（用于取设备头 / UA）。</param>
             <param name="ct">取消标记。</param>
             <returns>异步任务。</returns>
         </member>
@@ -3784,6 +4276,15 @@
             <param name="sessionId">设备会话标识；null 表示该用户全部未退出记录。</param>
             <param name="ct">取消标记。</param>
             <returns>异步任务。</returns>
+        </member>
+        <member name="M:api.Infrastructure.LoginRecordService.BuildFallbackDeviceKey(System.String,System.String)">
+            <summary>
+            旧客户端没有 <c>X-Device-Id</c> 时的设备指纹兜底：
+            <c>"ua:" + SHA256(platform + "|" + deviceDisplay)</c> 取前 32 位 hex。
+            </summary>
+            <param name="platform">平台标识。</param>
+            <param name="device">设备展示名。</param>
+            <returns>设备 key（总长 35，符合 varchar(64)）。</returns>
         </member>
         <member name="M:api.Infrastructure.LoginRecordService.Truncate(System.String,System.Int32)">
             <summary>按数据库列宽截断字符串；空值原样返回。</summary>
@@ -4083,6 +4584,11 @@
             头像键，可选
             </summary>
         </member>
+        <member name="P:api.Models.AuthResponse.PreviousAvatarKey">
+            <summary>
+            上一次使用的头像键，可选（无上次头像时为 null；用于一键切回）
+            </summary>
+        </member>
         <member name="P:api.Models.AuthResponse.ProfileBackgroundKey">
             <summary>
             个人主页背景图键，可选
@@ -4136,6 +4642,11 @@
         <member name="P:api.Models.UserBasicResponse.AvatarKey">
             <summary>
             头像键，可选
+            </summary>
+        </member>
+        <member name="P:api.Models.UserBasicResponse.PreviousAvatarKey">
+            <summary>
+            上一次使用的头像键，可选（无上次头像时为 null）
             </summary>
         </member>
         <member name="P:api.Models.UserBasicResponse.ProfileBackgroundKey">
@@ -4308,6 +4819,71 @@
         <member name="P:api.Models.ThirdPartyBindingsResponse.Bindings">
             <summary>
             当前用户绑定的所有第三方账号信息。
+            </summary>
+        </member>
+        <member name="T:api.Models.ChangelogListResponse">
+             <summary>
+             更新日志列表响应（GET /mm/Changelog）。
+            
+             <para>
+             数据源是仓库内的 Markdown 文件 <c>Resources/changelog/CHANGELOG.md</c>，
+             由服务端解析成结构化 JSON，小程序 / Web 都不需要引入 Markdown 渲染器。
+             </para>
+             </summary>
+        </member>
+        <member name="P:api.Models.ChangelogListResponse.LatestVersion">
+            <summary>
+            最新版本号（排序后的第一条；没有任何更新日志时为 null）。
+            </summary>
+        </member>
+        <member name="P:api.Models.ChangelogListResponse.LatestDate">
+            <summary>
+            最新版本的发布日期（<c>YYYY-MM-DD</c>；没有日期或没有更新日志时为 null）。
+            </summary>
+        </member>
+        <member name="P:api.Models.ChangelogListResponse.Total">
+            <summary>
+            解析出的**全部**版本数量（不受 <c>limit</c> 影响，前端可用来显示「共 N 个版本」）。
+            </summary>
+        </member>
+        <member name="P:api.Models.ChangelogListResponse.Items">
+            <summary>
+            当前返回的版本条目，按发布日期倒序（日期相同按版本号倒序）。
+            </summary>
+        </member>
+        <member name="T:api.Models.ChangelogEntry">
+            <summary>
+            一个版本的更新日志（对应 Markdown 里的一个 <c>## [版本号] - 日期</c> 区块）。
+            </summary>
+        </member>
+        <member name="P:api.Models.ChangelogEntry.Version">
+            <summary>
+            版本号，如 <c>1.2.0</c>。
+            </summary>
+        </member>
+        <member name="P:api.Models.ChangelogEntry.Date">
+            <summary>
+            发布日期（<c>YYYY-MM-DD</c>，Markdown 标题里没写日期时为 null）。
+            </summary>
+        </member>
+        <member name="P:api.Models.ChangelogEntry.Sections">
+            <summary>
+            该版本下的分组（如「新增 / 优化 / 修复」），可能为空数组。
+            </summary>
+        </member>
+        <member name="T:api.Models.ChangelogSection">
+            <summary>
+            更新日志的一个分组（对应 Markdown 里的一个 <c>### 标题</c>）。
+            </summary>
+        </member>
+        <member name="P:api.Models.ChangelogSection.Title">
+            <summary>
+            分组标题，如「新增」「优化」「修复」。
+            </summary>
+        </member>
+        <member name="P:api.Models.ChangelogSection.Items">
+            <summary>
+            分组下的条目，均为纯文本（服务端不解析 Markdown 行内标记）。
             </summary>
         </member>
         <member name="T:api.Models.CreateConversationRequest">
@@ -5100,7 +5676,7 @@
         </member>
         <member name="T:api.Models.LoginRecordListResponse">
             <summary>
-            登录记录分页响应。
+            登录记录分页响应：一台设备一行，展示该设备最后一次登录记录；计数均为设备数。
             </summary>
         </member>
         <member name="P:api.Models.LoginRecordListResponse.Scope">
@@ -5120,32 +5696,32 @@
         </member>
         <member name="P:api.Models.LoginRecordListResponse.Total">
             <summary>
-            当前 scope 下的记录总数。
+            当前 scope 下的设备数。
             </summary>
         </member>
         <member name="P:api.Models.LoginRecordListResponse.DomesticTotal">
             <summary>
-            国内登录记录总数（scope=domestic 时与 total 相同）。
+            最后一次登录为国内的设备数（scope=domestic 时与 total 相同）。
             </summary>
         </member>
         <member name="P:api.Models.LoginRecordListResponse.AllTotal">
             <summary>
-            全部登录记录总数（含境外 / 内网）。
+            全部设备数（含最后登录为境外 / 内网的设备）。
             </summary>
         </member>
         <member name="P:api.Models.LoginRecordListResponse.Items">
             <summary>
-            当前页的登录记录，按登录时间倒序。
+            当前页的登录设备（每台设备一行），按设备最后活跃时间倒序。
             </summary>
         </member>
         <member name="T:api.Models.LoginRecordItem">
             <summary>
-            单条登录记录。
+            单条登录记录（一台设备一行，展示该设备最后一次登录记录）。
             </summary>
         </member>
-        <member name="P:api.Models.LoginRecordItem.Id">
+        <member name="P:api.Models.LoginRecordItem.DeviceId">
             <summary>
-            记录 ID。
+            登录设备 ID（user_login_devices.id），前端用它作为列表 key。
             </summary>
         </member>
         <member name="P:api.Models.LoginRecordItem.Device">
@@ -5198,19 +5774,30 @@
             是否中国大陆 IP。
             </summary>
         </member>
-        <member name="P:api.Models.LoginRecordItem.Status">
+        <member name="P:api.Models.LoginRecordItem.LastActiveAt">
             <summary>
-            记录状态：current（当前登录）/ active（在线）/ logged_out（已退出）。
+            最后活跃时间（UTC，打开小程序 / 网页时更新，登录也算活跃）。
+            </summary>
+        </member>
+        <member name="P:api.Models.LoginRecordItem.IsCurrent">
+            <summary>
+            是否是当前请求所在的设备：优先按请求头 X-Device-Id 匹配设备；
+            没有该头时兜底用该设备最后一条登录记录的 session_id 与当前令牌 sid 比对。
             </summary>
         </member>
         <member name="P:api.Models.LoginRecordItem.LoginAt">
             <summary>
-            登录时间（UTC，JSON 序列化为 ISO 8601 带 Z）。
+            该设备最后一次登录时间（UTC；设备从未登录过时退化为设备创建时间）。
             </summary>
         </member>
-        <member name="P:api.Models.LoginRecordItem.LogoutAt">
+        <member name="T:api.Models.LoginRecordActiveResponse">
             <summary>
-            退出 / 被撤销时间（UTC，未退出为 null）。
+            「上报设备活跃」响应。
+            </summary>
+        </member>
+        <member name="P:api.Models.LoginRecordActiveResponse.LastActiveAt">
+            <summary>
+            本次上报后的最后活跃时间（UTC，JSON 序列化为 ISO 8601 带 Z）。
             </summary>
         </member>
         <member name="T:api.Models.CreatePlanRequest">
@@ -5362,6 +5949,167 @@
             <summary>
             是否启用
             </summary>
+        </member>
+        <member name="T:api.Models.ScheduleSummaryDto">
+            <summary>
+            课表概要（列表页使用）。
+            </summary>
+        </member>
+        <member name="P:api.Models.ScheduleSummaryDto.Id">
+            <summary>课表 ID</summary>
+        </member>
+        <member name="P:api.Models.ScheduleSummaryDto.ScheduleName">
+            <summary>课表名称</summary>
+        </member>
+        <member name="P:api.Models.ScheduleSummaryDto.StartTime">
+            <summary>开课日期（yyyy-MM-dd）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleSummaryDto.WeekCount">
+            <summary>学期总周数</summary>
+        </member>
+        <member name="P:api.Models.ScheduleSummaryDto.Timetable">
+            <summary>作息时间表（每个元素是一节课的时间段，如 "08:00-08:45"）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleSummaryDto.Remark">
+            <summary>备注</summary>
+        </member>
+        <member name="P:api.Models.ScheduleSummaryDto.CourseCount">
+            <summary>课程数量</summary>
+        </member>
+        <member name="P:api.Models.ScheduleSummaryDto.CreatedAt">
+            <summary>创建时间</summary>
+        </member>
+        <member name="P:api.Models.ScheduleSummaryDto.UpdatedAt">
+            <summary>更新时间</summary>
+        </member>
+        <member name="T:api.Models.ScheduleDetailDto">
+            <summary>
+            课表详情（含课程与上课时间段，课表页/小程序课表页使用）。
+            </summary>
+        </member>
+        <member name="P:api.Models.ScheduleDetailDto.Courses">
+            <summary>课程列表</summary>
+        </member>
+        <member name="T:api.Models.CourseDto">
+            <summary>
+            课程。
+            </summary>
+        </member>
+        <member name="P:api.Models.CourseDto.Id">
+            <summary>课程 ID</summary>
+        </member>
+        <member name="P:api.Models.CourseDto.ScheduleId">
+            <summary>所属课表 ID</summary>
+        </member>
+        <member name="P:api.Models.CourseDto.CourseName">
+            <summary>课程名称</summary>
+        </member>
+        <member name="P:api.Models.CourseDto.Color">
+            <summary>课程颜色（十六进制）</summary>
+        </member>
+        <member name="P:api.Models.CourseDto.Remark">
+            <summary>备注</summary>
+        </member>
+        <member name="P:api.Models.CourseDto.Times">
+            <summary>上课时间段</summary>
+        </member>
+        <member name="T:api.Models.CourseTimeDto">
+            <summary>
+            课程时间段。
+            </summary>
+        </member>
+        <member name="P:api.Models.CourseTimeDto.Id">
+            <summary>时间段 ID</summary>
+        </member>
+        <member name="P:api.Models.CourseTimeDto.CourseId">
+            <summary>所属课程 ID</summary>
+        </member>
+        <member name="P:api.Models.CourseTimeDto.Location">
+            <summary>上课地点</summary>
+        </member>
+        <member name="P:api.Models.CourseTimeDto.Teacher">
+            <summary>任课教师</summary>
+        </member>
+        <member name="P:api.Models.CourseTimeDto.WeekList">
+            <summary>周次（如 [1,2,3]）</summary>
+        </member>
+        <member name="P:api.Models.CourseTimeDto.SectionList">
+            <summary>节次（如 [1,2]）</summary>
+        </member>
+        <member name="P:api.Models.CourseTimeDto.DayOfWeek">
+            <summary>星期几：1-7（周一到周日）</summary>
+        </member>
+        <member name="P:api.Models.CourseTimeDto.Remark">
+            <summary>备注</summary>
+        </member>
+        <member name="T:api.Models.ScheduleEditDto">
+            <summary>
+            新建 / 编辑课表请求。
+            </summary>
+        </member>
+        <member name="P:api.Models.ScheduleEditDto.Id">
+            <summary>课表 ID（0 或省略表示新建）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleEditDto.ScheduleName">
+            <summary>课表名称</summary>
+        </member>
+        <member name="P:api.Models.ScheduleEditDto.StartTime">
+            <summary>开课日期（yyyy-MM-dd）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleEditDto.WeekCount">
+            <summary>学期总周数</summary>
+        </member>
+        <member name="P:api.Models.ScheduleEditDto.Timetable">
+            <summary>作息时间表（每节课的时间段）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleEditDto.Remark">
+            <summary>备注</summary>
+        </member>
+        <member name="T:api.Models.CourseEditDto">
+            <summary>
+            新建 / 编辑课程请求（包含该课程的全部上课时间段）。
+            </summary>
+        </member>
+        <member name="P:api.Models.CourseEditDto.Id">
+            <summary>课程 ID（0 或省略表示新建）</summary>
+        </member>
+        <member name="P:api.Models.CourseEditDto.CourseName">
+            <summary>课程名称</summary>
+        </member>
+        <member name="P:api.Models.CourseEditDto.Color">
+            <summary>课程颜色（十六进制，如 #9b4f93）</summary>
+        </member>
+        <member name="P:api.Models.CourseEditDto.Remark">
+            <summary>备注</summary>
+        </member>
+        <member name="P:api.Models.CourseEditDto.Times">
+            <summary>上课时间段（至少一条）</summary>
+        </member>
+        <member name="T:api.Models.CourseTimeEditDto">
+            <summary>
+            新建 / 编辑课程时间段请求。
+            </summary>
+        </member>
+        <member name="P:api.Models.CourseTimeEditDto.Id">
+            <summary>时间段 ID（0 或省略表示新增）</summary>
+        </member>
+        <member name="P:api.Models.CourseTimeEditDto.Location">
+            <summary>上课地点</summary>
+        </member>
+        <member name="P:api.Models.CourseTimeEditDto.Teacher">
+            <summary>任课教师</summary>
+        </member>
+        <member name="P:api.Models.CourseTimeEditDto.WeekList">
+            <summary>周次列表</summary>
+        </member>
+        <member name="P:api.Models.CourseTimeEditDto.SectionList">
+            <summary>节次列表</summary>
+        </member>
+        <member name="P:api.Models.CourseTimeEditDto.DayOfWeek">
+            <summary>星期几：1-7</summary>
+        </member>
+        <member name="P:api.Models.CourseTimeEditDto.Remark">
+            <summary>备注</summary>
         </member>
         <member name="T:Program">
             <summary>
