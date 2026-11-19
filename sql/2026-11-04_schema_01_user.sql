@@ -15,6 +15,7 @@
 --   user_blacklist_records
 --   soft_delete_logs
 --   user_activity
+--   user_login_devices
 --   user_login_records
 --   __efmigrationshistory
 --
@@ -53,6 +54,7 @@ CREATE TABLE `users` (
   `password_hash` varchar(255) NOT NULL COMMENT '密码哈希（如bcrypt）',
   `nick_name` varchar(64) DEFAULT NULL COMMENT '用户昵称',
   `avatar_key` varchar(512) DEFAULT NULL COMMENT '头像图片URL',
+  `previous_avatar_key` varchar(512) DEFAULT NULL COMMENT '上一次使用的头像存储标识（用于切回）',
   `profile_background_key` varchar(512) DEFAULT NULL COMMENT '个人主页背景图存储标识',
   `is_deleted` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否伪删除：0正常，1已删除',
   `deleted_at` datetime DEFAULT NULL COMMENT '伪删除时间',
@@ -230,12 +232,34 @@ CREATE TABLE `user_activity` (
   KEY `idx_activity_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户行为埋点日志表';
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `user_login_devices`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_login_devices` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `user_id` bigint(20) unsigned NOT NULL COMMENT '用户ID',
+  `device_key` varchar(64) NOT NULL COMMENT '客户端持久化设备ID（X-Device-Id 头，或 UA 指纹兜底）',
+  `device` varchar(128) NOT NULL DEFAULT '' COMMENT '设备展示名（最近一次登录）',
+  `platform` varchar(32) NOT NULL DEFAULT 'unknown' COMMENT '平台（最近一次登录）',
+  `first_login_at` datetime NOT NULL DEFAULT current_timestamp() COMMENT '首次登录时间（UTC）',
+  `last_login_at` datetime NOT NULL DEFAULT current_timestamp() COMMENT '最后一次登录时间（UTC）',
+  `last_active_at` datetime NOT NULL DEFAULT current_timestamp() COMMENT '最后活跃时间（UTC，打开小程序/网页时更新）',
+  `last_login_record_id` bigint(20) unsigned DEFAULT NULL COMMENT '最后一次登录记录ID（user_login_records.id）',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp() COMMENT '创建时间（UTC）',
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp() COMMENT '更新时间（UTC）',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ux_login_devices_user_key` (`user_id`,`device_key`),
+  KEY `idx_login_devices_user_last` (`user_id`,`last_login_at`),
+  CONSTRAINT `fk_login_devices_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户登录设备表';
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `user_login_records`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;
 CREATE TABLE `user_login_records` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `user_id` bigint(20) unsigned NOT NULL COMMENT '用户ID',
+  `device_id` bigint(20) unsigned NOT NULL COMMENT '目标登录设备ID（user_login_devices.id）',
   `session_id` varchar(64) NOT NULL COMMENT '设备会话标识（JWT sid，刷新沿用）',
   `login_type` varchar(32) NOT NULL DEFAULT 'password' COMMENT '登录方式：password/email-code/wechat/register/email-change',
   `platform` varchar(32) NOT NULL DEFAULT 'unknown' COMMENT '客户端平台：mp-weixin/h5/app/unknown',
@@ -254,6 +278,8 @@ CREATE TABLE `user_login_records` (
   KEY `idx_login_records_user_time` (`user_id`,`login_at`),
   KEY `idx_login_records_user_domestic_time` (`user_id`,`is_domestic`,`login_at`),
   KEY `idx_login_records_session` (`session_id`),
+  KEY `idx_login_records_device_time` (`device_id`,`login_at`),
+  CONSTRAINT `fk_login_records_device` FOREIGN KEY (`device_id`) REFERENCES `user_login_devices` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_login_records_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户登录记录表（含IP归属地）';
 /*!40101 SET character_set_client = @saved_cs_client */;
