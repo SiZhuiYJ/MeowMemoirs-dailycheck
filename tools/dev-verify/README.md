@@ -50,7 +50,7 @@ node tools/dev-verify/verify-theme-transition.mjs
 | `e2e-signalr.mjs` | 是 | 客户端**不订阅任何会话**也能收到消息、事件携带完整 message、批量回执事件、重连后仍自动入组 |
 | `verify-auth-model.mjs` | 是 | 长令牌不能访问业务接口、多端并存、并发/重复刷新不再判失效、令牌 `typ`/`iat`/有效期、全端登出 `logout-all` 即时生效 |
 | `verify-device-logout.mjs` | 是 | **只登出当前设备**（另一台不受影响）、刷新沿用同一 `sid`、账号级撤销仍可全端下线 |
-| `verify-login-records.mjs` | 是 | **登录记录（国内/境外）**：临时用户（PBKDF2-SHA256 与 `PasswordHasher` 同格式，直接写库）分别用 `X-Forwarded-For: 222.137.1.1`（河南郑州联通）+ 设备头、`8.8.8.8`、境外 IPv6 登录，断言 DB 的 `is_domestic` / 省市区 / `location` / 设备名 / `platform` / UA / `session_id`==token `sid`；`GET /mm/LoginRecords` 的 scope 过滤、`total`/`domesticTotal`/`allTotal`、状态三态（Redis `revoked_sid` 也参与判定）、IPv4/IPv6 `ipMasked` 脱敏、分页夹取（page/pageSize）、非法 scope 兜底、无 token 401；`logout` 后旧 token 401 且记录变 `logged_out`、重新登录后上一条变 `logged_out`；`logout-all` 后所有记录 `logged_out` 且新登录恢复正常；`refresh` 不新增记录且 sid 沿用。临时用户跑完即删 |
+| `verify-login-records.mjs` | 是 | **登录设备列表 + 最后活跃时间 v3**：临时用户（PBKDF2-SHA256 与 `PasswordHasher` 同格式，直接写库）登录设备 A（`X-Device-Id: verify-device-a`，国内 `X-Forwarded-For: 222.137.1.1`）与设备 B（`verify-device-b`，境外 `8.8.8.8`）→ devices 2；`POST /mm/LoginRecords/active`（token A + header A）→ 200 且返回 `lastActiveAt`，DB 只更新 A 的 `last_active_at`（B 不变）、不写登录记录、不新增设备；`GET /mm/LoginRecords`：一台设备一行、**不含 `status`/`logoutAt`**、含 `isCurrent`/`lastActiveAt`、按 `lastActiveAt` 倒序、`deviceId` 作 key；`isCurrent` 优先按 `X-Device-Id` 匹配（header C 时 C 为 current），无 header 时用 token `sid` 兜底；`POST /active` 带未登录过的 `X-Device-Id: verify-device-c` → 新建设备（`last_login_record_id=NULL`、无登录记录、`loginAt` 兜底设备时间、`location=NULL`）；scope/计数=设备数/分页夹取/非法 scope/无 token 401 回归；并只读校验本地库 user 11 迁移结果（legacy 设备 2 台、所有设备 `last_active_at == last_login_at`、全程快照不变）。临时用户跑完即删 |
 | `verify-pin-mute.mjs` | 是 | 普通成员可切换置顶/免打扰（曾因误判为「改群资料」被 403）、改群名仍被拒、群主可改 |
 | `verify-device-layout.mjs` | 否 | 布局判定纯函数（规则 A：**横屏一律桌面，竖屏按宽度**；规则 B：**设备档位三档（宽度为主 + 宽扁小屏破格双栏）**）：横屏手机 852x393/667x375 必须走桌面、竖屏平板 820x1180 走桌面、窄竖屏窗口 700x1200 走手机、边界值、软键盘；三档档位归属（<=600 手机 / 600~1200 平板 / >1200 大屏电脑）、**宽扁小屏破格双栏**（宽<=600 但宽/高>=1.5，如手机横屏 480x320/568x320）与 600/601/1200/1201 四个边界；**全矩阵**校验 JS 判定与 SCSS mixin 一致（`phone`/`desktop` 两档 + `device-phone/tablet/desktop` 三档互斥完备）、`@mixin desktop` 是 `@mixin phone` 的严格取反、`@mixin phone` 带 `orientation: portrait`、断点常量无漂移；**防回归**校验聊天页三档（手机单栏 / 平板双栏 / 移动端 24px 控件 + 6px 间距）、`@mixin compact` 同时覆盖「窄」与「矮」、聊天/计划页侧栏用 `clamp` 占比而非写死 px、全局小屏层收窄了 EP 弹层内边距 |
 | `verify-chat-layout.mjs` | 是（dev server + chromium） | 用 CDP 驱动 headless chromium 打开真实 `/chat`，逐视口量 `getBoundingClientRect`：大屏电脑端（>1200）双栏 + 32px 控件/12px 间距、平板端（600~1200）**双栏** + 24px/6px、手机端（<=600）**单栏** + 24px/6px；含 600/601/1200/1201 四个边界、横屏手机 852x393 走平板档、**宽扁小屏 480x320/568x320/600x400 走双栏而 480x400 仍单栏**、无横向溢出、手机档有「会话列表」返回按钮、**会话列表头像贴着行高**（行内容高 - 头像 <= 8px，防止平板窄侧栏里头像缩成 32px、行里空一大截）、**圆形按钮宽 = 高**（EP 的 small + circle 是 24×32 椭圆，图片消息下载按钮踩过）。缺 chromium / dev server / 令牌时 `SKIP` |
@@ -75,10 +75,13 @@ node tools/dev-verify/verify-theme-transition.mjs
 - 会向 conversation 10 发送若干条测试消息（内容形如 `e2e-peer-<时间戳>`）。
 - `verify-pin-mute` 会切换并复原 user 11 的置顶/免打扰。
 - 鉴权类套件使用 user 14，并在结束时清理 `revoked_sid:*` / `auth_revoked_before:*`，不影响你正在用的登录状态。
-- `verify-login-records` 会临时创建用户 `verify-login-records@example.test`（结束后删除；`user_login_records`
-  随 FK `ON DELETE CASCADE` 一并清理，删完会校验，有残留则兜底删除并报失败），同时清理该用户的
-  `access_token:*` / `refresh_token:*` / `revoked_sid:*` / `auth_revoked_before:*`；不读写任何已有用户数据。
-  前提：已执行 `sql/2026-11-18_user_login_records.sql`，且 dev API 已重启到包含 `/mm/LoginRecords` 的版本。
+- `verify-login-records`（v3）会临时创建用户 `verify-login-records@example.test`（结束后删除；`user_login_devices`
+  与 `user_login_records` 随 FK `ON DELETE CASCADE` 一并清理，删完会校验，有残留则兜底删除并报失败），同时清理该用户的
+  `access_token:*` / `refresh_token:*` / `revoked_sid:*` / `auth_revoked_before:*`；会调用 `POST /mm/LoginRecords/active`
+  上报设备活跃（不写登录记录，只更新/新建设备行）。对本地库 **user 11 只做 SELECT**（迁移数据只读校验：legacy 设备 2 台、
+  每台设备 `last_active_at == last_login_at`、设备/记录数全程不变），不写其数据。
+  前提：已执行 `sql/2026-11-18_user_login_devices.sql`（v2）+ `sql/2026-11-19_user_login_devices_activity.sql`（v3），
+  且 dev API 已重启到 v3 代码。
   脚本默认指向本机 dev 实例 `http://127.0.0.1:5211`（`config.mjs` 的 API 取自 appsettings.json 的
   Kestrel 端口 5210，那是 runit 生产实例/旧代码），可用 `DEV_VERIFY_API` 覆盖。
 - `verify-chat-layout` 会给 user 8 写一份 `access_token:8`（与 e2e 套件相同，只写 Redis 不改库），
