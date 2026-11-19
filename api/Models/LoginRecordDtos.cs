@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace api.Models;
 
 /// <summary>
-/// 登录记录分页响应。
+/// 登录记录分页响应：一台设备一行，展示该设备最后一次登录记录；计数均为设备数。
 /// </summary>
 public class LoginRecordListResponse
 {
@@ -24,35 +24,35 @@ public class LoginRecordListResponse
     public int PageSize { get; set; } = 20;
 
     /// <summary>
-    /// 当前 scope 下的记录总数。
+    /// 当前 scope 下的设备数。
     /// </summary>
     public int Total { get; set; }
 
     /// <summary>
-    /// 国内登录记录总数（scope=domestic 时与 total 相同）。
+    /// 最后一次登录为国内的设备数（scope=domestic 时与 total 相同）。
     /// </summary>
     public int DomesticTotal { get; set; }
 
     /// <summary>
-    /// 全部登录记录总数（含境外 / 内网）。
+    /// 全部设备数（含最后登录为境外 / 内网的设备）。
     /// </summary>
     public int AllTotal { get; set; }
 
     /// <summary>
-    /// 当前页的登录记录，按登录时间倒序。
+    /// 当前页的登录设备（每台设备一行），按设备最后活跃时间倒序。
     /// </summary>
     public List<LoginRecordItem> Items { get; set; } = new();
 }
 
 /// <summary>
-/// 单条登录记录。
+/// 单条登录记录（一台设备一行，展示该设备最后一次登录记录）。
 /// </summary>
 public class LoginRecordItem
 {
     /// <summary>
-    /// 记录 ID。
+    /// 登录设备 ID（user_login_devices.id），前端用它作为列表 key。
     /// </summary>
-    public long Id { get; set; }
+    public long DeviceId { get; set; }
 
     /// <summary>
     /// 设备展示名，如 iPhone 13 · 微信。
@@ -105,17 +105,29 @@ public class LoginRecordItem
     public bool IsDomestic { get; set; }
 
     /// <summary>
-    /// 记录状态：current（当前登录）/ active（在线）/ logged_out（已退出）。
+    /// 最后活跃时间（UTC，打开小程序 / 网页时更新，登录也算活跃）。
     /// </summary>
-    public string Status { get; set; } = "active";
+    public DateTime LastActiveAt { get; set; }
 
     /// <summary>
-    /// 登录时间（UTC，JSON 序列化为 ISO 8601 带 Z）。
+    /// 是否是当前请求所在的设备：优先按请求头 X-Device-Id 匹配设备；
+    /// 没有该头时兜底用该设备最后一条登录记录的 session_id 与当前令牌 sid 比对。
+    /// </summary>
+    public bool IsCurrent { get; set; }
+
+    /// <summary>
+    /// 该设备最后一次登录时间（UTC；设备从未登录过时退化为设备创建时间）。
     /// </summary>
     public DateTime LoginAt { get; set; }
+}
 
+/// <summary>
+/// 「上报设备活跃」响应。
+/// </summary>
+public class LoginRecordActiveResponse
+{
     /// <summary>
-    /// 退出 / 被撤销时间（UTC，未退出为 null）。
+    /// 本次上报后的最后活跃时间（UTC，JSON 序列化为 ISO 8601 带 Z）。
     /// </summary>
-    public DateTime? LogoutAt { get; set; }
+    public DateTime LastActiveAt { get; set; }
 }

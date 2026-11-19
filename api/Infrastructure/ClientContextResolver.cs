@@ -51,6 +51,34 @@ public static class ClientContextResolver
     }
 
     /// <summary>
+    /// 解析客户端持久化设备 ID（请求头 <c>X-Device-Id</c>）。
+    /// 只保留 <c>[A-Za-z0-9._:-]</c> 字符，清洗后长度必须为 8..64，否则返回 null（由调用方兜底 UA 指纹）。
+    /// </summary>
+    /// <param name="httpContext">当前 HTTP 上下文。</param>
+    /// <returns>合法的设备 ID；未上报或不合规返回 null。</returns>
+    public static string? ResolveDeviceId(HttpContext httpContext)
+    {
+        var raw = httpContext?.Request.Headers["X-Device-Id"].ToString();
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+
+        var builder = new StringBuilder(raw.Length);
+        foreach (var ch in raw.Trim())
+        {
+            if ((ch >= 'A' && ch <= 'Z') ||
+                (ch >= 'a' && ch <= 'z') ||
+                (ch >= '0' && ch <= '9') ||
+                ch is '.' or '_' or ':' or '-')
+            {
+                builder.Append(ch);
+            }
+        }
+
+        var value = builder.ToString();
+        return value.Length is >= 8 and <= 64 ? value : null;
+    }
+
+    /// <summary>
     /// 解析客户端平台与设备展示名。
     /// 平台优先取 <c>X-Client-Platform</c>（白名单 mp-weixin / h5 / app），否则按 User-Agent 推断；
     /// 设备优先取前端上报的 <c>X-Client-Device</c> 机型，否则按 User-Agent 解析出可读名。

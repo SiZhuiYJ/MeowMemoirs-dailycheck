@@ -55,6 +55,11 @@ public partial class DailyCheckDbContext : DbContext
     public virtual DbSet<UserFriendship> UserFriendships { get; set; }
 
     /// <summary>
+    /// 用户登录设备（一台设备一行，(user_id, device_key) 唯一）。
+    /// </summary>
+    public virtual DbSet<UserLoginDevice> UserLoginDevices { get; set; }
+
+    /// <summary>
     /// 用户登录记录（含IP归属地）。
     /// </summary>
     public virtual DbSet<UserLoginRecord> UserLoginRecords { get; set; }
@@ -979,6 +984,10 @@ public partial class DailyCheckDbContext : DbContext
                 .HasMaxLength(512)
                 .HasComment("头像图片URL")
                 .HasColumnName("avatar_key");
+            entity.Property(e => e.PreviousAvatarKey)
+                .HasMaxLength(512)
+                .HasComment("上一次使用的头像存储标识（用于切回）")
+                .HasColumnName("previous_avatar_key");
             entity.Property(e => e.ProfileBackgroundKey)
                 .HasMaxLength(512)
                 .HasComment("个人主页背景图存储标识")
@@ -1088,6 +1097,77 @@ public partial class DailyCheckDbContext : DbContext
                 .HasColumnName("user_id");
         });
 
+        modelBuilder.Entity<UserLoginDevice>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PRIMARY");
+
+            entity
+                .ToTable("user_login_devices", tb => tb.HasComment("用户登录设备表"))
+                .UseCollation("utf8mb4_unicode_ci");
+
+            entity.HasIndex(e => new { e.UserId, e.DeviceKey }, "ux_login_devices_user_key").IsUnique();
+
+            entity.HasIndex(e => new { e.UserId, e.LastLoginAt }, "idx_login_devices_user_last");
+
+            entity.Property(e => e.Id)
+                .HasComment("主键ID")
+                .HasColumnName("id");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasComment("创建时间（UTC）")
+                .HasColumnType("datetime")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Device)
+                .IsRequired()
+                .HasMaxLength(128)
+                .HasDefaultValueSql("''")
+                .HasComment("设备展示名（最近一次登录）")
+                .HasColumnName("device");
+            entity.Property(e => e.DeviceKey)
+                .IsRequired()
+                .HasMaxLength(64)
+                .HasComment("客户端持久化设备ID（X-Device-Id 头，或 UA 指纹兜底）")
+                .HasColumnName("device_key");
+            entity.Property(e => e.FirstLoginAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasComment("首次登录时间（UTC）")
+                .HasColumnType("datetime")
+                .HasColumnName("first_login_at");
+            entity.Property(e => e.LastLoginAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasComment("最后一次登录时间（UTC）")
+                .HasColumnType("datetime")
+                .HasColumnName("last_login_at");
+            entity.Property(e => e.LastActiveAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasComment("最后活跃时间（UTC，打开小程序/网页时更新）")
+                .HasColumnType("datetime")
+                .HasColumnName("last_active_at");
+            entity.Property(e => e.LastLoginRecordId)
+                .HasComment("最后一次登录记录ID（user_login_records.id）")
+                .HasColumnName("last_login_record_id");
+            entity.Property(e => e.Platform)
+                .IsRequired()
+                .HasMaxLength(32)
+                .HasDefaultValueSql("'unknown'")
+                .HasComment("平台（最近一次登录）")
+                .HasColumnName("platform");
+            entity.Property(e => e.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasComment("更新时间（UTC）")
+                .HasColumnType("datetime")
+                .HasColumnName("updated_at");
+            entity.Property(e => e.UserId)
+                .HasComment("用户ID")
+                .HasColumnName("user_id");
+
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_login_devices_user");
+        });
+
         modelBuilder.Entity<UserLoginRecord>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
@@ -1101,6 +1181,8 @@ public partial class DailyCheckDbContext : DbContext
             entity.HasIndex(e => new { e.UserId, e.IsDomestic, e.LoginAt }, "idx_login_records_user_domestic_time");
 
             entity.HasIndex(e => e.SessionId, "idx_login_records_session");
+
+            entity.HasIndex(e => new { e.DeviceId, e.LoginAt }, "idx_login_records_device_time");
 
             entity.Property(e => e.Id)
                 .HasComment("主键ID")
@@ -1173,12 +1255,21 @@ public partial class DailyCheckDbContext : DbContext
             entity.Property(e => e.UserId)
                 .HasComment("用户ID")
                 .HasColumnName("user_id");
+            entity.Property(e => e.DeviceId)
+                .HasComment("目标登录设备ID（user_login_devices.id）")
+                .HasColumnName("device_id");
 
             entity.HasOne<User>()
                 .WithMany()
                 .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_login_records_user");
+
+            entity.HasOne<UserLoginDevice>()
+                .WithMany()
+                .HasForeignKey(d => d.DeviceId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_login_records_device");
         });
 
         modelBuilder.Entity<UserBlock>(entity =>

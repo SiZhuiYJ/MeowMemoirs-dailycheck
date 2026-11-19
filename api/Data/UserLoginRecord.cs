@@ -18,6 +18,11 @@ public partial class UserLoginRecord
     public ulong UserId { get; set; }
 
     /// <summary>
+    /// 目标登录设备ID（user_login_devices.id）
+    /// </summary>
+    public ulong DeviceId { get; set; }
+
+    /// <summary>
     /// 设备会话标识（JWT sid，刷新沿用）
     /// </summary>
     public string SessionId { get; set; } = null!;
