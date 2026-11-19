@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace api.Data;
@@ -32,6 +32,11 @@ public partial class User
     /// 头像图片URL
     /// </summary>
     public string? AvatarKey { get; set; }
+
+    /// <summary>
+    /// 上一次使用的头像存储标识（NULL 表示没有可回退的上次头像）
+    /// </summary>
+    public string? PreviousAvatarKey { get; set; }
 
     /// <summary>
     /// 个人主页背景图存储标识（NULL 表示未设置，前端回退用头像图）

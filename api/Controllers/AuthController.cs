@@ -1155,7 +1155,16 @@ public class AuthController(
             user.NickName = request.NickName;
 
         if (request.AvatarKey != null)
+        {
+            // 换了头像才记录「上次头像」，方便客户端一键切回；传相同值不变更历史。
+            if (!string.IsNullOrWhiteSpace(user.AvatarKey) &&
+                !string.Equals(user.AvatarKey, request.AvatarKey, StringComparison.Ordinal))
+            {
+                user.PreviousAvatarKey = user.AvatarKey;
+            }
+
             user.AvatarKey = request.AvatarKey;
+        }
 
         // 背景图走 /mm/Files/profile-background 上传更常用；这里保留通用更新入口：
         // 传字符串=设置，传空串=清除（null 表示不修改，避免误清空）。
@@ -1222,6 +1231,7 @@ public class AuthController(
                 x.NickName,
                 x.UserAccount,
                 x.AvatarKey,
+                x.PreviousAvatarKey,
                 x.ProfileBackgroundKey,
                 x.Status
             })
@@ -1243,6 +1253,7 @@ public class AuthController(
             NickName = user.NickName,
             UserAccount = user.UserAccount,
             AvatarKey = user.AvatarKey,
+            PreviousAvatarKey = user.PreviousAvatarKey,
             ProfileBackgroundKey = user.ProfileBackgroundKey
         });
     }
@@ -1394,6 +1405,7 @@ public class AuthController(
             NickName = user.NickName,
             UserAccount = user.UserAccount,
             AvatarKey = user.AvatarKey,
+            PreviousAvatarKey = user.PreviousAvatarKey,
             ProfileBackgroundKey = user.ProfileBackgroundKey,
             Token = tokens.AccessToken,
             RefreshToken = tokens.RefreshToken,
@@ -1579,13 +1591,13 @@ public class AuthController(
         var currentUserOauth = await _db.UserOauthAccounts
             .AnyAsync(x => x.UserId == userId && x.Provider == "wechat", cancellationToken);
         if (currentUserOauth)
-            return Conflict("您已绑定过微信账号，无法重复绑定");
+            return Conflict("当前账号已绑定微信，请勿重复绑定；如需更换请先解绑");
 
         // 检查该微信账号是否已被其他用户绑定
         var existsOauth = await _db.UserOauthAccounts
             .AnyAsync(x => x.Provider == "wechat" && x.OpenId == wechatSession.OpenId, cancellationToken);
         if (existsOauth)
-            return Conflict("该微信账号已被其他用户绑定");
+            return Conflict("该微信已绑定到其他账号，请先用微信登录该账号解绑后再绑定");
 
         // 创建用户与微信账号的绑定关系
         var oauthAccount = new UserOauthAccount

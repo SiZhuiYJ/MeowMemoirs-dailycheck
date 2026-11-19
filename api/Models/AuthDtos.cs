@@ -167,6 +167,11 @@ public class AuthResponse
     public string? AvatarKey { get; set; }
 
     /// <summary>
+    /// 上一次使用的头像键，可选（无上次头像时为 null；用于一键切回）
+    /// </summary>
+    public string? PreviousAvatarKey { get; set; }
+
+    /// <summary>
     /// 个人主页背景图键，可选
     /// </summary>
     public string? ProfileBackgroundKey { get; set; }
@@ -221,6 +226,11 @@ public class UserBasicResponse
     /// 头像键，可选
     /// </summary>
     public string? AvatarKey { get; set; }
+
+    /// <summary>
+    /// 上一次使用的头像键，可选（无上次头像时为 null）
+    /// </summary>
+    public string? PreviousAvatarKey { get; set; }
 
     /// <summary>
     /// 个人主页背景图键，可选

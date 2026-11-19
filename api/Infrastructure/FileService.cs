@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Webp;
+using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using System;
 using System.IO;
@@ -41,12 +42,17 @@ public class LocalFileService : IFileService
     private readonly DailyCheckDbContext _db;
 
     private const long MaxImageBytes = 10 * 1024 * 1024;          // 10 MB
+    // 背景图保留原像素后文件可能明显大于头像；背景图单独放宽到 20MB（与控制器的 RequestSizeLimit 对齐），
+    // 其它上传接口仍使用 MaxImageBytes = 10MB。
+    private const long MaxProfileBackgroundBytes = 20 * 1024 * 1024; // 20 MB
     private const long MaxChatFileBytes = 100 * 1024 * 1024;      // 100 MB
     private const int AvatarThumbnailMaxPixels = 96;
     private const string AvatarThumbnailSuffix = "_thumb";
-    // 个人主页背景图（头像卡正方形铺满）最长边上限；前端裁剪输出 1200px，这里留出余量。
-    private const int ProfileBackgroundMaxPixels = 1600;
-    // 背景图是有损照片类内容，85 在 1200-1600px 下肉眼几乎无损，体积远小于无损/默认编码。
+    // 个人主页背景图保留客户端 1:1 裁剪后的原始像素，只做 WebP 格式转换；
+    // 这里仅设安全上限，避免超大图解码耗尽内存（正常手机照片最长边 ≈3024，远低于上限）。
+    private const int ProfileBackgroundMaxDimension = 8192;
+    private const string ProfileBackgroundTooLargeMessage = "背景图尺寸过大（最长边不能超过 8192px）";
+    // 背景图是有损照片类内容，保留原像素时 85 质量肉眼几乎无损，体积远小于无损/默认编码。
     private const int ProfileBackgroundWebpQuality = 85;
     // 背景缩略占位图：前端先显示它、原图下载完再淡入（渐进加载），128px 足够铺满卡片当模糊底。
     private const int ProfileBackgroundThumbnailMaxPixels = 128;
@@ -129,14 +135,24 @@ public class LocalFileService : IFileService
 
     /// <summary>
     /// 保存个人主页背景图：与头像共用公开用户目录（便于复用
-    /// GET /mm/Files/users/{userId}/{key} 公开读取），最长边不超过 1600px，
-    /// 有损 WebP（质量 85）兼顾清晰度与体积。
-    /// 同时预处理缩略占位图（最长边 128px，存为 {key}_thumb.webp）供前端渐进加载：
-    /// 优先使用客户端上传的 thumbnail，未上传则由服务端从原图自动生成。
+    /// GET /mm/Files/users/{userId}/{key} 公开读取）。
+    ///
+    /// 保留客户端 1:1 裁剪后的**原始像素**（服务端不缩放），只做格式转换与缩略图：
+    /// · 输入已是 WebP：原样落盘（零重编码，像素 / 画质无损）；
+    /// · 其它格式（jpg/png/heic/gif 等）：解码后以 WebP 质量 85 编码，保留原始分辨率；
+    /// · 最长边安全上限 8192px，超限抛异常「背景图尺寸过大（最长边不能超过 8192px）」；
+    /// · 同时预处理缩略占位图（最长边 ≤128px，存为 {key}_thumb.webp）供前端渐进加载：
+    ///   优先使用客户端上传的 thumbnail，未上传则由服务端从原图自动生成。
+    ///
+    /// 实现注意（2026-11-18）：大图转码采用「只解码一次 + Rgba32 编码」。
+    /// ImageSharp 3.1.12 在 Android/arm64 上对 3 字节 RGB 图做 WebP 有损编码时，
+    /// 会走到 `Pad3Shuffle4` 的 SIMD 通道填充路径（曾在 3000×3000 背景图上触发
+    /// native SIGSEGV 直接终止进程）；先转 Rgba32 再编码可绕开该路径，
+    /// 同时主图与缩略图共用一次解码结果，显著降低内存峰值（原实现会整图解码两次）。
     /// </summary>
     public async Task<string> SaveProfileBackgroundAsync(ulong userId, IFormFile file, IFormFile? thumbnail = null, CancellationToken cancellationToken = default)
     {
-        ValidateImageFile(file);
+        ValidateImageFile(file, MaxProfileBackgroundBytes);
         if (thumbnail != null)
             ValidateImageFile(thumbnail);
 
@@ -145,20 +161,66 @@ public class LocalFileService : IFileService
 
         var (_, fileKey) = await ComputeHashAsync(file.OpenReadStream(), cancellationToken);
         var webpPath = Path.Combine(root, fileKey + ".webp");
+        var thumbnailPath = Path.Combine(root, fileKey + AvatarThumbnailSuffix + ".webp");
 
         // 内容哈希相同即内容相同，直接复用，避免重复转码。
-        if (!File.Exists(webpPath))
-            await SaveImageAsWebpAsync(
-                file, webpPath, cancellationToken,
-                ProfileBackgroundMaxPixels, ProfileBackgroundMaxPixels,
-                onlyDownscale: true,
-                webpQuality: ProfileBackgroundWebpQuality);
+        var needMain = !File.Exists(webpPath);
+        var needThumb = !File.Exists(thumbnailPath);
+        if (!needMain && !needThumb)
+            return fileKey;
 
-        // 缩略占位图：客户端传了就直接用（只缩不放），否则从原图生成。
-        var thumbnailPath = Path.Combine(root, fileKey + AvatarThumbnailSuffix + ".webp");
-        if (!File.Exists(thumbnailPath))
+        var originalExt = Path.GetExtension(file.FileName).ToLowerInvariant();
+
+        Image? decodedImage = null;
+        try
+        {
+            // 1) 已是 WebP：只读文件头校验尺寸后原样复制（零重编码，像素/画质无损）。
+            if (needMain && originalExt == ".webp")
+            {
+                await ValidateProfileBackgroundSourceAsync(file, cancellationToken);
+                try
+                {
+                    await using var sourceStream = file.OpenReadStream();
+                    await using var targetStream = new FileStream(webpPath, FileMode.CreateNew, FileAccess.Write);
+                    await sourceStream.CopyToAsync(targetStream, cancellationToken);
+                }
+                catch (IOException) when (File.Exists(webpPath))
+                {
+                    // 并发上传同一内容时目标文件已存在，复用即可。
+                }
+
+                needMain = false;
+            }
+
+            // 2) 非 WebP 主图 / 需要服务端生成缩略图：整图只解码一次，主图与缩略图共用。
+            if (needMain || (needThumb && thumbnail == null))
+            {
+                decodedImage = await LoadImageForConversionAsync(file.OpenReadStream(), originalExt, cancellationToken);
+                EnsureProfileBackgroundDimensionWithinLimit(decodedImage.Width, decodedImage.Height);
+
+                if (needThumb && thumbnail == null)
+                {
+                    await SaveProfileBackgroundThumbnailFromImageAsync(decodedImage, thumbnailPath, cancellationToken);
+                    needThumb = false;
+                }
+            }
+
+            // 3) 主图：不缩放，仅转 WebP（Rgba32 编码避开 3 字节 RGB 的 SIMD 填充路径）。
+            if (needMain)
+            {
+                using var rgba = decodedImage!.CloneAs<Rgba32>();
+                await SaveImageAsWebpDirectAsync(rgba, webpPath, cancellationToken, ProfileBackgroundWebpQuality);
+            }
+        }
+        finally
+        {
+            decodedImage?.Dispose();
+        }
+
+        // 4) 客户端上传了缩略图：直接缩放落盘（只缩不放）。
+        if (needThumb && thumbnail != null)
             await SaveImageAsWebpAsync(
-                thumbnail ?? file, thumbnailPath, cancellationToken,
+                thumbnail, thumbnailPath, cancellationToken,
                 ProfileBackgroundThumbnailMaxPixels, ProfileBackgroundThumbnailMaxPixels,
                 onlyDownscale: true,
                 webpQuality: ProfileBackgroundThumbnailWebpQuality);
@@ -468,16 +530,101 @@ public class LocalFileService : IFileService
     private string GetConversationAvatarRoot(ulong conversationId) =>
         Path.Combine(GetChatRoot(conversationId), "avatars");
 
-    private static void ValidateImageFile(IFormFile file)
+    private static void ValidateImageFile(IFormFile file, long? maxBytes = null)
     {
         if (file == null || file.Length == 0)
             throw new InvalidOperationException("文件不能为空");
-        if (file.Length > MaxImageBytes)
-            throw new InvalidOperationException($"图片大小超过限制（最大 {MaxImageBytes / 1024 / 1024} MB）");
+
+        // 背景图因保留原像素单独放宽到 20MB；其余上传接口沿用默认 10MB。
+        var limit = maxBytes ?? MaxImageBytes;
+        if (file.Length > limit)
+            throw new InvalidOperationException($"图片大小超过限制（最大 {limit / 1024 / 1024} MB）");
 
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (!AllowedImageExtensions.Contains(ext))
             throw new InvalidOperationException("仅支持 JPG/PNG/GIF/WebP/BMP/HEIC 等常见图片格式");
+    }
+
+    /// <summary>
+    /// 背景图解码 / 直通落盘前的尺寸校验：非 HEIC 输入用 Identify 只读文件头取宽高，
+    /// 最长边超过 <see cref="ProfileBackgroundMaxDimension"/> 直接拒绝，避免无谓的大图解码。
+    /// </summary>
+    private static async Task ValidateProfileBackgroundSourceAsync(IFormFile file, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var sourceStream = file.OpenReadStream();
+            var info = await Image.IdentifyAsync(sourceStream, cancellationToken);
+            EnsureProfileBackgroundDimensionWithinLimit(info.Width, info.Height);
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // 识别失败的图片交给后续解码路径统一报「图片处理失败」，保持既有错误文案。
+            throw new InvalidOperationException("图片处理失败");
+        }
+    }
+
+    /// <summary>
+    /// 从已解码的原图生成背景缩略占位图（最长边 ≤128px、只缩不放），落盘为 WebP。
+    /// 与主图共用同一次解码结果，不再二次解码原图（降低大图内存峰值）。
+    /// </summary>
+    private static async Task SaveProfileBackgroundThumbnailFromImageAsync(Image image, string targetPath, CancellationToken cancellationToken)
+    {
+        using var thumbnail = image.Clone(context =>
+        {
+            if (image.Width > ProfileBackgroundThumbnailMaxPixels || image.Height > ProfileBackgroundThumbnailMaxPixels)
+            {
+                context.Resize(new ResizeOptions
+                {
+                    Mode = ResizeMode.Max,
+                    Size = new Size(ProfileBackgroundThumbnailMaxPixels, ProfileBackgroundThumbnailMaxPixels)
+                });
+            }
+        });
+
+        using var rgba = thumbnail.CloneAs<Rgba32>();
+        await SaveImageAsWebpDirectAsync(rgba, targetPath, cancellationToken, ProfileBackgroundThumbnailWebpQuality);
+    }
+
+    /// <summary>
+    /// 把已解码图像有损编码为 WebP 并落盘。
+    /// 并发同名内容上传时目标文件已存在即复用；其它失败清理半截文件后抛「图片处理失败」。
+    /// </summary>
+    private static async Task SaveImageAsWebpDirectAsync(Image image, string targetPath, CancellationToken cancellationToken, int quality)
+    {
+        try
+        {
+            await image.SaveAsWebpAsync(
+                targetPath,
+                new WebpEncoder { FileFormat = WebpFileFormatType.Lossy, Quality = quality },
+                cancellationToken);
+        }
+        catch (IOException) when (File.Exists(targetPath))
+        {
+            // 并发上传同一内容：文件已落盘即可复用。
+        }
+        catch
+        {
+            TryDeleteFile(targetPath);
+            throw new InvalidOperationException("图片处理失败");
+        }
+    }
+
+    /// <summary>最长边安全上限校验（背景图保留原像素，仅防超大图）。</summary>
+    private static void EnsureProfileBackgroundDimensionWithinLimit(int width, int height)
+    {
+        if (width > ProfileBackgroundMaxDimension || height > ProfileBackgroundMaxDimension)
+            throw new InvalidOperationException(ProfileBackgroundTooLargeMessage);
+    }
+
+    /// <summary>尽力删除文件（清理失败不影响主错误抛出）。</summary>
+    private static void TryDeleteFile(string path)
+    {
+        try { File.Delete(path); } catch { /* ignore cleanup failures */ }
     }
 
     private static void ValidateChatFile(IFormFile file)
@@ -580,7 +727,7 @@ public class LocalFileService : IFileService
             if (maxWidth.HasValue || maxHeight.HasValue)
             {
                 // onlyDownscale：只缩不放。头像缩略图需要放大到 96px 的兜底，
-                // 但背景小图若被放大到 1600px 只会变大变糊，因此背景传 true。
+                // 但背景小图 / 缩略图若被放大只会变大变糊，因此背景相关调用传 true。
                 var needsResize = !onlyDownscale
                     || (maxWidth.HasValue && image.Width > maxWidth.Value)
                     || (maxHeight.HasValue && image.Height > maxHeight.Value);

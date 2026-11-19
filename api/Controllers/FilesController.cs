@@ -96,16 +96,55 @@ public class FilesController(IFileService fileService, DailyCheckDbContext db) :
         {
             var fileKey = await _fileService.SaveUserAvatarAsync(userId, file, thumbnail);
 
+            // 写入新头像前，把原头像记到 previous_avatar_key，供「使用上次头像」一键切回。
+            if (!string.IsNullOrWhiteSpace(user.AvatarKey) &&
+                !string.Equals(user.AvatarKey, fileKey, StringComparison.Ordinal))
+            {
+                user.PreviousAvatarKey = user.AvatarKey;
+            }
+
             user.AvatarKey = fileKey;
             user.UpdatedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
 
-            return Ok(new { key = fileKey });
+            // previousKey = 旧头像 key（首次上传为 null），客户端可直接更新本地状态。
+            return Ok(new { key = fileKey, previousKey = user.PreviousAvatarKey });
         }
         catch (InvalidOperationException ex)
         {
             return BadRequest(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// 使用上次头像接口：把当前头像与上次头像互换。
+    /// 无需重新上传图片（两张图都已在公开用户目录中），连续调用可来回切换。
+    /// </summary>
+    /// <remarks>
+    /// 返回：{ "key": "切换后的当前头像key", "previousKey": "切换后的上次头像key" }
+    /// 错误：400 暂无可用的上次头像（previous_avatar_key 为 NULL）；404 用户不存在。
+    /// </remarks>
+    /// <returns>成功时返回200 OK，包含互换后的头像 key。</returns>
+    /// <response code="200">切换成功</response>
+    /// <response code="400">暂无可用的上次头像</response>
+    /// <response code="404">用户不存在</response>
+    [HttpPost("avatar/use-previous")]
+    public async Task<ActionResult> UsePreviousAvatar()
+    {
+        var userId = GetUserId();
+        var user = await _db.Users.SingleOrDefaultAsync(x => x.Id == userId && !x.IsDeleted);
+        if (user == null)
+            return NotFound("用户不存在");
+
+        if (string.IsNullOrWhiteSpace(user.PreviousAvatarKey))
+            return BadRequest("暂无可用的上次头像");
+
+        // 互换：当前 → 上次，上次 → 当前；再次调用即可切回原头像。
+        (user.AvatarKey, user.PreviousAvatarKey) = (user.PreviousAvatarKey, user.AvatarKey);
+        user.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        return Ok(new { key = user.AvatarKey, previousKey = user.PreviousAvatarKey });
     }
 
     /// <summary>
@@ -118,9 +157,12 @@ public class FilesController(IFileService fileService, DailyCheckDbContext db) :
     /// 不需要额外的 GET 接口。
     ///
     /// 处理流程：
-    /// 1. 图片格式与大小校验（≤10MB，与头像一致，含 HEIC/HEIF）
-    /// 2. 原图统一转有损 WebP，最长边压缩到 1600px（背景整卡铺满，不需要原图尺寸）
-    /// 3. 预处理缩略占位图（最长边 128px，存为 {key}_thumb.webp）：
+    /// 1. 图片格式与大小校验（≤20MB，含 HEIC/HEIF）
+    /// 2. 保留客户端 1:1 裁剪后的原始像素（服务端不缩放）：
+    ///    • 已是 WebP 的输入原样存储（零重编码，像素 / 画质无损）；
+    ///    • 其它格式转有损 WebP（质量 85），保留原始分辨率；
+    ///    • 最长边安全上限 8192px，超出返回 400「背景图尺寸过大（最长边不能超过 8192px）」
+    /// 3. 预处理缩略占位图（最长边 ≤128px，存为 {key}_thumb.webp）：
     ///    客户端传了 thumbnail 就用它，否则服务端从原图生成 —— 前端先显示占位图、原图下载完再淡入
     /// 4. 内容哈希作为 fileKey，相同图片自动去重复用
     /// 5. 更新 users.profile_background_key
@@ -131,14 +173,15 @@ public class FilesController(IFileService fileService, DailyCheckDbContext db) :
     /// 前端通过 /mm/Files/users/{userId}/{key} 展示原图，
     /// 通过 /mm/Files/users/{userId}/{key}?thumbnail=true 展示缩略占位图。
     /// </remarks>
-    /// <param name="file">待上传的背景原图文件。</param>
+    /// <param name="file">待上传的背景原图文件（最长边 ≤8192px）。</param>
     /// <param name="thumbnail">可选的缩略占位图文件；不传时服务端从原图自动生成。</param>
     /// <returns>成功时返回200 OK，包含原图与缩略图文件Key。</returns>
     /// <response code="200">背景图上传成功</response>
-    /// <response code="400">文件为空或格式不支持</response>
+    /// <response code="400">文件为空、格式不支持、超过 20MB 或尺寸过大（最长边 &gt; 8192px）</response>
     /// <response code="404">用户不存在</response>
+    // 背景图保留原像素后原始 JPEG/WebP 可能超过 10MB，这里单独放宽到 20MB（其余上传接口仍 10MB）。
     [HttpPost("profile-background")]
-    [RequestSizeLimit(10 * 1024 * 1024)]
+    [RequestSizeLimit(20 * 1024 * 1024)]
     public async Task<ActionResult> UploadProfileBackground(IFormFile file, IFormFile? thumbnail)
     {
         if (file == null || file.Length == 0)
