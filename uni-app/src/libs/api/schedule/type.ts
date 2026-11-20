@@ -37,6 +37,38 @@ export interface ScheduleDetail extends ScheduleSummary {
 }
 
 /**
+ * 导入预检结果（POST /mm/Schedule/Import/Preview，只解析不写库）
+ *
+ * 导入分两步：先预检，把后端识别结果给用户确认（课程、周次、冲突、提示），
+ * 用户改好课表名后再调正式导入接口。预检里的课程尚未入库，
+ * 所以 course.id / course.scheduleId / times[].id / times[].courseId 均为 0。
+ */
+export interface ScheduleImportPreview {
+  /** 默认课表名称（文件内标题 / 文件名，用户可修改） */
+  scheduleName: string;
+  /** 从文件里识别到的学期（可能为 null） */
+  semesterLabel: string | null;
+  /** 开课日期 yyyy-MM-dd */
+  startTime: string;
+  /** 学期总周数 */
+  weekCount: number;
+  /** 节次数 */
+  sectionCount: number;
+  /** 作息时间表（下标 + 1 = 节次） */
+  timetable: string[];
+  /** 课程数 */
+  courseCount: number;
+  /** 上课时间段总数 */
+  timeCount: number;
+  /** 课程列表（结构与课表详情的 Course 一致，ID 均为 0） */
+  courses: Course[];
+  /** 需要用户确认的提示（缺教师 / 缺地点 / 周次缺失 / 默认日期等） */
+  warnings: string[];
+  /** 预检出的时间冲突（同一天 + 节次重叠 + 周次有交集） */
+  conflicts: string[];
+}
+
+/**
  * 课程
  */
 export interface Course {

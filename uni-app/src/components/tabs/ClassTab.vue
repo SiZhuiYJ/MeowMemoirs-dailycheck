@@ -4,7 +4,11 @@ import MmNavBar from '@/components/MmNavBar.vue';
 import { useThemeStore } from '@/stores/theme';
 import useSchedule, { type ScheduleBlock } from '@/features/Curriculum/useSchedule';
 import { ScheduleApi } from '@/libs/api/schedule';
-import type { ScheduleDetail } from '@/libs/api/schedule/type';
+import type {
+  CourseTime,
+  ScheduleDetail,
+  ScheduleImportPreview,
+} from '@/libs/api/schedule/type';
 import { getMenuButtonRectCompat, getWindowInfoCompat } from '@/utils/systemInfo';
 
 /**
@@ -18,9 +22,9 @@ import { getMenuButtonRectCompat, getWindowInfoCompat } from '@/utils/systemInfo
  * 3. 周次切换条：上一周 / 第 N 周（本周高亮）/ 下一周；
  * 4. 网格：左侧节次/时间列固定，右侧 7 天用 scroll-view 横向滚动；课程块按
  *    sectionList 跨行、用数据 color 做浅底 + 左侧条；
- * 5. 数据只读展示，唯一写入口是顶栏「导入」：从微信会话选 Excel 上传，
- *    服务端解析创建课表，成功后刷新并切换到新导入的课表；
- *    进入 tab 时自动刷新（isActive watch + onMounted）。
+ * 5. 数据只读展示，唯一写入口是顶栏「导入」：从微信会话选 Excel，先走后端
+ *    Preview 预检、弹层确认识别结果并填课表名，再正式导入，成功后刷新并切换到
+ *    新导入的课表；进入 tab 时自动刷新（isActive watch + onMounted）。
  */
 const props = defineProps<{
   isActive: boolean;
@@ -106,19 +110,6 @@ const noCourseDesc = computed(() =>
   courses.value.length === 0 ? '这份课表还没有课程' : '可以切换到其他周次看看',
 );
 
-// 进入 tab 刷新：watch isActive + onMounted 双保险；
-// refresh 内部有并发保护（isLoading/isRefreshing），两个入口不会重复请求。
-watch(
-  () => props.isActive,
-  (active) => {
-    if (active) void refresh();
-  },
-  { immediate: true },
-);
-onMounted(() => {
-  void refresh();
-});
-
 /** 课程详情弹层 */
 const activeCourse = ref<ScheduleBlock | null>(null);
 
@@ -154,7 +145,7 @@ function courseTimeText(block: ScheduleBlock): string {
 }
 
 /* ============================================================
-   导入课表：微信聊天文件 → 后端解析 → 刷新并切换到新导入的课表
+   导入课表（两步）：选文件 → 预检确认 → 命名保存 → 刷新并切到新课表
    ============================================================ */
 
 /** 导入文件大小上限 10MB（服务端也会校验；本机先拦一次，避免白传流量） */
@@ -162,18 +153,32 @@ const MAX_IMPORT_FILE_SIZE = 10 * 1024 * 1024;
 
 /** 微信 chooseMessageFile 返回的聊天文件（只取上传要用的字段） */
 interface ChosenMessageFile {
-  /** 本地临时文件路径（uni.uploadFile 用） */
+  /** 本地临时文件路径（uni.uploadFile 用；预检与正式导入复用同一个） */
   path: string;
   /** 文件大小（字节），用于上传前拦截 > 10MB */
   size: number;
 }
 
-/** 导入进行中：防止重复点击 / 重复上传 */
+/** 预检解析中：防止重复选文件 / 重复解析 */
+const isPreviewing = ref(false);
+/** 正式导入中：防止重复提交 */
 const isImporting = ref(false);
+/** 预检结果：非 null 时展示预检弹层 */
+const importPreview = ref<ScheduleImportPreview | null>(null);
+/** 已选好的文件：预检通过、用户点「下一步」后还要用它调正式导入 */
+const pendingImportFile = ref<ChosenMessageFile | null>(null);
+/** 导入流程任一环节进行中：用于「导入」按钮置灰和入口防重 */
+const isImportBusy = computed(() => isPreviewing.value || isImporting.value);
 
-/** 头部「导入」按钮：从微信聊天选文件 → 大小校验 → 上传 */
+/** 预检弹层内容区高度：约半屏，保证面板放得下且内部可滚动（scroll-view 需要明确高度） */
+const previewScrollHeight = Math.max(
+  220,
+  Math.round((getWindowInfoCompat().windowHeight || 640) * 0.52),
+);
+
+/** 头部「导入」按钮：从微信聊天选文件 → 大小校验 → 预检解析 */
 function handleImportClick(): void {
-  if (isImporting.value) return;
+  if (isImportBusy.value) return;
   // chooseMessageFile 仅微信小程序支持；H5 / App 端给提示，避免点了没反应
   if (typeof uni.chooseMessageFile !== 'function') {
     uni.showToast({ title: '请在微信小程序中导入课表', icon: 'none' });
@@ -192,7 +197,7 @@ function handleImportClick(): void {
         uni.showToast({ title: '文件不能超过 10MB', icon: 'none' });
         return;
       }
-      void importScheduleFile(file);
+      void previewImportFile(file);
     },
     fail: (err) => {
       // 用户取消选择不是错误，不打扰
@@ -202,20 +207,93 @@ function handleImportClick(): void {
   });
 }
 
-/** 上传并应用导入结果：成功后 toast 课程数、刷新列表并切换到新课表 */
-async function importScheduleFile(file: ChosenMessageFile): Promise<void> {
+/** 第一步：上传文件做预检解析（后端不写库），成功后弹出确认面板 */
+async function previewImportFile(file: ChosenMessageFile): Promise<void> {
+  isPreviewing.value = true;
+  uni.showLoading({ title: '解析中...', mask: true });
+  try {
+    const preview = await ScheduleApi.previewFile(file.path);
+    // 防御：返回缺字段时不进确认流程，避免弹层渲染出错
+    if (!preview || !Array.isArray(preview.courses)) {
+      throw new Error('解析结果异常，请稍后重试');
+    }
+    // 解析期间用户可能切走了 tab：丢弃结果，避免弹层出现在别的 tab 上
+    if (!props.isActive) return;
+    pendingImportFile.value = file;
+    importPreview.value = preview;
+  } catch (e: any) {
+    uni.showModal({
+      title: '解析失败',
+      content: toImportErrorMessage(e),
+      showCancel: false,
+      confirmText: '知道了',
+    });
+  } finally {
+    uni.hideLoading();
+    isPreviewing.value = false;
+  }
+}
+
+/** 关闭预检弹层并丢弃已选文件（取消导入 / 离开 tab 时调用） */
+function cancelImportPreview(): void {
+  importPreview.value = null;
+  pendingImportFile.value = null;
+}
+
+/** 预检弹层「下一步」：关弹层 → 让用户输入课表名 → 正式导入 */
+async function confirmImportPreview(): Promise<void> {
+  const preview = importPreview.value;
+  const file = pendingImportFile.value;
+  if (!preview || !file) return;
+
+  const defaultName = (preview.scheduleName || '').trim();
+  cancelImportPreview();
+
+  const inputName = await askScheduleName(defaultName);
+  // 用户在命名弹窗点取消：什么都不做，回到课表页
+  if (inputName === null) return;
+
+  // 输入为空就什么都不传，让后端用文件内标题 / 文件名兜底（比传默认名更稳）
+  const scheduleName = inputName.trim() || undefined;
+  await importScheduleFile(file, scheduleName);
+}
+
+/**
+ * 弹原生「课表名称」输入框（showModal 的 editable 模式）。
+ * @param {string} defaultName 默认课表名（作为输入框 placeholder 展示）
+ * @returns {Promise<string | null>} 用户输入（可能为空串）；点取消返回 null
+ */
+function askScheduleName(defaultName: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    uni.showModal({
+      title: '课表名称',
+      editable: true,
+      placeholderText: defaultName || '请输入课表名称',
+      content: defaultName ? `默认名称：${defaultName}（留空使用默认）` : '留空将使用默认名称',
+      confirmText: '导入',
+      cancelText: '取消',
+      success: (res) => resolve(res.confirm ? res.content ?? '' : null),
+      fail: () => resolve(null),
+    });
+  });
+}
+
+/** 第二步：正式导入并应用结果：成功后 toast 课程数、刷新列表并切换到新课表 */
+async function importScheduleFile(file: ChosenMessageFile, scheduleName?: string): Promise<void> {
   isImporting.value = true;
   uni.showLoading({ title: '导入中...', mask: true });
 
   let imported: ScheduleDetail | null = null;
   try {
-    // 不传 scheduleName：后端会优先用文件内的标题，其次才是上传文件名。
-    // 微信给的是临时文件名（tmp_xxx），由后端兜底命名比前端瞎猜更靠谱。
-    imported = await ScheduleApi.importFile(file.path);
+    imported = await ScheduleApi.importFile(file.path, scheduleName ? { scheduleName } : {});
   } catch (e: any) {
     // 后端 400/401 的 message 已由 API 层解析成可直接展示的文案
-    const message = e instanceof Error ? e.message : e?.errMsg || '导入失败，请稍后重试';
-    uni.showModal({ title: '导入失败', content: message, showCancel: false, confirmText: '知道了' });
+    uni.showModal({
+      title: '导入失败',
+      content: toImportErrorMessage(e),
+      showCancel: false,
+      confirmText: '知道了',
+    });
   } finally {
     uni.hideLoading();
     isImporting.value = false;
@@ -228,6 +306,81 @@ async function importScheduleFile(file: ChosenMessageFile): Promise<void> {
   // 刷新课表数据并切换到新导入的课表（新 id 可能不在导入前的列表里）
   await applyImportedSchedule(imported);
 }
+
+/** 上传 / 预检失败的统一文案提取（后端 message 已由 API 层解析好） */
+function toImportErrorMessage(e: any): string {
+  return e instanceof Error ? e.message : e?.errMsg || '操作失败，请稍后重试';
+}
+
+/* ---------- 预检弹层里的课程格式化 ---------- */
+
+/** 时间段一行：周一 第9-10节 · 第1-4,9-16周 · E405 · 王雪山 */
+function formatImportTime(time: CourseTime): string {
+  const parts = [
+    `${weekdayLabel(time.dayOfWeek)} ${formatImportSections(time.sectionList)}`,
+    formatImportWeeks(time.weekList),
+    time.location || '地点未识别',
+    time.teacher || '教师未识别',
+  ];
+  return parts.join(' · ');
+}
+
+/** 节次数组 → 「第9-10节」「第3节」「第1-2、4节」 */
+function formatImportSections(sections: number[]): string {
+  const ranges = formatNumberRanges(sections, '、');
+  return ranges ? `第${ranges}节` : '节次未识别';
+}
+
+/** 周次数组 → 「第1-4,9-16周」 */
+function formatImportWeeks(weeks: number[]): string {
+  const ranges = formatNumberRanges(weeks, ',');
+  return ranges ? `第${ranges}周` : '周次未识别';
+}
+
+/**
+ * 数字数组 → 区间简写，如 [1,2,3,5] →「1-3、5」或「1-3,5」。
+ * @param {number[]} values 原始数组（可能乱序 / 重复）
+ * @param {string} separator 区间之间的分隔符（节次用「、」，周次用「,」）
+ */
+function formatNumberRanges(values: number[], separator: string): string {
+  const sorted = Array.from(
+    new Set((values || []).filter((v) => Number.isFinite(v) && v >= 1)),
+  ).sort((a, b) => a - b);
+  if (sorted.length === 0) return '';
+  const ranges: string[] = [];
+  let rangeStart = sorted[0]!;
+  let prev = rangeStart;
+  for (let i = 1; i < sorted.length; i += 1) {
+    const current = sorted[i]!;
+    if (current === prev + 1) {
+      prev = current;
+      continue;
+    }
+    ranges.push(rangeStart === prev ? `${rangeStart}` : `${rangeStart}-${prev}`);
+    rangeStart = current;
+    prev = current;
+  }
+  ranges.push(rangeStart === prev ? `${rangeStart}` : `${rangeStart}-${prev}`);
+  return ranges.join(separator);
+}
+
+// 进入 tab 刷新：watch isActive + onMounted 双保险；
+// refresh 内部有并发保护（isLoading/isRefreshing），两个入口不会重复请求。
+// 离开 tab 时顺带关掉导入预检弹层，避免遮罩 / 已选临时文件残留到别的 tab。
+watch(
+  () => props.isActive,
+  (active) => {
+    if (active) {
+      void refresh();
+      return;
+    }
+    cancelImportPreview();
+  },
+  { immediate: true },
+);
+onMounted(() => {
+  void refresh();
+});
 </script>
 
 <template>
@@ -253,8 +406,8 @@ async function importScheduleFile(file: ChosenMessageFile): Promise<void> {
       </template>
       <template #right>
         <view class="nav-actions">
-          <!-- 导入：从微信聊天选 Excel，后端解析创建课表 -->
-          <view class="import-btn" :class="{ 'is-busy': isImporting }" hover-class="mm-hover"
+          <!-- 导入：从微信聊天选 Excel，先预检确认再正式导入 -->
+          <view class="import-btn" :class="{ 'is-busy': isImportBusy }" hover-class="mm-hover"
             @click="handleImportClick">
             <text>导入</text>
           </view>
@@ -396,6 +549,92 @@ async function importScheduleFile(file: ChosenMessageFile): Promise<void> {
         <view class="sheet-footer">
           <view class="sheet-btn" hover-class="mm-hover" @click="closeCourseDetail">
             <text>关闭</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 导入预检弹层：先让用户核对后端识别结果，再进入命名保存 -->
+    <view v-if="importPreview" class="sheet-overlay" @click="cancelImportPreview">
+      <view class="sheet-card preview-card" @click.stop>
+        <view class="sheet-head">
+          <view class="sheet-title-row">
+            <view class="sheet-color-dot" :style="{ backgroundColor: 'var(--theme-primary)' }"></view>
+            <text class="sheet-title">确认导入内容</text>
+          </view>
+          <view class="sheet-close" hover-class="mm-hover" @click="cancelImportPreview">
+            <text class="sheet-close-icon">✕</text>
+          </view>
+        </view>
+
+        <scroll-view scroll-y="true" class="preview-scroll" :style="{ height: previewScrollHeight + 'px' }">
+          <!-- 识别摘要 -->
+          <view class="preview-summary">
+            <view class="preview-row">
+              <text class="preview-label">课表名称</text>
+              <text class="preview-value">{{ importPreview.scheduleName || '未命名课表' }}</text>
+            </view>
+            <view v-if="importPreview.semesterLabel" class="preview-row">
+              <text class="preview-label">学期</text>
+              <text class="preview-value">{{ importPreview.semesterLabel }}</text>
+            </view>
+            <view class="preview-row">
+              <text class="preview-label">开课日期</text>
+              <text class="preview-value">{{ importPreview.startTime || '未识别' }}</text>
+            </view>
+            <view class="preview-row">
+              <text class="preview-label">周数 / 节次</text>
+              <text class="preview-value">{{ importPreview.weekCount }} 周 · 每天 {{ importPreview.sectionCount }} 节</text>
+            </view>
+            <view class="preview-row">
+              <text class="preview-label">识别结果</text>
+              <text class="preview-value">{{ importPreview.courseCount }} 门课程 · {{ importPreview.timeCount }} 个时间段</text>
+            </view>
+          </view>
+
+          <!-- 后端识别提示（缺教师/缺地点/周次缺失/默认日期等） -->
+          <view v-if="importPreview.warnings.length" class="preview-section">
+            <text class="preview-section-title">需要确认</text>
+            <view class="preview-list">
+              <text v-for="(warning, index) in importPreview.warnings" :key="`warn-${index}`"
+                class="preview-list-item preview-warning">· {{ warning }}</text>
+            </view>
+          </view>
+
+          <!-- 时间冲突：不阻止导入，但提醒用户核对 -->
+          <view v-if="importPreview.conflicts.length" class="preview-section">
+            <text class="preview-section-title preview-conflict-title">时间冲突（仍可导入，请核对）</text>
+            <view class="preview-list">
+              <text v-for="(conflict, index) in importPreview.conflicts" :key="`conflict-${index}`"
+                class="preview-list-item preview-conflict">· {{ conflict }}</text>
+            </view>
+          </view>
+
+          <!-- 课程明细：每门课列出它的时间段，方便核对解析对不对 -->
+          <view class="preview-section">
+            <text class="preview-section-title">课程明细（{{ importPreview.courses.length }} 门）</text>
+            <view v-if="importPreview.courses.length === 0" class="preview-empty">没有解析到课程</view>
+            <view v-for="(course, courseIndex) in importPreview.courses" :key="`import-course-${courseIndex}`"
+              class="preview-course">
+              <view class="preview-course-head">
+                <view class="preview-course-dot"
+                  :style="{ backgroundColor: course.color || 'var(--theme-primary)' }"></view>
+                <text class="preview-course-name">{{ course.courseName || '未命名课程' }}</text>
+              </view>
+              <text v-for="(time, timeIndex) in course.times" :key="`import-time-${courseIndex}-${timeIndex}`"
+                class="preview-time">{{ formatImportTime(time) }}</text>
+              <text v-if="!course.times || course.times.length === 0"
+                class="preview-time preview-time-empty">没有时间段</text>
+            </view>
+          </view>
+        </scroll-view>
+
+        <view class="preview-footer">
+          <view class="preview-btn preview-btn-cancel" hover-class="mm-hover" @click="cancelImportPreview">
+            <text>取消</text>
+          </view>
+          <view class="preview-btn preview-btn-confirm" hover-class="mm-hover" @click="confirmImportPreview">
+            <text>下一步</text>
           </view>
         </view>
       </view>
@@ -1071,5 +1310,174 @@ async function importScheduleFile(file: ChosenMessageFile): Promise<void> {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ---------- 导入预检弹层 ---------- */
+/* 面板比课程详情更高：摘要 + 提示 + 课程明细一起放在可滚动区域里 */
+.preview-card {
+  max-width: 380px;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 内容区高度由模板按窗口高度算好（scroll-view 需要明确高度），这里只负责观感 */
+.preview-scroll {
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.preview-summary {
+  padding: 4px 16px;
+}
+
+.preview-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--divider-color);
+}
+
+.preview-row:last-child {
+  border-bottom: none;
+}
+
+.preview-label {
+  width: 68px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.preview-value {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-color);
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.preview-section {
+  padding: 6px 16px 0;
+}
+
+.preview-section-title {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.preview-conflict-title {
+  color: var(--color-danger-text);
+}
+
+.preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.preview-list-item {
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+/* 橙色提示：读起来「需要注意但可继续」 */
+.preview-warning {
+  color: var(--color-warning-text);
+}
+
+/* 红色冲突：只提醒核对，不阻止导入 */
+.preview-conflict {
+  color: var(--color-danger-text);
+}
+
+.preview-empty {
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.preview-course {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--divider-color);
+}
+
+.preview-course:last-child {
+  border-bottom: none;
+}
+
+.preview-course-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.preview-course-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.preview-course-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+  word-break: break-all;
+}
+
+.preview-time {
+  display: block;
+  margin-top: 2px;
+  padding-left: 14px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.preview-time-empty {
+  color: var(--text-faint);
+}
+
+.preview-footer {
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--divider-color);
+  flex-shrink: 0;
+}
+
+.preview-btn {
+  flex: 1;
+  height: var(--control-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  box-sizing: border-box;
+}
+
+.preview-btn-cancel {
+  background-color: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+}
+
+.preview-btn-confirm {
+  background: var(--theme-gradient);
+  color: var(--theme-action-contrast);
 }
 </style>
