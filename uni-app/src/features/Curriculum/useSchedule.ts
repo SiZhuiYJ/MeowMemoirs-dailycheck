@@ -440,6 +440,48 @@ export default function useSchedule() {
     }
   }
 
+  /**
+   * 把课表合并进列表（导入接口返回的就是详情，结构上兼容概要）。
+   * 导入成功后先合并再选中，页面可以立刻显示新课表；refresh 后会被列表数据覆盖。
+   */
+  function upsertScheduleSummary(imported: ScheduleDetail): void {
+    const index = schedules.value.findIndex((item) => item.id === imported.id);
+    if (index >= 0) schedules.value[index] = imported;
+    else schedules.value.unshift(imported);
+  }
+
+  /**
+   * 导入课表成功后应用结果：刷新课表数据并切换到新导入的课表。
+   * · 导入接口直接返回详情，先并入列表并选中，页面无需等待 refresh 就能显示；
+   * · 再静默 refresh 一次，同步列表 / courseCount 等后端计算结果；
+   * · 若 refresh 期间拿到的是导入前发起的旧列表（不含新 id），选中会被回退，
+   *   这里在 refresh 之后做一次兜底重选，保证用户看到的一定是新导入的课表。
+   * @param imported 导入接口返回的课表详情
+   */
+  async function applyImportedSchedule(imported: ScheduleDetail): Promise<void> {
+    if (!imported?.id) return;
+
+    upsertScheduleSummary(imported);
+    currentScheduleId.value = imported.id;
+    detail.value = imported;
+    hasLoaded.value = true;
+    // 新导入的课表定位到「今天所在周」（学期间导入时不会停在第 1 周）
+    currentWeek.value = todayWeek.value;
+    clampWeek();
+
+    await refresh();
+
+    if (!schedules.value.some((item) => item.id === imported.id)) {
+      upsertScheduleSummary(imported);
+    }
+    if (currentScheduleId.value !== imported.id) {
+      currentScheduleId.value = imported.id;
+      detail.value = imported;
+      currentWeek.value = todayWeek.value;
+      clampWeek();
+    }
+  }
+
   /** 上一周 */
   function prevWeek(): void {
     if (currentWeek.value <= 1) return;
@@ -486,6 +528,7 @@ export default function useSchedule() {
     // 方法
     refresh,
     switchSchedule,
+    applyImportedSchedule,
     prevWeek,
     nextWeek,
     goToday,

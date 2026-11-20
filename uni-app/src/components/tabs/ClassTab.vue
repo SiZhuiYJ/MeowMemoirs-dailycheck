@@ -3,19 +3,24 @@ import { computed, onMounted, ref, watch } from 'vue';
 import MmNavBar from '@/components/MmNavBar.vue';
 import { useThemeStore } from '@/stores/theme';
 import useSchedule, { type ScheduleBlock } from '@/features/Curriculum/useSchedule';
+import { ScheduleApi } from '@/libs/api/schedule';
+import type { ScheduleDetail } from '@/libs/api/schedule/type';
+import { getMenuButtonRectCompat, getWindowInfoCompat } from '@/utils/systemInfo';
 
 /**
- * 课程 tab（只读课表）
+ * 课程 tab（课表展示 + 导入）
  *
  * 重构要点：
  * 1. 数据换成后端新课表模型：`useSchedule` 负责拉列表/详情、算当前周、把
  *    Course.times 按「当前周 + 星期」映射成可跨行渲染的课程块；
  * 2. 顶部沿用 MmNavBar：左侧课表名（多课表时可 picker 切换）+ 周次胶囊，
- *    右侧「今天」按钮；
+ *    右侧「导入」「今天」两个按钮；
  * 3. 周次切换条：上一周 / 第 N 周（本周高亮）/ 下一周；
  * 4. 网格：左侧节次/时间列固定，右侧 7 天用 scroll-view 横向滚动；课程块按
  *    sectionList 跨行、用数据 color 做浅底 + 左侧条；
- * 5. 只读：没有任何添加/编辑/删除入口；进入 tab 时自动刷新（isActive watch + onMounted）。
+ * 5. 数据只读展示，唯一写入口是顶栏「导入」：从微信会话选 Excel 上传，
+ *    服务端解析创建课表，成功后刷新并切换到新导入的课表；
+ *    进入 tab 时自动刷新（isActive watch + onMounted）。
  */
 const props = defineProps<{
   isActive: boolean;
@@ -52,6 +57,7 @@ const {
   // 方法
   refresh,
   switchSchedule,
+  applyImportedSchedule,
   prevWeek,
   nextWeek,
   goToday,
@@ -62,6 +68,29 @@ const ROW_HEIGHT = 62;
 const HEADER_HEIGHT = 42;
 const DAY_COLUMN_WIDTH = 78;
 const DAY_COUNT = 7;
+
+/** 顶栏右侧「导入 + 今天」占宽：两个 52px 按钮 + 8px 间距 + 右插槽 8px 左内边距 */
+const NAV_ACTIONS_WIDTH = 120;
+/** 课表名允许的最小宽度：再窄也保留一点，避免极端窄屏把标题压没 */
+const MIN_SCHEDULE_NAME_WIDTH = 96;
+
+/**
+ * 顶栏左侧课表名的可用宽度。
+ * MmNavBar 在微信端会为右上角系统胶囊预留 ~95px 内边距，右侧现在又同时放
+ * 「导入 + 今天」两个按钮；窄屏（360/375）不限宽会把顶栏挤爆、按钮压到胶囊上。
+ * 这里按真实窗口宽度与胶囊位置算出上限（算法与 MmNavBar 的内边距保持一致），
+ * 课表名超出时用省略号截断。
+ */
+const scheduleHeadMaxWidth = (() => {
+  const win = getWindowInfoCompat();
+  const windowWidth = win.windowWidth || 375;
+  const menuRect = getMenuButtonRectCompat();
+  const capsuleInset =
+    menuRect && windowWidth > 0 ? Math.max(windowWidth - menuRect.left + 8, 0) : 0;
+  // MmNavBar 横向内边距：左固定 12；右侧有胶囊时让出胶囊宽度，否则 12
+  const sidePadding = 12 + (capsuleInset > 0 ? capsuleInset : 12);
+  return Math.max(Math.round(windowWidth - sidePadding - NAV_ACTIONS_WIDTH), MIN_SCHEDULE_NAME_WIDTH);
+})();
 
 /** 网格内容高度（表头 + N 节） */
 const bodyHeight = computed(() => sectionRows.value.length * ROW_HEIGHT);
@@ -123,14 +152,91 @@ function courseTimeText(block: ScheduleBlock): string {
   const weekday = weekdayLabel(block.dayOfWeek);
   return `${weekday} ${block.sectionText}${block.timeText ? ` · ${block.timeText}` : ''}`;
 }
+
+/* ============================================================
+   导入课表：微信聊天文件 → 后端解析 → 刷新并切换到新导入的课表
+   ============================================================ */
+
+/** 导入文件大小上限 10MB（服务端也会校验；本机先拦一次，避免白传流量） */
+const MAX_IMPORT_FILE_SIZE = 10 * 1024 * 1024;
+
+/** 微信 chooseMessageFile 返回的聊天文件（只取上传要用的字段） */
+interface ChosenMessageFile {
+  /** 本地临时文件路径（uni.uploadFile 用） */
+  path: string;
+  /** 文件大小（字节），用于上传前拦截 > 10MB */
+  size: number;
+}
+
+/** 导入进行中：防止重复点击 / 重复上传 */
+const isImporting = ref(false);
+
+/** 头部「导入」按钮：从微信聊天选文件 → 大小校验 → 上传 */
+function handleImportClick(): void {
+  if (isImporting.value) return;
+  // chooseMessageFile 仅微信小程序支持；H5 / App 端给提示，避免点了没反应
+  if (typeof uni.chooseMessageFile !== 'function') {
+    uni.showToast({ title: '请在微信小程序中导入课表', icon: 'none' });
+    return;
+  }
+  uni.chooseMessageFile({
+    count: 1,
+    type: 'file',
+    // 只让选 Excel；低版本基础库会忽略 extension，服务端仍会按后缀校验
+    extension: ['xlsx', 'xls'],
+    success: (res) => {
+      const file = res.tempFiles?.[0];
+      if (!file?.path) return;
+      // 先在本机拦一次大小，超过上限不白传一遍
+      if (typeof file.size === 'number' && file.size > MAX_IMPORT_FILE_SIZE) {
+        uni.showToast({ title: '文件不能超过 10MB', icon: 'none' });
+        return;
+      }
+      void importScheduleFile(file);
+    },
+    fail: (err) => {
+      // 用户取消选择不是错误，不打扰
+      if ((err?.errMsg || '').includes('cancel')) return;
+      uni.showToast({ title: '选择文件失败，请重试', icon: 'none' });
+    },
+  });
+}
+
+/** 上传并应用导入结果：成功后 toast 课程数、刷新列表并切换到新课表 */
+async function importScheduleFile(file: ChosenMessageFile): Promise<void> {
+  isImporting.value = true;
+  uni.showLoading({ title: '导入中...', mask: true });
+
+  let imported: ScheduleDetail | null = null;
+  try {
+    // 不传 scheduleName：后端会优先用文件内的标题，其次才是上传文件名。
+    // 微信给的是临时文件名（tmp_xxx），由后端兜底命名比前端瞎猜更靠谱。
+    imported = await ScheduleApi.importFile(file.path);
+  } catch (e: any) {
+    // 后端 400/401 的 message 已由 API 层解析成可直接展示的文案
+    const message = e instanceof Error ? e.message : e?.errMsg || '导入失败，请稍后重试';
+    uni.showModal({ title: '导入失败', content: message, showCancel: false, confirmText: '知道了' });
+  } finally {
+    uni.hideLoading();
+    isImporting.value = false;
+  }
+
+  if (!imported) return;
+  // 课程数来自后端解析结果
+  const courseCount = Number(imported.courseCount) || 0;
+  uni.showToast({ title: `已导入 ${courseCount} 门课程`, icon: 'none' });
+  // 刷新课表数据并切换到新导入的课表（新 id 可能不在导入前的列表里）
+  await applyImportedSchedule(imported);
+}
 </script>
 
 <template>
   <view class="class-tab-container" :style="themeStore.themeStyle">
-    <!-- 毛玻璃顶栏：左侧课表名/周次，右侧「今天」；MmNavBar 自带等高占位 -->
+    <!-- 毛玻璃顶栏：左侧课表名/周次，右侧「导入」「今天」；MmNavBar 自带等高占位 -->
     <MmNavBar :show-back="false" align="left">
       <template #left>
-        <view class="schedule-head">
+        <!-- 课表名可用宽度按窗口/胶囊算好，窄屏下省略号截断，避免顶栏挤压两个动作按钮 -->
+        <view class="schedule-head" :style="{ maxWidth: scheduleHeadMaxWidth + 'px' }">
           <!-- 多课表时才出现切换入口（uni picker，无额外依赖） -->
           <picker v-if="schedules.length > 1" class="schedule-picker" :range="scheduleNames"
             :value="currentScheduleIndex" @change="onScheduleChange">
@@ -146,8 +252,15 @@ function courseTimeText(block: ScheduleBlock): string {
         </view>
       </template>
       <template #right>
-        <view class="today-btn" hover-class="mm-hover" @click="goToday">
-          <text>今天</text>
+        <view class="nav-actions">
+          <!-- 导入：从微信聊天选 Excel，后端解析创建课表 -->
+          <view class="import-btn" :class="{ 'is-busy': isImporting }" hover-class="mm-hover"
+            @click="handleImportClick">
+            <text>导入</text>
+          </view>
+          <view class="today-btn" hover-class="mm-hover" @click="goToday">
+            <text>今天</text>
+          </view>
         </view>
       </template>
     </MmNavBar>
@@ -311,6 +424,8 @@ function courseTimeText(block: ScheduleBlock): string {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  /* 实际可用宽度由模板按窗口/胶囊算好；内容超出时省略号截断而不是挤压右侧按钮 */
+  overflow: hidden;
 }
 
 .schedule-picker {
@@ -323,6 +438,8 @@ function courseTimeText(block: ScheduleBlock): string {
   align-items: center;
   gap: 4px;
   min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
 }
 
 .schedule-name {
@@ -330,6 +447,8 @@ function courseTimeText(block: ScheduleBlock): string {
   font-weight: 600;
   color: var(--text-color);
   max-width: 120px;
+  /* 顶栏可用宽度不足时允许收缩，配合 ellipsis 截断 */
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -351,8 +470,15 @@ function courseTimeText(block: ScheduleBlock): string {
   padding: 2px 8px;
 }
 
-/* 「今天」按钮：36px 行内按钮热区（导航栏内），符合移动端点击规范 */
-.today-btn {
+/* 「导入」「今天」按钮组：36px 行内胶囊热区（导航栏内），样式与已有按钮一致 */
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.today-btn,
+.import-btn {
   height: 36px;
   min-width: 52px;
   padding: 0 12px;
@@ -366,6 +492,12 @@ function courseTimeText(block: ScheduleBlock): string {
   color: var(--theme-color-strong);
   font-size: 13px;
   font-weight: 600;
+}
+
+/* 导入中：置灰并屏蔽重复点击（上传期间有全屏 loading 遮罩） */
+.import-btn.is-busy {
+  opacity: 0.6;
+  pointer-events: none;
 }
 
 /* ---------- 周次切换条 ---------- */

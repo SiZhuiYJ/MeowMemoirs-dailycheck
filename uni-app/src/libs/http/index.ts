@@ -26,6 +26,17 @@ export const setAuthStore = (store: any) => {
 };
 
 /**
+ * 读取当前注入的 Auth Store 的 access token。
+ * 供不走 uni.request 封装的通道（如 uni.uploadFile 上传）手动拼 Authorization 头，
+ * 保证 token 来源与本实例注入的登录态一致，而不是在业务代码里另读本地存储。
+ * @returns {string | null} access token；未登录 / 未注入时返回 null
+ */
+export const getAuthToken = (): string | null => {
+    const token = authStore?.accessToken;
+    return typeof token === 'string' && token ? token : null;
+};
+
+/**
  * 单次请求配置项
  */
 interface RequestConfig extends UniApp.RequestOptions {
