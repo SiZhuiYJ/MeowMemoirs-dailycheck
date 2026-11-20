@@ -716,6 +716,9 @@ api/appsettings.Development.json
 # 含真实用户数据的数据库备份（邮箱、密码哈希、聊天正文），只留本地
 sql/private/
 
+# 小程序部署包（构建产物 + zip 备份，重新构建即可，不入库）
+backup-deploy/
+
 # 前端依赖与日志
 uni-app/node_modules/
 web/dev-server.out.log
