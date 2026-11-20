@@ -504,6 +504,73 @@ async function handleDeleteSchedule(): Promise<void> {
   }
 }
 
+/* ======================== 导入课表 ======================== */
+/** 导入文件类型白名单（与后端解析器支持的类型保持一致） */
+const IMPORT_FILE_EXTENSIONS = [".xlsx", ".xls"];
+/** 导入文件大小上限：10MB */
+const IMPORT_FILE_MAX_SIZE = 10 * 1024 * 1024;
+
+const importInputRef = ref<HTMLInputElement | null>(null);
+const importUploading = ref(false);
+
+/** 点「导入课表」按钮时唤起隐藏的文件选择框 */
+function openImportPicker(): void {
+  if (importUploading.value) return;
+  importInputRef.value?.click();
+}
+
+function isSupportedImportFile(file: File): boolean {
+  const name = file.name.toLowerCase();
+  return IMPORT_FILE_EXTENSIONS.some((extension) => name.endsWith(extension));
+}
+
+function handleImportFileChange(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0] ?? null;
+  // 清空 input，保证再次选择同一个文件时仍能触发 change
+  input.value = "";
+  if (!file) return;
+
+  if (!isSupportedImportFile(file)) {
+    notifyError("仅支持 .xlsx / .xls 格式的课表文件（.csv 请先用 Excel 另存为 xlsx）");
+    return;
+  }
+  if (file.size > IMPORT_FILE_MAX_SIZE) {
+    notifyError("文件不能超过 10MB，请精简后再导入");
+    return;
+  }
+  void confirmImportSchedule(file);
+}
+
+/** 确认后上传：成功后刷新列表并选中新导入的课表（复用 loadSchedules 的加载 / 选中逻辑） */
+async function confirmImportSchedule(file: File): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      `将根据「${file.name}」新建一张课表，导入完成后会自动切换到这张课表。`,
+      "导入课表",
+      { type: "info", confirmButtonText: "导入", cancelButtonText: "取消" },
+    );
+  } catch {
+    return;
+  }
+
+  importUploading.value = true;
+  try {
+    const response = await scheduleApi.importSchedule({ file });
+    const imported = response.data;
+    const courseCount =
+      typeof imported.courseCount === "number"
+        ? imported.courseCount
+        : (imported.courses?.length ?? 0);
+    notifySuccess(`课表导入成功，共导入 ${courseCount} 门课程`);
+    await loadSchedules(imported.id);
+  } catch (error) {
+    notifyError(getApiErrorMessage(error, "课表导入失败"));
+  } finally {
+    importUploading.value = false;
+  }
+}
+
 /* ======================== 工具栏交互 ======================== */
 async function handleScheduleChange(value: unknown): Promise<void> {
   if (typeof value !== "number") return;
@@ -560,11 +627,21 @@ onMounted(() => {
             <button type="button" class="schedule-btn is-primary" @click="openCreateCourse">添加课程</button>
             <button type="button" class="schedule-btn is-ghost" @click="openEditSchedule">课表设置</button>
             <button type="button" class="schedule-btn" @click="openCreateSchedule">新建课表</button>
+            <button type="button" class="schedule-btn" :disabled="importUploading" @click="openImportPicker">
+              {{ importUploading ? "导入中..." : "导入课表" }}
+            </button>
           </template>
-          <button v-else-if="!loading" type="button" class="schedule-btn is-primary" @click="openCreateSchedule">
-            新建课表
-          </button>
+          <template v-else-if="!loading">
+            <button type="button" class="schedule-btn is-primary" @click="openCreateSchedule">新建课表</button>
+            <button type="button" class="schedule-btn" :disabled="importUploading" @click="openImportPicker">
+              {{ importUploading ? "导入中..." : "导入课表" }}
+            </button>
+          </template>
         </div>
+
+        <!-- 导入课表的隐藏文件选择框：由「导入课表」按钮触发 -->
+        <input ref="importInputRef" type="file" class="schedule-import-input" accept=".xlsx,.xls"
+          @change="handleImportFileChange" />
       </header>
 
       <!-- ======================== 加载中 ======================== -->

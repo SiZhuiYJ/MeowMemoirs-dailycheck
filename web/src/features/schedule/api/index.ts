@@ -6,6 +6,7 @@ import type {
   Course,
   CoursePayload,
   ScheduleDetail,
+  ScheduleImportPayload,
   SchedulePayload,
   ScheduleSummary,
 } from "../types";
@@ -35,6 +36,32 @@ export const scheduleApi = {
   /** 删除课表（伪删除，连带课程与时间段），返回 204 */
   async remove(id: number) {
     return await http.delete(`/mm/Schedule/${id}`, { showError: false });
+  },
+
+  /**
+   * 导入课表（multipart/form-data）。
+   * file 必填；scheduleName / startTime / weekCount 可选（不传时后端用文件名等默认值）。
+   * 返回导入后新建的课表详情（结构与 detail 相同）。
+   */
+  async importSchedule(payload: ScheduleImportPayload) {
+    const formData = new FormData();
+    formData.append("file", payload.file);
+    if (payload.scheduleName?.trim()) {
+      formData.append("scheduleName", payload.scheduleName.trim());
+    }
+    if (payload.startTime) {
+      formData.append("startTime", payload.startTime);
+    }
+    if (payload.weekCount != null) {
+      formData.append("weekCount", String(payload.weekCount));
+    }
+
+    return await http.upload<ScheduleDetail>("/mm/Schedule/Import", formData, {
+      showError: false,
+      // FormData 无法参与节流 key 计算（JSON.stringify 退化成 "{}"），
+      // 不同文件的导入请求会互相误判为重复请求，这里禁用复用。
+      allowDuplicate: true,
+    });
   },
 
   /** 新建 / 更新课程（times 整体替换），返回课程 */

@@ -62,6 +62,21 @@ export interface SchedulePayload {
   remark?: string | null;
 }
 
+/**
+ * 导入课表请求（multipart/form-data）。
+ * file 必填，其余字段可选：不传时后端会用文件名 / 导入内容里的值兜底。
+ */
+export interface ScheduleImportPayload {
+  /** Excel（.xlsx / .xls）或 CSV（.csv）文件 */
+  file: File;
+  /** 课表名称，不传后端用文件名 */
+  scheduleName?: string;
+  /** 开课日期 yyyy-MM-dd（第一周周一） */
+  startTime?: string;
+  /** 学期总周数 1-100 */
+  weekCount?: number;
+}
+
 /** 保存课程时间段请求体（id 省略 / 0 表示新增） */
 export interface CourseTimePayload {
   id?: number;

@@ -63,6 +63,11 @@
   flex-wrap: wrap;
 }
 
+/* 导入课表的文件选择框：由「导入课表」按钮触发，不直接展示 */
+.schedule-import-input {
+  display: none;
+}
+
 .schedule-term-select {
   width: 190px;
 }
