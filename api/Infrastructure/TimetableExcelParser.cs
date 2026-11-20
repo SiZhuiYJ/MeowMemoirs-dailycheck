@@ -224,7 +224,7 @@ public static class TimetableExcelParser
                     var m = Regex.Match(text, @"(\d{4})[-—](\d{4})\s*(?:学年|年)?\s*(第?[一二1-2]学期)");
                     if (m.Success)
                     {
-                        semester = $"{m.Groups[1].Value}-{m.Groups[2].Value}学年{m.Groups[3].Value}学期";
+                        semester = $"{m.Groups[1].Value}-{m.Groups[2].Value}学年{m.Groups[3].Value}";
                         var firstYear = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
                         var isFirst = m.Groups[3].Value.Contains('一') || m.Groups[3].Value.Contains('1');
                         startDate = isFirst

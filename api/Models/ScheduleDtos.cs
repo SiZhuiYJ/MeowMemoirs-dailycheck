@@ -170,3 +170,42 @@ public class CourseTimeEditDto
     /// <summary>备注</summary>
     public string? Remark { get; set; }
 }
+
+/// <summary>
+/// 导入预检结果（不写库）：前端展示给用户确认「识别对不对」。
+/// </summary>
+public class ScheduleImportPreviewDto
+{
+    /// <summary>默认课表名称（用户可改）</summary>
+    public string ScheduleName { get; set; } = string.Empty;
+
+    /// <summary>从文件里识别到的学期（可能为空）</summary>
+    public string? SemesterLabel { get; set; }
+
+    /// <summary>开课日期（yyyy-MM-dd）</summary>
+    public string StartTime { get; set; } = string.Empty;
+
+    /// <summary>学期总周数</summary>
+    public int WeekCount { get; set; }
+
+    /// <summary>节次数</summary>
+    public int SectionCount { get; set; }
+
+    /// <summary>作息时间表</summary>
+    public List<string> Timetable { get; set; } = new();
+
+    /// <summary>课程数</summary>
+    public int CourseCount => Courses.Count;
+
+    /// <summary>上课时间段总数</summary>
+    public int TimeCount { get; set; }
+
+    /// <summary>课程列表（ID 均为 0，因为还没入库）</summary>
+    public List<CourseDto> Courses { get; set; } = new();
+
+    /// <summary>需要注意/确认的提示（缺教师、缺地点、周次缺失、默认日期等）</summary>
+    public List<string> Warnings { get; set; } = new();
+
+    /// <summary>预检出来的时间冲突（同一天 + 节次重叠 + 周次有交集）</summary>
+    public List<string> Conflicts { get; set; } = new();
+}
