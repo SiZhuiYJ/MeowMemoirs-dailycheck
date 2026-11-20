@@ -2024,17 +2024,37 @@
             新建或更新课表（id = 0 表示新建）。
             </summary>
         </member>
+        <member name="M:api.Controllers.ScheduleController.PreviewImport(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})">
+            <summary>
+            导入预检：只解析 Excel 并返回预览，不写数据库。
+            前端先拿这个结果让用户确认识别有没有问题，确认后再调 <see cref="M:api.Controllers.ScheduleController.ImportSchedule(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})"/> 正式保存。
+            </summary>
+            <param name="file">课表 Excel（.xlsx / .xls）</param>
+            <param name="scheduleName">课表名称（可选，不传则取文件内标题或文件名）</param>
+            <param name="startTime">开课日期 yyyy-MM-dd（可选）</param>
+            <param name="weekCount">学期周数（可选）</param>
+        </member>
         <member name="M:api.Controllers.ScheduleController.ImportSchedule(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})">
              <summary>
              从 Excel 导入课表：解析文件 → 新建一张课表 + 课程 + 时间段，返回课表详情。
             
              支持 .xlsx / .xls；解析规则与前端 demo 一致（自动识别通用横排 / 教务系统竖排、
              合并单元格、一格多课、周次等）。缺少的信息用默认值补齐（作息时间 12 节、周数 20）。
+             建议先调 <see cref="M:api.Controllers.ScheduleController.PreviewImport(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})"/> 让用户确认后再调用本接口。
              </summary>
              <param name="file">课表 Excel（.xlsx / .xls）</param>
              <param name="scheduleName">课表名称，不传则取文件里的标题或文件名</param>
              <param name="startTime">开课日期 yyyy-MM-dd，不传则取文件里的学期或本周一</param>
              <param name="weekCount">学期周数，不传则按文件里的最大周次（至少 20）</param>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.BuildImportPlanAsync(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})">
+            <summary>解析 Excel → 生成「导入计划」（预检和正式导入共用，保证两边看到的数据完全一致）。</summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.ToPreview(api.Controllers.ImportPlan)">
+            <summary>把导入计划转成预览 DTO（课程/时间段 ID 都是 0，因为还没写库）。</summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.DetectImportConflicts(System.Collections.Generic.List{api.Controllers.PlanCourse})">
+            <summary>粗查冲突：同一天、节次重叠、且周次有交集。</summary>
         </member>
         <member name="M:api.Controllers.ScheduleController.DeleteSchedule(System.UInt64)">
             <summary>
@@ -2058,6 +2078,24 @@
         </member>
         <member name="M:api.Controllers.ScheduleController.NormalizeTimetable(System.Collections.Generic.List{System.String})">
             <summary>校验并规范化作息时间表；格式不合法返回 null。</summary>
+        </member>
+        <member name="T:api.Controllers.ImportPlan">
+            <summary>导入计划（预检和正式导入共用）。</summary>
+        </member>
+        <member name="M:api.Controllers.ImportPlan.#ctor(System.String,System.String,System.DateOnly,System.Int32,System.Int32,System.Collections.Generic.List{System.String},System.Collections.Generic.List{api.Controllers.PlanCourse},System.Collections.Generic.List{System.String},System.Collections.Generic.List{System.String})">
+            <summary>导入计划（预检和正式导入共用）。</summary>
+        </member>
+        <member name="T:api.Controllers.PlanCourse">
+            <summary>计划中的一门课。</summary>
+        </member>
+        <member name="M:api.Controllers.PlanCourse.#ctor(System.String,System.String,System.Collections.Generic.List{api.Controllers.PlanTime})">
+            <summary>计划中的一门课。</summary>
+        </member>
+        <member name="T:api.Controllers.PlanTime">
+            <summary>计划中的一段上课时间。</summary>
+        </member>
+        <member name="M:api.Controllers.PlanTime.#ctor(System.Int32,System.Collections.Generic.List{System.Int32},System.Collections.Generic.List{System.Int32},System.String,System.String)">
+            <summary>计划中的一段上课时间。</summary>
         </member>
         <member name="T:api.Controllers.TelemetryController">
              <summary>
@@ -6153,6 +6191,44 @@
         </member>
         <member name="P:api.Models.CourseTimeEditDto.Remark">
             <summary>备注</summary>
+        </member>
+        <member name="T:api.Models.ScheduleImportPreviewDto">
+            <summary>
+            导入预检结果（不写库）：前端展示给用户确认「识别对不对」。
+            </summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportPreviewDto.ScheduleName">
+            <summary>默认课表名称（用户可改）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportPreviewDto.SemesterLabel">
+            <summary>从文件里识别到的学期（可能为空）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportPreviewDto.StartTime">
+            <summary>开课日期（yyyy-MM-dd）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportPreviewDto.WeekCount">
+            <summary>学期总周数</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportPreviewDto.SectionCount">
+            <summary>节次数</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportPreviewDto.Timetable">
+            <summary>作息时间表</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportPreviewDto.CourseCount">
+            <summary>课程数</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportPreviewDto.TimeCount">
+            <summary>上课时间段总数</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportPreviewDto.Courses">
+            <summary>课程列表（ID 均为 0，因为还没入库）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportPreviewDto.Warnings">
+            <summary>需要注意/确认的提示（缺教师、缺地点、周次缺失、默认日期等）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportPreviewDto.Conflicts">
+            <summary>预检出来的时间冲突（同一天 + 节次重叠 + 周次有交集）</summary>
         </member>
         <member name="T:Program">
             <summary>

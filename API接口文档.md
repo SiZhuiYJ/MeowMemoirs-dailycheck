@@ -758,13 +758,14 @@ Markdown 源文件格式（`api/Resources/changelog/CHANGELOG.md`，Keep a Chang
 | GET | `/mm/Schedule` | 当前用户的课表列表（概要，含课程数量） |
 | GET | `/mm/Schedule/{id}` | 课表详情（课表信息 + 课程列表 + 每门课的上课时间段） |
 | POST | `/mm/Schedule` | 新建 / 更新课表（`id=0` 新建；同时保存作息时间表） |
+| POST | `/mm/Schedule/Import/Preview` | **导入预检**（只解析不写库，返回预览：课程/提示/冲突，供用户确认） |
 | POST | `/mm/Schedule/Import` | **从 Excel 导入课表**（multipart 上传，解析后新建一张课表，返回课表详情） |
 | DELETE | `/mm/Schedule/{id}` | 删除课表（伪删除，连带课程与时间段） |
 | GET | `/mm/Schedule/{id}/Course/{courseId}` | 课程详情（含全部时间段） |
 | POST | `/mm/Schedule/{id}/Course` | 新建 / 更新课程（`id=0` 新建；`times` 整体替换，未出现的旧时间段自动伪删除） |
 | DELETE | `/mm/Schedule/{id}/Course/{courseId}` | 删除课程（伪删除，连带时间段） |
 
-### 8.1.1 导入课表（`POST /mm/Schedule/Import`）
+### 8.1.1 导入课表（两步：`Import/Preview` → `Import`）
 
 `Content-Type: multipart/form-data`，支持 `.xlsx` / `.xls`（≤10MB）。
 
@@ -775,6 +776,26 @@ Markdown 源文件格式（`api/Resources/changelog/CHANGELOG.md`，Keep a Chang
 | `startTime` | 否 | 开课日期 `yyyy-MM-dd`；不传时按文件里的「20xx-20xx 学年第 x 学期」推算，再退回本周一 |
 | `weekCount` | 否 | 学期周数；不传时取文件内最大周次，且至少 20（上限 100） |
 
+**第一步：预检 `POST /mm/Schedule/Import/Preview`**
+
+同样 multipart，字段只需 `file`（可选 `scheduleName` / `startTime` / `weekCount` 覆盖默认值）。
+**不写数据库**，返回 `ScheduleImportPreviewDto`：
+
+| 字段 | 说明 |
+|---|---|
+| `scheduleName` | 默认课表名称（文件内标题 → 文件名） |
+| `semesterLabel` | 从文件识别的学期（可能为 null） |
+| `startTime` | 开课日期 `yyyy-MM-dd` |
+| `weekCount` / `sectionCount` | 学期周数 / 节次数 |
+| `timetable` | 作息时间（默认 12 节标准时间，超出节次按 45 分钟顺延） |
+| `courseCount` / `timeCount` | 课程数 / 时间段数 |
+| `courses` | 课程 + 时间段（结构与 `ScheduleDetail.courses` 相同，ID 均为 0） |
+| `warnings` | 需要用户确认的提示（缺教师/缺地点/周次缺失/默认日期/默认作息等） |
+| `conflicts` | 预检出的时间冲突（同一天 + 节次重叠 + 周次有交集） |
+
+**第二步：正式导入 `POST /mm/Schedule/Import`**
+
+同上 multipart，另可带用户确认后的 `scheduleName`（留空则用默认名称）。
 响应 `200` 为 `ScheduleDetail`（新建的课表 + 课程 + 时间段）。
 
 解析能力（`api/Infrastructure/TimetableExcelParser.cs`，与前端 demo 规则一致）：
