@@ -1,8 +1,15 @@
 import http from "@/libs/http";
 import type {
+  AdminFeedbackItemDto,
+  AdminFeedbackListResponse,
   ChangelogListResponse,
+  CreateFeedbackRequest,
+  FeedbackAppFilter,
+  FeedbackItemDto,
+  FeedbackStatusFilter,
   LoginRecordListResponse,
   LoginScope,
+  MyFeedbackListResponse,
 } from "@/features/setting/types";
 
 export const SettingApi = {
@@ -58,5 +65,47 @@ export const SettingApi = {
       "/mm/Changelog",
       params ?? { limit: 20 },
     );
+  },
+  /**
+   * 提交意见反馈（需登录）。
+   * 网页端来源固定为 "web"；成功返回本人视角的单条反馈。
+   * 错误提示（内容为空 / 超长等）走全局提示，调用方只处理成功后的刷新。
+   */
+  SubmitFeedback(data: CreateFeedbackRequest) {
+    return http.post<FeedbackItemDto>("/mm/Feedback", data);
+  },
+  /**
+   * 分页获取「我的反馈」（需登录）。
+   * 关闭全局错误提示：列表失败由页面内的错误态 + 重试按钮承接，
+   * 避免网络抖动时全局弹窗刷屏。
+   */
+  GetMyFeedback(params: { page: number; pageSize: number }) {
+    return http.get<MyFeedbackListResponse>("/mm/Feedback/mine", params, {
+      showError: false,
+    });
+  },
+  /**
+   * 管理员分页查看全部反馈（仅管理员，非管理员 403）。
+   * 同样关闭全局提示：403 要在页面里展示「无权限」而不是弹一个转瞬即逝的 warning。
+   */
+  GetAdminFeedback(params: {
+    page: number;
+    pageSize: number;
+    status: FeedbackStatusFilter;
+    keyword?: string;
+    app: FeedbackAppFilter;
+  }) {
+    return http.get<AdminFeedbackListResponse>("/mm/Feedback", params, {
+      showError: false,
+    });
+  },
+  /**
+   * 管理员回复某条反馈（仅管理员；重复回复视为覆盖）。
+   * 保留全局错误提示（内容为空 / 超长 / 反馈不存在），页面只需处理成功后的局部更新。
+   */
+  ReplyFeedback(id: number, replyContent: string) {
+    return http.post<AdminFeedbackItemDto>(`/mm/Feedback/${id}/reply`, {
+      replyContent,
+    });
   },
 };

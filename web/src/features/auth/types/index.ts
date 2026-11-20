@@ -4,6 +4,12 @@ export interface AuthUser {
   nickName: string | null;
   userAccount: string | null;
   avatarKey: string | null;
+  /**
+   * 用户角色："admin" 管理员 / "user" 普通用户。
+   * 老后端可能不返回该字段，因此可选；前端一律按 `role === "admin"` 判定管理员，
+   * 未知 / 缺省都当作普通用户（权限判断失败时宁可少开入口，也不误开管理界面）。
+   */
+  role?: string | null;
   /** 上一次使用的头像 key；null 表示还没有可回退的上次头像。 */
   previousAvatarKey: string | null;
   /** 个人主页头像卡自定义背景图 key；null 表示未设置，展示时回退头像图。 */
@@ -27,6 +33,8 @@ export interface AuthData {
   email: string;
   nickName: string | null;
   userAccount: string | null;
+  /** 用户角色："admin" 管理员 / "user" 普通用户；老后端缺省。 */
+  role?: string | null;
   token: string;
   refreshToken: string;
   accessTokenExpiresAt: string;

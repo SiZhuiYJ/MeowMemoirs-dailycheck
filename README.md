@@ -13,7 +13,7 @@
 
 ```
 ├── api/                 # .NET 10 后端 API（主项目）
-│   ├── Controllers/     # Auth / Plans / Checkins / Files / Chat / Friends
+│   ├── Controllers/     # Auth / Plans / Checkins / Files / Chat / Friends / Users / LoginRecords / Changelog / Schedule / Telemetry / Feedback
 │   ├── Data/            # EF Core 实体与 DbContext
 │   ├── Hubs/            # SignalR ChatHub（/hubs/chat）
 │   ├── Infrastructure/  # JWT、Redis 校验中间件、邮件、文件、密码哈希
@@ -84,6 +84,8 @@ mysql -u root dailycheck < sql/2026-11-18_user_login_devices.sql
 mysql -u root dailycheck < sql/2026-11-19_user_login_devices_activity.sql
 # 上次头像回退（users.previous_avatar_key）
 mysql -u root dailycheck < sql/2026-11-19_user_previous_avatar.sql
+# 意见反馈表（feedbacks）——缺了 /mm/Feedback 接口会 500
+mysql -u root dailycheck < sql/2026-11-20_feedback.sql
 ```
 
 > 早期 MySQL 8 的导出已归档到 `sql/legacy/`，仅在考古时使用。导入 MariaDB 时注意两点：
@@ -173,6 +175,7 @@ npm run dev
 | 聊天 Chat | 会话/群聊、成员与角色、入群申请、消息收发、已读回执、文件消息、SignalR 实时推送 |
 | 文件 Files | 上传、预览、下载（图片转 WebP、HEIC/HEIF 适配、SHA256 去重） |
 | 登录记录 LoginRecords | 登录设备表 + 登录记录表：小程序 / web 设置页展示该账号的**设备列表**，只标记「当前设备」，每台设备显示最近活跃时间（打开小程序 / 网页时更新）与上次登录的 IP 归属地 |
+| 意见反馈 Feedback | 普通用户在 Web / 小程序设置页提交意见（内容 + 可选联系方式），并查看自己的反馈与管理员回复；管理员同一入口显示「查看意见」，可按状态 / 来源筛选、关键词搜索并回复（不显示提交界面） |
 
 > **登录设备（国内）**
 >

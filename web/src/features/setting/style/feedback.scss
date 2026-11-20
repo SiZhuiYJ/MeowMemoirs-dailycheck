@@ -1,0 +1,288 @@
+////
+/// 意见反馈子页（/setting/feedback）共享样式。
+///
+/// 普通用户「意见反馈」与管理员「查看意见」共用同一套列表 / 状态 / 回复块视觉：
+///   · 外层骨架（.setting-subpage/.setting-card/.setting-title…）在 features/setting/style/index.scss；
+///   · 颜色一律引用 `--chat-*` / `--theme-color-*` 变量，日 / 夜主题自动适配；
+///   · 本文件只写两个组件共用的部分，组件各自独有的布局放各自 scoped 样式里。
+///
+/// 由两个组件以 `@use "@/features/setting/style/feedback.scss";` 引入（scoped），
+/// 因此这里的类名不会泄漏到设置页其它子页。
+////
+
+@use "@/styles/responsive-mixins" as rp;
+
+// —— 反馈列表 ——
+.feedback-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+// 单条反馈卡片：比外层 .setting-card 亮一档，用 --chat-border 描边分层
+.feedback-item {
+  padding: 12px 14px;
+  border: 1px solid var(--chat-border);
+  border-radius: 10px;
+  background: var(--chat-surface-solid);
+}
+
+.feedback-item-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+// 管理员列表里的提交者身份（昵称 / @账号 / 邮箱）
+.feedback-user {
+  overflow: hidden;
+  color: var(--chat-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feedback-user-id {
+  color: var(--chat-muted-light);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+// 来源端小徽标：中性描边胶囊，避免和状态 tag 抢颜色
+.feedback-app {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid var(--chat-border-strong);
+  border-radius: 999px;
+  color: var(--chat-muted);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+// 提交时间靠右，长标题也先让时间可见
+.feedback-time {
+  margin-left: auto;
+  color: var(--chat-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+// 反馈正文：保留用户输入里的换行，长 URL / 连续字符强制断行
+.feedback-content {
+  margin: 8px 0 0;
+  color: var(--chat-text);
+  font-size: 13px;
+  line-height: 20px;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.feedback-meta {
+  margin: 6px 0 0;
+  color: var(--chat-muted);
+  font-size: 11px;
+  line-height: 17px;
+  word-break: break-word;
+}
+
+// —— 管理员回复块 ——
+.feedback-reply {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--chat-border);
+  border-radius: 8px;
+  background: var(--chat-surface-soft);
+}
+
+.feedback-reply-title {
+  margin: 0 0 4px;
+  color: var(--theme-color-strong);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.feedback-reply-content {
+  margin: 0;
+  color: var(--chat-text-secondary);
+  font-size: 12px;
+  line-height: 19px;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.feedback-reply-time {
+  margin: 4px 0 0;
+  color: var(--chat-muted-light);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+// 回复编辑器与「回复 / 更新回复」按钮行
+.feedback-reply-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.feedback-reply-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+// —— 骨架 / 错误 / 空态 / 分页（写法对齐 login-records 与 changelog）——
+.feedback-skeleton {
+  padding: 4px 0;
+}
+
+.feedback-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 0 12px;
+  text-align: center;
+}
+
+.feedback-state-title {
+  color: var(--chat-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.feedback-empty-desc {
+  margin: 4px 0 0;
+  color: var(--chat-muted);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.feedback-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.feedback-finished {
+  color: var(--chat-muted-light);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+// —— 筛选栏（管理员）——
+.feedback-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.feedback-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.feedback-search {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 220px;
+}
+
+// 关键词输入框吃掉剩余宽度（.setting-input 全局是 width:100%，在 flex 行里要改成自适应）
+.feedback-search .setting-input {
+  flex: 1;
+  width: auto;
+  min-width: 150px;
+}
+
+// 状态 / 来源筛选徽标数量：小圆角胶囊，选中态下仍用中性底色保证可读
+.feedback-count {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--chat-surface-soft);
+  color: var(--chat-muted);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+// —— 文本域（Element Plus）——
+// 与 .setting-input 同一套「白底 + 主题强调色描边」外观，聚焦时带浅色光晕。
+// 组件在 scoped 样式里引入本文件，:deep 由 Vue 的 scoped 后处理识别，作用到 ElInput 内部。
+.feedback-textarea :deep(.el-textarea__inner) {
+  padding: 8px 10px;
+  border: 1px solid var(--chat-border-strong);
+  border-radius: 8px;
+  background: var(--chat-surface-solid);
+  box-shadow: none;
+  color: var(--chat-text);
+  font-size: 13px;
+  line-height: 20px;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+
+  &::placeholder {
+    color: var(--chat-muted-light);
+  }
+
+  &:hover:not(:disabled) {
+    border-color: var(--chat-muted-light);
+  }
+
+  &:focus {
+    border-color: var(--chat-accent);
+    box-shadow: 0 0 0 3px var(--chat-accent-soft);
+  }
+
+  &:disabled {
+    background: var(--chat-inset);
+    color: var(--chat-muted);
+  }
+}
+
+.feedback-textarea :deep(.el-input__count) {
+  color: var(--chat-muted-light);
+  background: transparent;
+  font-size: 11px;
+}
+
+@include rp.device-mobile {
+  .feedback-item {
+    padding: 10px 12px;
+  }
+
+  .feedback-list {
+    gap: 8px;
+  }
+
+  .feedback-content {
+    font-size: 12px;
+    line-height: 19px;
+  }
+
+  .feedback-user {
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  .feedback-time {
+    font-size: 11px;
+    line-height: 17px;
+  }
+}

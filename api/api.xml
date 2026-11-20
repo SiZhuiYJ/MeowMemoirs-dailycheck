@@ -1170,6 +1170,182 @@
             </summary>
             <returns>当前登录用户的 ID。</returns>
         </member>
+        <member name="T:api.Controllers.FeedbackController">
+             <summary>
+             意见反馈接口（普通用户提交 / 查看自己的反馈；管理员查看全部并回复）。
+            
+             <para>
+             数据源是单表 <c>feedbacks</c>：管理员回复写回同一条反馈记录
+             （<c>reply_content</c> / <c>replied_by_user_id</c> / <c>replied_at</c>），
+             重复回复视为覆盖，不保留历史回复版本。
+             </para>
+             <para>
+             权限：用户接口（POST / GET mine）只看当前登录用户自己的数据；
+             管理接口（GET 列表 / POST reply）每次都**查库**确认 <c>users.role = "admin"</c>，
+             不只看 JWT 里的 role claim：claim 在令牌有效期内无法即时反映降权，
+             而反馈列表会带出所有用户的邮箱 / 账号，属敏感数据，必须每次以数据库为准。
+             </para>
+             <para>
+             时间字段一律按 UTC 存取，返回时标记为 UTC（JSON 带 Z），由客户端转本地时区展示。
+             </para>
+             </summary>
+        </member>
+        <member name="M:api.Controllers.FeedbackController.#ctor(api.Data.DailyCheckDbContext)">
+             <summary>
+             意见反馈接口（普通用户提交 / 查看自己的反馈；管理员查看全部并回复）。
+            
+             <para>
+             数据源是单表 <c>feedbacks</c>：管理员回复写回同一条反馈记录
+             （<c>reply_content</c> / <c>replied_by_user_id</c> / <c>replied_at</c>），
+             重复回复视为覆盖，不保留历史回复版本。
+             </para>
+             <para>
+             权限：用户接口（POST / GET mine）只看当前登录用户自己的数据；
+             管理接口（GET 列表 / POST reply）每次都**查库**确认 <c>users.role = "admin"</c>，
+             不只看 JWT 里的 role claim：claim 在令牌有效期内无法即时反映降权，
+             而反馈列表会带出所有用户的邮箱 / 账号，属敏感数据，必须每次以数据库为准。
+             </para>
+             <para>
+             时间字段一律按 UTC 存取，返回时标记为 UTC（JSON 带 Z），由客户端转本地时区展示。
+             </para>
+             </summary>
+        </member>
+        <member name="F:api.Controllers.FeedbackController.MaxContentLength">
+            <summary>反馈内容与回复内容的最大字符数。</summary>
+        </member>
+        <member name="F:api.Controllers.FeedbackController.MaxContactLength">
+            <summary>联系方式的最大字符数。</summary>
+        </member>
+        <member name="F:api.Controllers.FeedbackController.MaxKeywordLength">
+            <summary>管理员关键词搜索的最大字符数（超出部分截断，避免超长 LIKE）。</summary>
+        </member>
+        <member name="F:api.Controllers.FeedbackController.DefaultPageSize">
+            <summary>分页默认每页数量。</summary>
+        </member>
+        <member name="F:api.Controllers.FeedbackController.MaxPageSize">
+            <summary>分页最大每页数量。</summary>
+        </member>
+        <member name="M:api.Controllers.FeedbackController.CreateFeedback(api.Models.CreateFeedbackRequest,System.Threading.CancellationToken)">
+             <summary>
+             提交反馈（当前登录用户）。
+            
+             <para>
+             内容 trim 后必须在 1..2000 字符；联系方式 trim 后空串按不填处理（存 NULL）；
+             <c>app</c> 只有小程序的 "mp" 记为 mp，其余（含缺省 / 非法值）一律按网页 web 记录。
+             新反馈状态为 pending，返回本人视角的反馈 DTO。
+             </para>
+             </summary>
+             <param name="request">反馈内容、可选联系方式、来源端。</param>
+             <param name="cancellationToken">取消标记。</param>
+             <returns>刚提交的反馈。</returns>
+             <response code="200">提交成功</response>
+             <response code="400">反馈内容 / 联系方式不合法</response>
+             <response code="401">未登录或登录状态已失效</response>
+        </member>
+        <member name="M:api.Controllers.FeedbackController.GetMyFeedbacks(System.Int32,System.Int32,System.Threading.CancellationToken)">
+             <summary>
+             分页获取当前用户自己提交的反馈（「我的反馈」）。
+            
+             <para>
+             只返回本人且未删除的反馈，按提交时间倒序（同一时间按 ID 倒序保证分页稳定）。
+             </para>
+             </summary>
+             <param name="page">页码，默认 1，小于 1 按 1 处理。</param>
+             <param name="pageSize">每页数量，默认 20，取值夹到 1..50。</param>
+             <param name="cancellationToken">取消标记。</param>
+             <returns>当前用户的反馈分页结果。</returns>
+             <response code="200">获取成功</response>
+             <response code="401">未登录或登录状态已失效</response>
+        </member>
+        <member name="M:api.Controllers.FeedbackController.GetAllFeedbacks(System.Int32,System.Int32,System.String,System.String,System.String,System.Threading.CancellationToken)">
+             <summary>
+             管理员分页查看全部意见。
+            
+             <para>
+             支持状态（pending / replied / all）、来源端（web / mp / all）与关键词筛选；
+             关键词同时匹配反馈内容、联系方式与提交用户（邮箱 / 账号 / 昵称），
+             用户即使被伪删除也仍能展示其历史反馈（这里不按 users.is_deleted 过滤）。
+             <c>pendingTotal</c> / <c>repliedTotal</c> 是全部未删除反馈的统计，
+             不受关键词 / 来源筛选影响，供前端 tab 徽标显示。
+             </para>
+             </summary>
+             <param name="page">页码，默认 1，小于 1 按 1 处理。</param>
+             <param name="pageSize">每页数量，默认 20，取值夹到 1..50。</param>
+             <param name="status">状态筛选：pending / replied / all（缺省或非法按 all）。</param>
+             <param name="keyword">关键词（trim，最多取前 100 字符；空表示不过滤）。</param>
+             <param name="app">来源端筛选：web / mp / all（缺省或非法按 all）。</param>
+             <param name="cancellationToken">取消标记。</param>
+             <returns>全部反馈分页结果（含待回复 / 已回复总数）。</returns>
+             <response code="200">获取成功</response>
+             <response code="401">未登录或登录状态已失效</response>
+             <response code="403">当前用户不是管理员</response>
+        </member>
+        <member name="M:api.Controllers.FeedbackController.ReplyFeedback(System.UInt64,api.Models.ReplyFeedbackRequest,System.Threading.CancellationToken)">
+             <summary>
+             管理员回复反馈（重复回复视为覆盖，保留最后一条回复）。
+            
+             <para>
+             回复内容 trim 后必须在 1..2000 字符；反馈不存在或已伪删除返回 404。
+             回复后状态置为 replied，并记录回复管理员与回复时间（UTC）。
+             </para>
+             </summary>
+             <param name="id">反馈 ID。</param>
+             <param name="request">回复内容。</param>
+             <param name="cancellationToken">取消标记。</param>
+             <returns>回复后的反馈（管理员视角，含提交用户身份）。</returns>
+             <response code="200">回复成功</response>
+             <response code="400">回复内容不合法</response>
+             <response code="401">未登录或登录状态已失效</response>
+             <response code="403">当前用户不是管理员</response>
+             <response code="404">反馈不存在</response>
+        </member>
+        <member name="M:api.Controllers.FeedbackController.IsAdminAsync(System.UInt64,System.Threading.CancellationToken)">
+            <summary>
+            查库判断当前用户是否为管理员。
+            不依赖 JWT 的 role claim：claim 在令牌有效期内是快照，管理员被降权后旧令牌仍带 admin。
+            </summary>
+            <param name="userId">当前用户 ID。</param>
+            <param name="cancellationToken">取消标记。</param>
+            <returns>是管理员返回 true；用户不存在 / 已删除 / 角色不是 admin 返回 false。</returns>
+        </member>
+        <member name="M:api.Controllers.FeedbackController.NormalizeEnumFilter(System.String,System.String,System.String)">
+            <summary>
+            规范化枚举类筛选参数：只允许白名单值，其余（含 null / 空串 / 非法值）按 all。
+            </summary>
+            <param name="raw">原始参数值。</param>
+            <param name="allowedFirst">第一个合法值。</param>
+            <param name="allowedSecond">第二个合法值。</param>
+            <returns>规范化后的值（allowedFirst / allowedSecond / all）。</returns>
+        </member>
+        <member name="M:api.Controllers.FeedbackController.ToItemDto(api.Data.Feedback)">
+            <summary>实体 → 本人视角的反馈 DTO（时间统一标记为 UTC）。</summary>
+            <param name="feedback">反馈实体。</param>
+            <returns>反馈 DTO。</returns>
+        </member>
+        <member name="M:api.Controllers.FeedbackController.ToAdminItemDto(api.Data.Feedback,System.String,System.String,System.String)">
+            <summary>实体 + 提交用户身份 → 管理员视角的反馈 DTO。</summary>
+            <param name="feedback">反馈实体。</param>
+            <param name="userAccount">提交用户账号（可能为 null）。</param>
+            <param name="nickName">提交用户昵称（可能为 null）。</param>
+            <param name="email">提交用户邮箱（可能为 null）。</param>
+            <returns>管理员反馈 DTO。</returns>
+        </member>
+        <member name="M:api.Controllers.FeedbackController.AsUtc(System.DateTime)">
+            <summary>把数据库读出的 datetime（Kind=Unspecified，实际为 UTC）标记为 UTC，保证 JSON 带 Z。</summary>
+            <param name="value">数据库时间。</param>
+            <returns>Kind=Utc 的时间。</returns>
+        </member>
+        <member name="M:api.Controllers.FeedbackController.AsUtc(System.Nullable{System.DateTime})">
+            <summary>可空时间版本的 <see cref="M:api.Controllers.FeedbackController.AsUtc(System.DateTime)"/>；null 原样返回。</summary>
+            <param name="value">数据库时间（可能为 null）。</param>
+            <returns>Kind=Utc 的时间；null 返回 null。</returns>
+        </member>
+        <member name="M:api.Controllers.FeedbackController.GetUserId">
+            <summary>
+            从当前访问令牌中解析用户 ID（与其它控制器保持一致的 Claim 兼容顺序）。
+            </summary>
+            <returns>当前登录用户 ID。</returns>
+        </member>
         <member name="T:api.Controllers.FilesController">
             <summary>
             文件管理接口，提供安全的图片上传和访问服务。
@@ -2933,7 +3109,21 @@
         </member>
         <member name="T:api.Data.DailyCheckDbContext">
              <summary>
-             课表相关实体的映射（Schedule / Course / CourseTime）。
+             意见反馈实体的映射（Feedback）。
+            
+             和 Schedule 一样放在 partial 文件里，而不是改 DailyCheckDbContext.cs 主文件：
+             主文件由 EF scaffold 生成，重新 scaffold 会被覆盖。
+            
+             <para>
+             注意：C# 的 partial 方法只允许**一个**实现声明，而 <c>OnModelCreatingPartial</c>
+             的实现已被 <c>DailyCheckDbContext.Schedule.cs</c> 占用。所以这里把反馈映射写成
+             普通方法 <see cref="M:api.Data.DailyCheckDbContext.ConfigureFeedbackModel(Microsoft.EntityFrameworkCore.ModelBuilder)"/>，由 Schedule partial 里的
+             OnModelCreatingPartial 统一调用，各业务模块的映射仍各自独立成文件、互不覆盖。
+             </para>
+             </summary>
+             <summary>
+             课表相关实体的映射（Schedule / Course / CourseTime），同时作为
+             <c>OnModelCreatingPartial</c> 的唯一实现入口，挂载其它模块的 partial 映射。
             
              单独放在 partial 文件里而不是改 DailyCheckDbContext.cs 主文件：
              该文件是由 EF scaffold 生成的大文件，重新 scaffold 时会被覆盖，
@@ -2949,6 +3139,66 @@
             <summary>
             用户登录记录（含IP归属地）。
             </summary>
+        </member>
+        <member name="P:api.Data.DailyCheckDbContext.Feedbacks">
+            <summary>用户意见反馈</summary>
+        </member>
+        <member name="M:api.Data.DailyCheckDbContext.ConfigureFeedbackModel(Microsoft.EntityFrameworkCore.ModelBuilder)">
+            <summary>
+            挂载反馈表映射（由 <c>DailyCheckDbContext.Schedule.cs</c> 的 OnModelCreatingPartial 调用）。
+            </summary>
+            <param name="modelBuilder">EF 模型构建器。</param>
+        </member>
+        <member name="T:api.Data.Feedback">
+             <summary>
+             用户意见反馈（普通用户提交，管理员在同一行上回复）。
+            
+             <para>
+             回复直接写在反馈行上（<see cref="P:api.Data.Feedback.ReplyContent"/> / <see cref="P:api.Data.Feedback.RepliedByUserId"/> /
+             <see cref="P:api.Data.Feedback.RepliedAt"/>），不另建回复表：当前业务一条反馈只需一次回复，
+             重复回复视为覆盖，单表能减少 join 并让前端一次拿全展示所需字段。
+             </para>
+             <para>
+             删除使用 <see cref="P:api.Data.Feedback.IsDeleted"/> 伪删除；时间字段一律为 UTC（与项目其它模块一致），
+             展示时由客户端转本地时区。
+             </para>
+             </summary>
+        </member>
+        <member name="P:api.Data.Feedback.Id">
+            <summary>反馈 ID</summary>
+        </member>
+        <member name="P:api.Data.Feedback.UserId">
+            <summary>提交用户 ID</summary>
+        </member>
+        <member name="P:api.Data.Feedback.Content">
+            <summary>反馈内容（不超过 2000 字符，已 trim）</summary>
+        </member>
+        <member name="P:api.Data.Feedback.Contact">
+            <summary>联系方式（可选，邮箱 / 手机号 / QQ 等，已 trim，空串存 NULL）</summary>
+        </member>
+        <member name="P:api.Data.Feedback.App">
+            <summary>来源端：web 网页，mp 小程序</summary>
+        </member>
+        <member name="P:api.Data.Feedback.Status">
+            <summary>处理状态：pending 待回复，replied 已回复</summary>
+        </member>
+        <member name="P:api.Data.Feedback.ReplyContent">
+            <summary>管理员回复内容（未回复为 NULL，已 trim）</summary>
+        </member>
+        <member name="P:api.Data.Feedback.RepliedByUserId">
+            <summary>回复管理员 ID（未回复为 NULL）</summary>
+        </member>
+        <member name="P:api.Data.Feedback.RepliedAt">
+            <summary>回复时间（UTC，未回复为 NULL）</summary>
+        </member>
+        <member name="P:api.Data.Feedback.IsDeleted">
+            <summary>是否伪删除：0正常，1已删除</summary>
+        </member>
+        <member name="P:api.Data.Feedback.CreatedAt">
+            <summary>提交时间（UTC）</summary>
+        </member>
+        <member name="P:api.Data.Feedback.UpdatedAt">
+            <summary>更新时间（UTC，提交/回复时刷新）</summary>
         </member>
         <member name="T:api.Data.Schedule">
             <summary>
@@ -4660,6 +4910,11 @@
             用户账号，可选
             </summary>
         </member>
+        <member name="P:api.Models.AuthResponse.Role">
+            <summary>
+            用户角色：user 普通用户，admin 管理员（前端据此决定是否显示管理入口）
+            </summary>
+        </member>
         <member name="P:api.Models.AuthResponse.AvatarKey">
             <summary>
             头像键，可选
@@ -4733,6 +4988,11 @@
         <member name="P:api.Models.UserBasicResponse.ProfileBackgroundKey">
             <summary>
             个人主页背景图键，可选
+            </summary>
+        </member>
+        <member name="P:api.Models.UserBasicResponse.Role">
+            <summary>
+            用户角色：user 普通用户，admin 管理员（前端在前端刷新用户信息时据此判断管理入口）
             </summary>
         </member>
         <member name="T:api.Models.UpdateUserProfileRequest">
@@ -5754,6 +6014,132 @@
             <summary>
             关联的时间段ID（如果有）
             </summary>
+        </member>
+        <member name="T:api.Models.CreateFeedbackRequest">
+            <summary>
+            提交反馈请求参数。
+            </summary>
+        </member>
+        <member name="P:api.Models.CreateFeedbackRequest.Content">
+            <summary>
+            反馈内容（必填，trim 后非空且不超过 2000 个字符）。
+            声明为可空是为了在缺失字段时返回业务错误文案，而不是框架的模型校验 400。
+            </summary>
+        </member>
+        <member name="P:api.Models.CreateFeedbackRequest.Contact">
+            <summary>
+            联系方式（可选，邮箱 / 手机号 / QQ 等；trim 后空串按不填处理，不超过 128 个字符）。
+            </summary>
+        </member>
+        <member name="P:api.Models.CreateFeedbackRequest.App">
+            <summary>
+            来源端：web 网页 / mp 小程序；仅 "mp" 记为 mp，其余（含缺省）按 web 处理。
+            </summary>
+        </member>
+        <member name="T:api.Models.ReplyFeedbackRequest">
+            <summary>
+            管理员回复反馈请求参数。
+            </summary>
+        </member>
+        <member name="P:api.Models.ReplyFeedbackRequest.ReplyContent">
+            <summary>
+            回复内容（必填，trim 后非空且不超过 2000 个字符；重复回复视为覆盖）。
+            </summary>
+        </member>
+        <member name="T:api.Models.FeedbackItemDto">
+            <summary>
+            单条反馈（普通用户视角：只看自己的反馈，不含用户身份字段）。
+            </summary>
+        </member>
+        <member name="P:api.Models.FeedbackItemDto.Id">
+            <summary>反馈 ID</summary>
+        </member>
+        <member name="P:api.Models.FeedbackItemDto.Content">
+            <summary>反馈内容</summary>
+        </member>
+        <member name="P:api.Models.FeedbackItemDto.Contact">
+            <summary>联系方式（可选）</summary>
+        </member>
+        <member name="P:api.Models.FeedbackItemDto.App">
+            <summary>来源端：web 网页 / mp 小程序</summary>
+        </member>
+        <member name="P:api.Models.FeedbackItemDto.Status">
+            <summary>处理状态：pending 待回复 / replied 已回复</summary>
+        </member>
+        <member name="P:api.Models.FeedbackItemDto.ReplyContent">
+            <summary>管理员回复内容（未回复为 null）</summary>
+        </member>
+        <member name="P:api.Models.FeedbackItemDto.RepliedAt">
+            <summary>回复时间（UTC，未回复为 null）</summary>
+        </member>
+        <member name="P:api.Models.FeedbackItemDto.CreatedAt">
+            <summary>提交时间（UTC）</summary>
+        </member>
+        <member name="T:api.Models.AdminFeedbackItemDto">
+            <summary>
+            单条反馈（管理员视角：在普通字段之外附带提交用户身份）。
+            </summary>
+        </member>
+        <member name="P:api.Models.AdminFeedbackItemDto.UserId">
+            <summary>提交用户 ID</summary>
+        </member>
+        <member name="P:api.Models.AdminFeedbackItemDto.UserAccount">
+            <summary>提交用户账号（用户被软删除后仍展示其历史反馈的账号）</summary>
+        </member>
+        <member name="P:api.Models.AdminFeedbackItemDto.NickName">
+            <summary>提交用户昵称</summary>
+        </member>
+        <member name="P:api.Models.AdminFeedbackItemDto.Email">
+            <summary>提交用户邮箱</summary>
+        </member>
+        <member name="T:api.Models.MyFeedbackListResponse">
+            <summary>
+            「我的反馈」分页响应。
+            </summary>
+        </member>
+        <member name="P:api.Models.MyFeedbackListResponse.Page">
+            <summary>当前页码（从 1 开始）</summary>
+        </member>
+        <member name="P:api.Models.MyFeedbackListResponse.PageSize">
+            <summary>每页数量（1..50）</summary>
+        </member>
+        <member name="P:api.Models.MyFeedbackListResponse.Total">
+            <summary>当前用户的反馈总数（不含已删除）</summary>
+        </member>
+        <member name="P:api.Models.MyFeedbackListResponse.Items">
+            <summary>当前页反馈，按提交时间倒序</summary>
+        </member>
+        <member name="T:api.Models.AdminFeedbackListResponse">
+            <summary>
+            管理员「查看意见」分页响应。
+            </summary>
+        </member>
+        <member name="P:api.Models.AdminFeedbackListResponse.Page">
+            <summary>当前页码（从 1 开始）</summary>
+        </member>
+        <member name="P:api.Models.AdminFeedbackListResponse.PageSize">
+            <summary>每页数量（1..50）</summary>
+        </member>
+        <member name="P:api.Models.AdminFeedbackListResponse.Total">
+            <summary>当前筛选条件命中的反馈数</summary>
+        </member>
+        <member name="P:api.Models.AdminFeedbackListResponse.PendingTotal">
+            <summary>全部未删除反馈中待回复的数量（不受关键词 / 来源筛选影响，供前端 tab 徽标）</summary>
+        </member>
+        <member name="P:api.Models.AdminFeedbackListResponse.RepliedTotal">
+            <summary>全部未删除反馈中已回复的数量（不受关键词 / 来源筛选影响，供前端 tab 徽标）</summary>
+        </member>
+        <member name="P:api.Models.AdminFeedbackListResponse.Status">
+            <summary>生效的状态筛选：pending / replied / all</summary>
+        </member>
+        <member name="P:api.Models.AdminFeedbackListResponse.Keyword">
+            <summary>生效的关键词（trim 后；无关键词为 null）</summary>
+        </member>
+        <member name="P:api.Models.AdminFeedbackListResponse.App">
+            <summary>生效的来源端筛选：web / mp / all</summary>
+        </member>
+        <member name="P:api.Models.AdminFeedbackListResponse.Items">
+            <summary>当前页反馈，按提交时间倒序</summary>
         </member>
         <member name="T:api.Models.LoginRecordListResponse">
             <summary>

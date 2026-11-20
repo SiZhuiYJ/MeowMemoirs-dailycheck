@@ -162,6 +162,11 @@ public class AuthResponse
     public string? UserAccount { get; set; }
 
     /// <summary>
+    /// 用户角色：user 普通用户，admin 管理员（前端据此决定是否显示管理入口）
+    /// </summary>
+    public string Role { get; set; } = "user";
+
+    /// <summary>
     /// 头像键，可选
     /// </summary>
     public string? AvatarKey { get; set; }
@@ -236,6 +241,11 @@ public class UserBasicResponse
     /// 个人主页背景图键，可选
     /// </summary>
     public string? ProfileBackgroundKey { get; set; }
+
+    /// <summary>
+    /// 用户角色：user 普通用户，admin 管理员（前端在前端刷新用户信息时据此判断管理入口）
+    /// </summary>
+    public string Role { get; set; } = "user";
 }
 
 /// <summary>

@@ -84,13 +84,14 @@ function applyCustomSeed() {
 }
 
 // 功能菜单（顺序与改版前保持一致）
-const menuItems = [
+// 「意见反馈」按角色改文案：管理员进入的是「查看意见」页（同一路径，页面内部按 isAdmin 切换视图）
+const menuItems = computed(() => [
   { label: '更新日志', path: '/pages/settings/changelog' },
   { label: '重要提醒', path: '/pages/settings/reminders' },
-  { label: '意见反馈', path: '/pages/settings/feedback' },
+  { label: authStore.isAdmin ? '查看意见' : '意见反馈', path: '/pages/settings/feedback' },
   { label: '数据隐私', path: '/pages/settings/privacy' },
   { label: '登录记录', path: '/pages/settings/login-records' },
-];
+]);
 
 function handleNavigateToProfile() {
   uni.navigateTo({

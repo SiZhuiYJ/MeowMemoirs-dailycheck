@@ -3,7 +3,8 @@ using Microsoft.EntityFrameworkCore;
 namespace api.Data;
 
 /// <summary>
-/// 课表相关实体的映射（Schedule / Course / CourseTime）。
+/// 课表相关实体的映射（Schedule / Course / CourseTime），同时作为
+/// <c>OnModelCreatingPartial</c> 的唯一实现入口，挂载其它模块的 partial 映射。
 ///
 /// 单独放在 partial 文件里而不是改 DailyCheckDbContext.cs 主文件：
 /// 该文件是由 EF scaffold 生成的大文件，重新 scaffold 时会被覆盖，
@@ -19,6 +20,10 @@ public partial class DailyCheckDbContext
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
+        // 部分方法只允许有一个实现（本文件），其它业务模块的映射在这里统一挂载，
+        // 各自仍放在独立的 partial 文件里，避免改 scaffold 生成的 DailyCheckDbContext.cs。
+        ConfigureFeedbackModel(modelBuilder);
+
         modelBuilder.Entity<Schedule>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");

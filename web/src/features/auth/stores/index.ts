@@ -33,6 +33,13 @@ export const useAuthStore = defineStore("auth", () => {
     return !!accessToken.value;
   });
 
+  /**
+   * 是否管理员。
+   * 后端在用户信息 / 登录响应里返回 role（"admin" | "user"），前端只认 "admin"：
+   * 缺省、未知取值一律视为普通用户，避免把管理员界面误开给普通用户。
+   */
+  const isAdmin = computed(() => user.value?.role === "admin");
+
   async function initialAuth() {
     const { data } = await authApi.getAuthData();
     user.value = data;
@@ -45,6 +52,7 @@ export const useAuthStore = defineStore("auth", () => {
       nickName: payload.nickName,
       userAccount: payload.userAccount,
       avatarKey: payload.avatarKey || null,
+      role: payload.role ?? null,
       previousAvatarKey: payload.previousAvatarKey || null,
       profileBackgroundKey: payload.profileBackgroundKey || null,
     };
@@ -282,6 +290,7 @@ export const useAuthStore = defineStore("auth", () => {
     refreshToken,
     initialAuth,
     isAuthenticated,
+    isAdmin,
     setSession,
     updateUser,
     clear,

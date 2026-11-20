@@ -3,15 +3,24 @@ import SettingsMenu from "@/components/Menu/SettingsMenu.vue";
 import SettingsMenuItem from "@/components/Menu/SettingsMenuItem.vue";
 import ThemeColorDialog from "@/components/ThemeColorDialog.vue";
 import router from "@/routers/index";
+import { useAuthStore } from "@/stores";
 import { computed, ref } from "vue";
 
-const menuList = ref([
+const authStore = useAuthStore();
+
+/**
+ * 设置子页菜单。
+ * 改成 computed 只是为了「意见反馈 / 查看意见」随角色变化文案，其它项顺序不变；
+ * 普通用户提交反馈，管理员查看并回复，管理员没有反馈提交界面，所以入口文案不同。
+ */
+const menuList = computed(() => [
     { name: "个人信息", path: "/setting/profile" },
     { name: "账号修改", path: "/setting/account" },
     { name: "头像修改", path: "/setting/avatar" },
     { name: "头像背景", path: "/setting/appearance" },
     { name: "密码修改", path: "/setting/password" },
     { name: "平台绑定", path: "/setting/bind" },
+    { name: authStore.isAdmin ? "查看意见" : "意见反馈", path: "/setting/feedback" },
     { name: "登录记录", path: "/setting/login-records" },
     { name: "更新日志", path: "/setting/changelog" },
     { name: "注销账号", path: "/setting/deactivate" },

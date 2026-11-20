@@ -17,6 +17,11 @@ export interface AuthUser {
   previousAvatarKey: string | null;
   profileBackgroundKey: string | null; // 个人主页背景图 key，null 表示未设置（回退到头像）
   thirdPartyBindings?: ThirdPartyBinding[]; // 新增：第三方绑定信息
+  /**
+   * 账号角色："admin" 管理员 / "user" 普通用户 / null 未知（旧缓存或接口未返回）。
+   * 用于设置页菜单与意见反馈页按角色切换视图；权限最终仍由后端校验，这里只决定展示。
+   */
+  role: string | null;
 }
 
 export interface AuthState {
@@ -53,6 +58,13 @@ export const useAuthStore = defineStore('auth', {
     isAuthenticated(state): boolean {
       return !!state.accessToken;
     },
+    /**
+     * 是否管理员：只认后端返回的 role 字段。
+     * 本地缓存里没有 role 时返回 false，页面会先拉一次 /mm/Auth/me 补齐角色再决定视图。
+     */
+    isAdmin(state): boolean {
+      return state.user?.role === 'admin';
+    },
   },
   actions: {
     setSession(payload: any): void {
@@ -73,6 +85,8 @@ export const useAuthStore = defineStore('auth', {
         previousAvatarKey: getVal(['previousAvatarKey', 'PreviousAvatarKey']) || null,
         profileBackgroundKey: getVal(['profileBackgroundKey', 'ProfileBackgroundKey']) || null,
         thirdPartyBindings: getVal(['thirdPartyBindings', 'ThirdPartyBindings']) || [], // 添加第三方绑定信息
+        // 登录 / 刷新返回的 AuthResponse 新增 role 字段，缺失时记 null，页面据此再拉 /me 补齐
+        role: getVal(['role', 'Role']) ?? null,
       };
       this.accessToken = getVal(['token', 'Token']);
       this.refreshToken = getVal(['refreshToken', 'RefreshToken']);
@@ -127,6 +141,10 @@ export const useAuthStore = defineStore('auth', {
 
           const thirdPartyBindings = getVal(['thirdPartyBindings', 'ThirdPartyBindings']);
           if (thirdPartyBindings !== undefined) updateData.thirdPartyBindings = thirdPartyBindings;
+
+          // 角色可能由管理端调整，每次拉取 /me 都以服务端为准刷新
+          const role = getVal(['role', 'Role']);
+          if (role !== undefined) updateData.role = role ?? null;
 
           this.updateUser(updateData);
         }

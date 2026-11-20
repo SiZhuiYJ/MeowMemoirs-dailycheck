@@ -151,6 +151,19 @@ export const staticRouter: RouteRecordRaw[] = [
         },
       },
       {
+        path: "/setting/feedback", // [唯一]
+        component: () => import("@/views/setting/feedback/index.vue"),
+        meta: {
+          title: "意见反馈",
+          enName: "Feedback",
+          icon: "ChatDotRound",
+          isHide: "1",
+          isLink: "",
+          isKeepAlive: "0",
+          isFull: "1",
+        },
+      },
+      {
         path: "/setting/changelog", // [唯一]
         component: () => import("@/views/setting/changelog/index.vue"),
         meta: {

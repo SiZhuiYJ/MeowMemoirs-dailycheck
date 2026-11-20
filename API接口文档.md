@@ -1,6 +1,6 @@
 # DailyCheck API 接口文档（按最新控制器同步）
 
-> 更新时间：2026-11-19  
+> 更新时间：2026-11-20  
 > 服务基路径：`/mm`  
 > 认证方式：`Authorization: Bearer <access_token>`（标记匿名的接口除外）
 
@@ -51,6 +51,12 @@
 > 微信登录绑定等接口返回的 `AuthResponse` 同样包含该字段；`POST /profile` 传 `avatarKey` 时，
 > 服务端会在更新前把旧头像记入 `previous_avatar_key`。客户端的「使用上次头像」入口**始终显示**，
 > `previousAvatarKey` 为 `null` 时点击会提示「更换一次头像后可用」（切换接口见 §4.2）。
+
+> 角色字段说明：`GET /me`（`UserBasicResponse`）返回 `role` 字段（`"user"` 普通用户 / `"admin"` 管理员，
+> 取数据库 `users.role`，缺省 `"user"`）；登录 / 注册 / 邮箱验证码登录 / 刷新令牌 / 微信注册 / 微信登录 /
+> 微信一键登录 / 换绑邮箱 / 更新个人资料 / 改账号名等返回 `AuthResponse` 的接口**同样包含 `role`**。
+> 前端据此决定是否显示管理员入口；管理接口的权限判定以数据库中的 `users.role` 为准
+> （JWT 里的 role claim 只是签名时的快照），详见 §9。
 
 ### 1.3 登录设备列表（最后活跃时间）
 
@@ -869,3 +875,238 @@ interface CourseTime {
 - **一门课多段**：`times` 中每项是一段（不同星期 / 周次 / 地点 / 教师）。
 - **删除**均为伪删除，查询自动过滤；课表 / 课程 / 时间段数据归属当前登录用户，越权返回 404。
 - 前端：Web 使用 `web/src/features/schedule/`，小程序使用 `uni-app/src/features/Curriculum/useSchedule.ts`。
+
+---
+
+## 9. 意见反馈（Feedback）
+
+控制器：`FeedbackController`  
+路由前缀：`/mm/Feedback`  
+认证方式：`Authorization: Bearer <access_token>`（全部接口需要登录）
+
+> 数据来源：单表 `feedbacks`，一条反馈一行；管理员回复**写回同一条记录**
+> （`reply_content` / `replied_by_user_id` / `replied_at`），重复回复视为覆盖、不保留历史回复版本。
+> 建表脚本：`sql/2026-11-20_feedback.sql`（幂等，可重复执行）。
+> 删除为伪删除（`is_deleted`，当前接口没有删除入口，仅预留字段）；`user_id` 外键
+> `ON DELETE CASCADE`，`replied_by_user_id` 外键 `ON DELETE SET NULL`。
+> 时间字段一律按 UTC 存取，展示时由客户端转本地时区。
+
+### 9.1 接口列表
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| POST | `/mm/Feedback` | 登录用户（普通用户 / 管理员均可调用） | 提交一条反馈 |
+| GET | `/mm/Feedback/mine?page=1&pageSize=20` | 登录用户（只看自己的） | 分页获取「我的反馈」 |
+| GET | `/mm/Feedback?page=1&pageSize=20&status=all&keyword=&app=all` | **仅管理员** | 分页查看全部反馈（状态 / 来源筛选 + 关键词搜索） |
+| POST | `/mm/Feedback/{id}/reply` | **仅管理员** | 回复指定反馈（重复回复 = 覆盖） |
+
+### 9.2 提交反馈
+
+`POST /mm/Feedback`（需认证）
+
+请求体字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `content` | string | 是 | 反馈内容，trim 后必须非空且 ≤2000 字符 |
+| `contact` | string \| null | 否 | 联系方式（邮箱 / 手机号 / QQ 等）；trim 后空串按不填处理（存 `NULL`），≤128 字符 |
+| `app` | string | 否 | 来源端：只有 `"mp"` 记为小程序（大小写不敏感），其余（含缺省 / 非法值）一律按网页 `"web"` 处理 |
+
+请求示例：
+
+```json
+{
+  "content": "希望打卡日历支持导出",
+  "contact": "me@example.com",
+  "app": "web"
+}
+```
+
+响应示例（200，`FeedbackItemDto`，新反馈 `status=pending`）：
+
+```json
+{
+  "id": 12,
+  "content": "希望打卡日历支持导出",
+  "contact": "me@example.com",
+  "app": "web",
+  "status": "pending",
+  "replyContent": null,
+  "repliedAt": null,
+  "createdAt": "2026-11-20T09:20:00Z"
+}
+```
+
+`FeedbackItemDto` 字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | number(int64) | 反馈 ID |
+| `content` | string | 反馈内容（trim 后） |
+| `contact` | string \| null | 联系方式（未填写为 `null`） |
+| `app` | string | 来源端：`web` 网页 / `mp` 小程序 |
+| `status` | string | 处理状态：`pending` 待回复 / `replied` 已回复 |
+| `replyContent` | string \| null | 管理员回复内容（未回复为 `null`） |
+| `repliedAt` | string \| null | 回复时间（UTC，ISO 8601 带 `Z`；未回复为 `null`） |
+| `createdAt` | string | 提交时间（UTC，ISO 8601 带 `Z`） |
+
+### 9.3 我的反馈
+
+`GET /mm/Feedback/mine?page=1&pageSize=20`（需认证）
+
+只返回**当前登录用户自己**且 `is_deleted=0` 的反馈，按 `createdAt` 倒序（同一时间按 `id` 倒序）。
+
+查询参数：
+
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `page` | int | `1` | 页码，小于 1 按 1 处理 |
+| `pageSize` | int | `20` | 每页数量，取值夹到 `1..50` |
+
+响应示例（200，`MyFeedbackListResponse`）：
+
+```json
+{
+  "page": 1,
+  "pageSize": 20,
+  "total": 2,
+  "items": [
+    {
+      "id": 12,
+      "content": "希望打卡日历支持导出",
+      "contact": "me@example.com",
+      "app": "web",
+      "status": "replied",
+      "replyContent": "已加入需求池，感谢反馈",
+      "repliedAt": "2026-11-20T09:30:00Z",
+      "createdAt": "2026-11-20T09:20:00Z"
+    },
+    {
+      "id": 11,
+      "content": "小程序夜间模式字体有点小",
+      "contact": null,
+      "app": "mp",
+      "status": "pending",
+      "replyContent": null,
+      "repliedAt": null,
+      "createdAt": "2026-11-20T08:05:00Z"
+    }
+  ]
+}
+```
+
+### 9.4 管理员查看全部反馈
+
+`GET /mm/Feedback?page=1&pageSize=20&status=all&keyword=&app=all`（**仅管理员**）
+
+权限说明：管理接口（本节 + §9.5）**每次请求都查库**确认 `users.role = "admin"` 且用户未被删除；
+非管理员（含用户不存在 / 已删除）返回 `403 { "message": "仅管理员可查看全部反馈" }`。
+服务端不只看 JWT 里的 role claim：claim 在令牌有效期内是快照，管理员被降权后旧令牌仍带 admin，
+而反馈列表会带出所有用户的邮箱 / 账号，属敏感数据，必须每次以数据库为准。
+
+查询参数：
+
+| 参数 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `page` | int | `1` | 页码，小于 1 按 1 处理 |
+| `pageSize` | int | `20` | 每页数量，取值夹到 `1..50` |
+| `status` | string | `all` | `pending` 待回复 / `replied` 已回复 / `all` 全部；缺省或非法按 `all`（大小写不敏感） |
+| `keyword` | string | 空 | 关键词，trim 后**最多取前 100 字符**（超出截断）；同时匹配反馈内容、联系方式与提交用户（邮箱 / 账号 / 昵称），即 `LIKE %kw%` |
+| `app` | string | `all` | `web` 网页 / `mp` 小程序 / `all` 全部；缺省或非法按 `all`（大小写不敏感） |
+
+响应示例（200，`AdminFeedbackListResponse`）：
+
+```json
+{
+  "page": 1,
+  "pageSize": 20,
+  "total": 2,
+  "pendingTotal": 1,
+  "repliedTotal": 1,
+  "status": "all",
+  "keyword": null,
+  "app": "all",
+  "items": [
+    {
+      "id": 12,
+      "content": "希望打卡日历支持导出",
+      "contact": "me@example.com",
+      "app": "web",
+      "status": "replied",
+      "replyContent": "已加入需求池，感谢反馈",
+      "repliedAt": "2026-11-20T09:30:00Z",
+      "createdAt": "2026-11-20T09:20:00Z",
+      "userId": 3,
+      "userAccount": "miao",
+      "nickName": "喵喵",
+      "email": "me@example.com"
+    }
+  ]
+}
+```
+
+响应字段说明：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `page` / `pageSize` | int | 当前页码 / 每页数量 |
+| `total` | int | 当前筛选条件命中的反馈数 |
+| `pendingTotal` / `repliedTotal` | int | **全部**未删除反馈的待回复 / 已回复总数，不受 `keyword` / `app` / `status` 筛选影响（供前端 tab 徽标） |
+| `status` | string | 生效的状态筛选：`pending` / `replied` / `all` |
+| `keyword` | string \| null | 生效的关键词（trim 后）；无关键词为 `null` |
+| `app` | string | 生效的来源端筛选：`web` / `mp` / `all` |
+| `items` | array | 当前页反馈，按 `createdAt` 倒序、同一时间按 `id` 倒序；每项为 `AdminFeedbackItemDto` |
+
+`AdminFeedbackItemDto` = `FeedbackItemDto` + 以下用户身份字段（用户被伪删除后仍展示其历史反馈）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `userId` | number(int64) | 提交用户 ID |
+| `userAccount` | string \| null | 提交用户账号 |
+| `nickName` | string \| null | 提交用户昵称 |
+| `email` | string \| null | 提交用户邮箱 |
+
+### 9.5 管理员回复
+
+`POST /mm/Feedback/{id}/reply`（**仅管理员**）
+
+请求体字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `replyContent` | string | 是 | 回复内容，trim 后必须非空且 ≤2000 字符 |
+
+请求示例：
+
+```json
+{ "replyContent": "已加入需求池，感谢反馈" }
+```
+
+行为：覆盖 `reply_content`，`status` 置为 `replied`，记录 `replied_by_user_id`（当前管理员）与
+`replied_at`（UTC），并刷新 `updated_at`；**重复回复视为覆盖**，只保留最后一条回复。
+响应 200 为回复后的 `AdminFeedbackItemDto`（结构与 §9.4 的列表项相同，含提交用户身份）。
+
+### 9.6 错误码
+
+| 状态码 | `message` | 触发条件 |
+|---|---|---|
+| 400 | `反馈内容不能为空` | `content` 缺失或 trim 后为空（§9.2） |
+| 400 | `反馈内容不能超过 2000 个字符` | `content` trim 后超过 2000 字符 |
+| 400 | `联系方式不能超过 128 个字符` | `contact` trim 后超过 128 字符 |
+| 400 | `回复内容不能为空` | `replyContent` 缺失或 trim 后为空（§9.5） |
+| 400 | `回复内容不能超过 2000 个字符` | `replyContent` trim 后超过 2000 字符 |
+| 401 | （框架默认） | 未登录 / 令牌无效或已撤销 |
+| 403 | `仅管理员可查看全部反馈` | 非管理员调用 §9.4 / §9.5 的管理接口（回复接口的 403 也是这句文案） |
+| 404 | `反馈不存在` | §9.5 的 `id` 不存在或 `is_deleted=1` |
+
+> 400 / 403 / 404 的响应体均为 `{ "message": "..." }`（camelCase）。
+
+### 9.7 约定与前端入口
+
+- **JSON 命名**：请求 / 响应均为 camelCase（与全站一致）。
+- **时间**：`createdAt` / `repliedAt` 一律为 UTC，JSON 为 ISO 8601（带 `Z`），前端按本地时区展示。
+- **分页**：管理员列表与「我的反馈」共用 `page` / `pageSize` 规则（默认 20，夹到 `1..50`）。
+- **入口差异**：Web 与小程序设置页对普通用户显示「意见反馈」（提交 + 我的反馈），
+  对管理员同一入口显示「查看意见」（全部反馈列表 + 筛选 / 搜索 + 回复，**不渲染提交界面**）；
+  是否管理员由认证接口返回的 `role` 判断（见 §1.2），管理接口的最终权限仍由服务端查库校验。
+- **建表脚本**：`sql/2026-11-20_feedback.sql`（幂等，可重复执行；缺表时 `/mm/Feedback*` 接口会 500）。

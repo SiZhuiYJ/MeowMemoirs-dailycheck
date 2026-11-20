@@ -86,3 +86,100 @@ export interface LoginRecordListResponse {
   /** 按最后活跃时间倒序的设备列表 */
   items?: LoginRecordItem[];
 }
+
+/**
+ * 意见反馈相关类型（POST /mm/Feedback、GET /mm/Feedback、GET /mm/Feedback/mine）。
+ *
+ * 语义：普通用户提交反馈并查看「我的反馈」；管理员查看全部反馈并回复。
+ * 时间字段均为 UTC 字符串（后端约定不带时区后缀），展示前必须先按 UTC 解析再转本地。
+ */
+
+/** 反馈处理状态：pending 待回复 / replied 已回复 */
+export type FeedbackStatus = "pending" | "replied";
+
+/** 反馈来源端：web 网页 / mp 小程序 */
+export type FeedbackApp = "web" | "mp";
+
+/** 管理员列表的状态筛选值（all 表示全部） */
+export type FeedbackStatusFilter = "all" | FeedbackStatus;
+
+/** 管理员列表的来源端筛选值（all 表示全部） */
+export type FeedbackAppFilter = "all" | FeedbackApp;
+
+/** 提交反馈请求体（POST /mm/Feedback） */
+export interface CreateFeedbackRequest {
+  /** 反馈内容（trim 后必填，≤2000 字符） */
+  content: string;
+  /** 联系方式（可选，trim 后空串按 null 传，≤128 字符） */
+  contact?: string | null;
+  /** 来源端：网页固定传 "web" / 小程序固定传 "mp" */
+  app?: FeedbackApp;
+}
+
+/** 管理员回复请求体（POST /mm/Feedback/{id}/reply） */
+export interface ReplyFeedbackRequest {
+  /** 回复内容（trim 后必填，≤2000 字符） */
+  replyContent: string;
+}
+
+/** 单条反馈（普通用户视角，不含用户身份字段） */
+export interface FeedbackItemDto {
+  /** 反馈 ID */
+  id: number;
+  /** 反馈内容 */
+  content: string;
+  /** 联系方式（可选） */
+  contact?: string | null;
+  /** 来源端：web / mp */
+  app: FeedbackApp;
+  /** 处理状态：pending / replied */
+  status: FeedbackStatus;
+  /** 管理员回复内容（未回复时为 null） */
+  replyContent?: string | null;
+  /** 回复时间 UTC 字符串（未回复时为 null） */
+  repliedAt?: string | null;
+  /** 提交时间 UTC 字符串 */
+  createdAt: string;
+}
+
+/** 管理员视角下的单条反馈：在 FeedbackItemDto 基础上补充提交者身份 */
+export interface AdminFeedbackItemDto extends FeedbackItemDto {
+  /** 提交用户 ID */
+  userId: number;
+  /** 提交用户账号名（可能为空，用户已注销等） */
+  userAccount?: string | null;
+  /** 提交用户昵称（可能为空） */
+  nickName?: string | null;
+  /** 提交用户邮箱（可能为空） */
+  email?: string | null;
+}
+
+/** GET /mm/Feedback/mine 响应体 */
+export interface MyFeedbackListResponse {
+  page?: number;
+  pageSize?: number;
+  /** 本人未删除反馈总数 */
+  total?: number;
+  /** 按提交时间倒序的反馈列表 */
+  items?: FeedbackItemDto[];
+}
+
+/** GET /mm/Feedback（管理员）响应体 */
+export interface AdminFeedbackListResponse {
+  page?: number;
+  pageSize?: number;
+  /** 当前筛选命中的反馈数 */
+  total?: number;
+  /** 全部反馈中的待回复总数（不受关键词 / 来源端筛选影响，供 tab 徽标） */
+  pendingTotal?: number;
+  /** 全部反馈中的已回复总数（同上） */
+  repliedTotal?: number;
+  /** 服务端回显的状态筛选值 */
+  status?: FeedbackStatusFilter | string;
+  /** 服务端回显的关键词 */
+  keyword?: string | null;
+  /** 服务端回显的来源端筛选值 */
+  app?: FeedbackAppFilter | string;
+  /** 按提交时间倒序的反馈列表 */
+  items?: AdminFeedbackItemDto[];
+}

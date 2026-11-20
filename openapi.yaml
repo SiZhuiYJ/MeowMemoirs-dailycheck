@@ -45,6 +45,8 @@ tags:
     description: 文件上传管理接口
   - name: Changelog
     description: 更新日志（公开接口，无需认证）
+  - name: Feedback
+    description: 意见反馈接口（用户提交 / 我的反馈 / 管理员查看与回复）
 
 paths:
   # 认证相关接口
@@ -847,6 +849,180 @@ paths:
               schema:
                 $ref: '#/components/schemas/ChangelogListResponse'
 
+  # 意见反馈相关接口
+  /feedback:
+    post:
+      tags: [Feedback]
+      summary: 提交反馈
+      description: |
+        提交一条意见反馈（当前登录用户）。
+        - `content`：trim 后必须非空且 ≤2000 字符，否则 400；
+        - `contact`：可选联系方式，trim 后空串按不填处理（返回 null），≤128 字符；
+        - `app`：来源端，只有 `mp` 记为小程序（大小写不敏感），其余（含缺省 / 非法值）一律按网页 `web`。
+        新反馈状态为 `pending`，返回本人视角的反馈 DTO。
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFeedbackRequest'
+      responses:
+        '200':
+          description: 提交成功，返回刚提交的反馈
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackItem'
+        '400':
+          description: '反馈内容 / 联系方式不合法（body 为 { message }）'
+        '401':
+          description: 未登录或登录状态已失效
+    get:
+      tags: [Feedback]
+      summary: 管理员查看全部反馈
+      description: |
+        **仅管理员**：分页查看全部未删除反馈，支持状态 / 来源筛选与关键词搜索。
+        服务端每次请求都查库确认 `users.role = "admin"`（并过滤伪删除用户），
+        非管理员（含用户不存在 / 已删除）返回 403；
+        不只看 JWT 里的 role claim（claim 在令牌有效期内无法即时反映降权）。
+        - `total`：当前筛选条件命中的反馈数；
+        - `pendingTotal` / `repliedTotal`：全部未删除反馈的待回复 / 已回复总数，
+          不受 `keyword` / `app` / `status` 筛选影响（供前端 tab 徽标）；
+        - 排序：`createdAt` 倒序，同一时间按 `id` 倒序。
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: 页码，默认 1，小于 1 按 1 处理
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+          description: 每页数量，默认 20，取值夹到 1..50
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, replied, all]
+            default: all
+          description: 状态筛选，默认 all；缺省或非法值按 all（大小写不敏感）
+        - name: keyword
+          in: query
+          required: false
+          schema:
+            type: string
+          description: 关键词（trim 后最多取前 100 字符，超出截断）；同时匹配反馈内容、联系方式与提交用户（邮箱 / 账号 / 昵称）
+        - name: app
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [web, mp, all]
+            default: all
+          description: 来源端筛选（web 网页 / mp 小程序 / all 全部），默认 all；缺省或非法值按 all（大小写不敏感）
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminFeedbackListResponse'
+        '401':
+          description: 未登录或登录状态已失效
+        '403':
+          description: '当前用户不是管理员（body 为 { message: "仅管理员可查看全部反馈" }）'
+
+  /feedback/mine:
+    get:
+      tags: [Feedback]
+      summary: 我的反馈列表
+      description: |
+        分页返回当前登录用户自己提交的未删除反馈（「我的反馈」），
+        按 `createdAt` 倒序、同一时间按 `id` 倒序。
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: 页码，默认 1，小于 1 按 1 处理
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+          description: 每页数量，默认 20，取值夹到 1..50
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyFeedbackListResponse'
+        '401':
+          description: 未登录或登录状态已失效
+
+  /feedback/{id}/reply:
+    post:
+      tags: [Feedback]
+      summary: 管理员回复反馈
+      description: |
+        **仅管理员**：回复指定反馈。回复内容 trim 后必须非空且 ≤2000 字符。
+        回复后状态置为 `replied`，记录回复管理员与回复时间（UTC）；
+        **重复回复视为覆盖**，只保留最后一条回复。
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+          description: 反馈 ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplyFeedbackRequest'
+      responses:
+        '200':
+          description: 回复成功，返回回复后的反馈（管理员视角，含提交用户身份）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminFeedbackItem'
+        '400':
+          description: '回复内容不合法（body 为 { message }）'
+        '401':
+          description: 未登录或登录状态已失效
+        '403':
+          description: '当前用户不是管理员（body 为 { message: "仅管理员可查看全部反馈" }）'
+        '404':
+          description: '反馈不存在或已删除（body 为 { message: "反馈不存在" }）'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -939,6 +1115,11 @@ components:
         userAccount:
           type: string
           description: 自定义账号名
+        role:
+          type: string
+          enum: [user, admin]
+          default: user
+          description: 用户角色：user 普通用户，admin 管理员（前端据此决定是否显示管理员入口）
         avatarKey:
           type: string
           description: 头像文件Key
@@ -988,6 +1169,11 @@ components:
           type: string
           nullable: true
           description: 个人主页背景图文件Key（null 表示未设置）
+        role:
+          type: string
+          enum: [user, admin]
+          default: user
+          description: 用户角色：user 普通用户，admin 管理员（前端据此判断管理入口）
 
     RefreshTokenRequest:
       type: object
@@ -1458,6 +1644,219 @@ components:
           items:
             $ref: '#/components/schemas/ChangelogEntry'
           description: 当前返回的版本条目，按日期倒序（日期相同按版本号倒序），最多 limit 条
+
+    # 意见反馈相关模型
+    FeedbackItem:
+      type: object
+      description: 单条反馈（本人视角，不含提交用户身份）
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 反馈ID
+          example: 12
+        content:
+          type: string
+          description: 反馈内容（trim 后，不超过 2000 字符）
+          example: 希望打卡日历支持导出
+        contact:
+          type: string
+          nullable: true
+          description: 联系方式（可选，未填写为 null）
+          example: me@example.com
+        app:
+          type: string
+          enum: [web, mp]
+          description: 来源端：web 网页，mp 小程序
+          example: web
+        status:
+          type: string
+          enum: [pending, replied]
+          description: 处理状态：pending 待回复，replied 已回复
+          example: pending
+        replyContent:
+          type: string
+          nullable: true
+          description: 管理员回复内容（未回复为 null）
+          example: 已加入需求池，感谢反馈
+        repliedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: 回复时间（UTC，ISO 8601 带 Z；未回复为 null）
+          example: '2026-11-20T09:30:00Z'
+        createdAt:
+          type: string
+          format: date-time
+          description: 提交时间（UTC，ISO 8601 带 Z）
+          example: '2026-11-20T09:20:00Z'
+
+    AdminFeedbackItem:
+      type: object
+      description: 单条反馈（管理员视角，在 FeedbackItem 字段之外附带提交用户身份；用户被伪删除后仍展示其历史反馈）
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 反馈ID
+          example: 12
+        content:
+          type: string
+          description: 反馈内容（trim 后，不超过 2000 字符）
+          example: 希望打卡日历支持导出
+        contact:
+          type: string
+          nullable: true
+          description: 联系方式（可选，未填写为 null）
+          example: me@example.com
+        app:
+          type: string
+          enum: [web, mp]
+          description: 来源端：web 网页，mp 小程序
+          example: web
+        status:
+          type: string
+          enum: [pending, replied]
+          description: 处理状态：pending 待回复，replied 已回复
+          example: replied
+        replyContent:
+          type: string
+          nullable: true
+          description: 管理员回复内容（未回复为 null）
+          example: 已加入需求池，感谢反馈
+        repliedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: 回复时间（UTC，ISO 8601 带 Z；未回复为 null）
+          example: '2026-11-20T09:30:00Z'
+        createdAt:
+          type: string
+          format: date-time
+          description: 提交时间（UTC，ISO 8601 带 Z）
+          example: '2026-11-20T09:20:00Z'
+        userId:
+          type: integer
+          format: int64
+          description: 提交用户ID
+          example: 3
+        userAccount:
+          type: string
+          nullable: true
+          description: 提交用户账号（用户被伪删除后仍展示其历史反馈的账号；可能为 null）
+          example: miao
+        nickName:
+          type: string
+          nullable: true
+          description: 提交用户昵称（可能为 null）
+          example: 喵喵
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: 提交用户邮箱（可能为 null）
+          example: me@example.com
+
+    CreateFeedbackRequest:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+          maxLength: 2000
+          description: 反馈内容（必填，trim 后必须非空且不超过 2000 字符）
+          example: 希望打卡日历支持导出
+        contact:
+          type: string
+          nullable: true
+          maxLength: 128
+          description: 联系方式（可选，邮箱 / 手机号 / QQ 等；trim 后空串按不填处理，不超过 128 字符）
+          example: me@example.com
+        app:
+          type: string
+          enum: [web, mp]
+          default: web
+          description: 来源端；只有 mp 记为小程序（大小写不敏感），其余（含缺省 / 非法值）按网页 web 处理
+          example: web
+
+    ReplyFeedbackRequest:
+      type: object
+      required:
+        - replyContent
+      properties:
+        replyContent:
+          type: string
+          maxLength: 2000
+          description: 回复内容（必填，trim 后必须非空且不超过 2000 字符；重复回复视为覆盖）
+          example: 已加入需求池，感谢反馈
+
+    MyFeedbackListResponse:
+      type: object
+      description: 「我的反馈」分页响应（GET /mm/Feedback/mine）
+      properties:
+        page:
+          type: integer
+          description: 当前页码（从 1 开始）
+          example: 1
+        pageSize:
+          type: integer
+          description: 每页数量（1..50）
+          example: 20
+        total:
+          type: integer
+          description: 当前用户的反馈总数（不含已删除）
+          example: 2
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedbackItem'
+          description: 当前页反馈，按提交时间倒序（同一时间按 ID 倒序）
+
+    AdminFeedbackListResponse:
+      type: object
+      description: 管理员「查看意见」分页响应（GET /mm/Feedback）
+      properties:
+        page:
+          type: integer
+          description: 当前页码（从 1 开始）
+          example: 1
+        pageSize:
+          type: integer
+          description: 每页数量（1..50）
+          example: 20
+        total:
+          type: integer
+          description: 当前筛选条件命中的反馈数
+          example: 2
+        pendingTotal:
+          type: integer
+          description: 全部未删除反馈中待回复的数量（不受关键词 / 来源 / 状态筛选影响，供前端 tab 徽标）
+          example: 1
+        repliedTotal:
+          type: integer
+          description: 全部未删除反馈中已回复的数量（不受关键词 / 来源 / 状态筛选影响，供前端 tab 徽标）
+          example: 1
+        status:
+          type: string
+          enum: [pending, replied, all]
+          description: 生效的状态筛选
+          example: all
+        keyword:
+          type: string
+          nullable: true
+          description: 生效的关键词（trim 后）；无关键词为 null
+          example: 日历
+        app:
+          type: string
+          enum: [web, mp, all]
+          description: 生效的来源端筛选
+          example: all
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminFeedbackItem'
+          description: 当前页反馈，按提交时间倒序（同一时间按 ID 倒序）
 
 externalDocs:
   description: 查看更多文档

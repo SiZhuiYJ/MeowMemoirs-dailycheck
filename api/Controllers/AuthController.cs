@@ -1233,6 +1233,7 @@ public class AuthController(
                 x.AvatarKey,
                 x.PreviousAvatarKey,
                 x.ProfileBackgroundKey,
+                x.Role,
                 x.Status
             })
             .SingleOrDefaultAsync(cancellationToken);
@@ -1254,7 +1255,8 @@ public class AuthController(
             UserAccount = user.UserAccount,
             AvatarKey = user.AvatarKey,
             PreviousAvatarKey = user.PreviousAvatarKey,
-            ProfileBackgroundKey = user.ProfileBackgroundKey
+            ProfileBackgroundKey = user.ProfileBackgroundKey,
+            Role = user.Role
         });
     }
 
@@ -1407,6 +1409,9 @@ public class AuthController(
             AvatarKey = user.AvatarKey,
             PreviousAvatarKey = user.PreviousAvatarKey,
             ProfileBackgroundKey = user.ProfileBackgroundKey,
+            // 角色随登录/注册/刷新一并下发：前端需要据此决定是否显示「管理员查看意见」等入口，
+            // 避免每次进设置页都额外请求 /me。
+            Role = user.Role,
             Token = tokens.AccessToken,
             RefreshToken = tokens.RefreshToken,
             AccessTokenExpiresAt = tokens.AccessTokenExpiresAt,
