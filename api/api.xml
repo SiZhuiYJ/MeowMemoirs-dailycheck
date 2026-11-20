@@ -2024,6 +2024,18 @@
             新建或更新课表（id = 0 表示新建）。
             </summary>
         </member>
+        <member name="M:api.Controllers.ScheduleController.ImportSchedule(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})">
+             <summary>
+             从 Excel 导入课表：解析文件 → 新建一张课表 + 课程 + 时间段，返回课表详情。
+            
+             支持 .xlsx / .xls；解析规则与前端 demo 一致（自动识别通用横排 / 教务系统竖排、
+             合并单元格、一格多课、周次等）。缺少的信息用默认值补齐（作息时间 12 节、周数 20）。
+             </summary>
+             <param name="file">课表 Excel（.xlsx / .xls）</param>
+             <param name="scheduleName">课表名称，不传则取文件里的标题或文件名</param>
+             <param name="startTime">开课日期 yyyy-MM-dd，不传则取文件里的学期或本周一</param>
+             <param name="weekCount">学期周数，不传则按文件里的最大周次（至少 20）</param>
+        </member>
         <member name="M:api.Controllers.ScheduleController.DeleteSchedule(System.UInt64)">
             <summary>
             删除课表（伪删除，同时伪删除其下课程与时间段）。
@@ -4332,6 +4344,37 @@
         </member>
         <member name="M:api.Infrastructure.RedisTokenValidationMiddleware.GetIssuedAtEpoch(System.IdentityModel.Tokens.Jwt.JwtSecurityToken)">
             <summary>从已解析的令牌 payload 读取签发时间 iat（秒）。</summary>
+        </member>
+        <member name="T:api.Infrastructure.ParsedSlot">
+            <summary>从 Excel 里解析出的一条课时记录（一门课在某天某节段）。</summary>
+        </member>
+        <member name="M:api.Infrastructure.ParsedSlot.#ctor(System.Int32,System.Int32,System.Int32,System.String,System.String,System.String,System.String,System.String)">
+            <summary>从 Excel 里解析出的一条课时记录（一门课在某天某节段）。</summary>
+        </member>
+        <member name="T:api.Infrastructure.ParsedTimetable">
+            <summary>Excel 解析结果。</summary>
+        </member>
+        <member name="M:api.Infrastructure.ParsedTimetable.#ctor(System.String,System.String,System.Nullable{System.DateOnly},System.Int32,System.Collections.Generic.List{api.Infrastructure.ParsedSlot})">
+            <summary>Excel 解析结果。</summary>
+        </member>
+        <member name="T:api.Infrastructure.TimetableExcelParser">
+             <summary>
+             课表 Excel 解析器（NPOI，支持 .xls / .xlsx）。
+            
+             支持两类常见课表：
+               A. 通用横排：行 = 节次（"1-2节"），列 = 星期一…星期日，单元格多行写 课程/地点/教师
+               B. 教务系统竖排：大节列（上午/下午/晚上）+ 中文小节列（一…十二），
+                  单元格为 `课程/课程号/(x-y节)周次/校区 地点/教师/…`，一格可叠多门课
+            
+             解析思路：合并单元格展开成网格 → 自动找表头（星期X）→ 自动选节次列（1-2节 或 一…十二）
+             → 逐格解析 → 相邻同门课合并。算法与前端 TS 版一致。
+             </summary>
+        </member>
+        <member name="M:api.Infrastructure.TimetableExcelParser.ParseWeekList(System.String)">
+            <summary>"1-4周,6-17周" / "8周" / "1-3周,6周,9-17周(单)" → 周次集合；解析不了返回 null</summary>
+        </member>
+        <member name="M:api.Infrastructure.TimetableExcelParser.DefaultTimetable(System.Int32)">
+            <summary>默认作息时间（没有来源数据时使用；第 1 节 08:00 起，上午 4 节 / 下午 4 节 / 晚上 4 节）。</summary>
         </member>
         <member name="T:api.Infrastructure.ULongRouteConstraint">
             <summary>
