@@ -67,14 +67,43 @@ export interface SchedulePayload {
  * file 必填，其余字段可选：不传时后端会用文件名 / 导入内容里的值兜底。
  */
 export interface ScheduleImportPayload {
-  /** Excel（.xlsx / .xls）或 CSV（.csv）文件 */
+  /** 课表 Excel（.xlsx / .xls）文件 */
   file: File;
-  /** 课表名称，不传后端用文件名 */
+  /** 课表名称（用户确认后的名称；不传后端用默认名） */
   scheduleName?: string;
   /** 开课日期 yyyy-MM-dd（第一周周一） */
   startTime?: string;
   /** 学期总周数 1-100 */
   weekCount?: number;
+}
+
+/**
+ * 导入预检结果（POST /mm/Schedule/Import/Preview，只解析不写库）。
+ * 课程 / 时间段的 id 均为 0，结构与课表详情里的 Course 一致。
+ */
+export interface ScheduleImportPreview {
+  /** 默认课表名（文件内标题或文件名，用户可改） */
+  scheduleName: string;
+  /** 从文件里识别到的学期，如 "2025-2026学年第1学期"；可能为空 */
+  semesterLabel: string | null;
+  /** 开课日期 yyyy-MM-dd */
+  startTime: string;
+  /** 学期总周数 */
+  weekCount: number;
+  /** 节次数 */
+  sectionCount: number;
+  /** 作息时间表（每节 "HH:mm-HH:mm"） */
+  timetable: string[];
+  /** 课程数 */
+  courseCount: number;
+  /** 上课时间段总数 */
+  timeCount: number;
+  /** 课程列表（id / scheduleId / courseId 均为 0） */
+  courses: Course[];
+  /** 需要用户确认的提示（缺教师 / 缺地点 / 周次缺失 / 默认日期、默认作息等） */
+  warnings: string[];
+  /** 预检出的时间冲突（同一天 + 节次重叠 + 周次有交集） */
+  conflicts: string[];
 }
 
 /** 保存课程时间段请求体（id 省略 / 0 表示新增） */

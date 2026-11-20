@@ -11,6 +11,7 @@
  */
 import { computed, onMounted, ref } from "vue";
 import { ElMessageBox } from "element-plus";
+import ChatDialog from "@/features/chat/components/ChatDialog.vue";
 import { notifyError, notifySuccess } from "@/utils/notification";
 import { scheduleApi } from "@/features/schedule/api";
 import {
@@ -30,6 +31,7 @@ import type {
   CoursePayload,
   CourseTimeDraft,
   ScheduleDraft,
+  ScheduleImportPreview,
   SchedulePayload,
 } from "@/features/schedule/types";
 
@@ -511,11 +513,72 @@ const IMPORT_FILE_EXTENSIONS = [".xlsx", ".xls"];
 const IMPORT_FILE_MAX_SIZE = 10 * 1024 * 1024;
 
 const importInputRef = ref<HTMLInputElement | null>(null);
+/** 预检请求中：上传文件解析，尚未写库 */
+const importPreviewLoading = ref(false);
+/** 正式导入请求中：写库 */
 const importUploading = ref(false);
+/** 预检结果（非空时展示预检对话框） */
+const importPreview = ref<ScheduleImportPreview | null>(null);
+const importPreviewVisible = ref(false);
+/** 预检通过后待正式导入的同一个文件 */
+const pendingImportFile = ref<File | null>(null);
+
+/** 命名弹窗打开中（防止「下一步」被连点两次弹出两个弹窗） */
+const importNameDialogVisible = ref(false);
+/** 命名弹窗里的课表名称 */
+const importName = ref("");
+/** 命名弹窗校验错误 */
+const importNameError = ref("");
+
+/** 预检 / 命名 / 正式导入任一进行中都要禁用入口，避免重复上传 */
+const isImportBusy = computed(
+  () =>
+    importPreviewLoading.value ||
+    importNameDialogVisible.value ||
+    importUploading.value,
+);
+
+/** 预检课程明细行：一节课一行（课程 × 时间段） */
+interface ImportPreviewRow {
+  key: string;
+  courseName: string;
+  dayOfWeek: number;
+  sectionList: number[];
+  weekList: number[];
+  location: string;
+  teacher: string;
+}
+
+/**
+ * 预检数据里的课程 / 时间段 id 都是 0（还没入库），
+ * 所以用两层下标拼 key，不能像详情页那样用 course.id-time.id。
+ */
+const importPreviewRows = computed<ImportPreviewRow[]>(() => {
+  const rows: ImportPreviewRow[] = [];
+  importPreview.value?.courses.forEach((course, courseIndex) => {
+    course.times.forEach((time, timeIndex) => {
+      rows.push({
+        key: `${courseIndex}-${timeIndex}`,
+        courseName: course.courseName,
+        dayOfWeek: time.dayOfWeek,
+        sectionList: time.sectionList,
+        weekList: time.weekList,
+        location: time.location,
+        teacher: time.teacher,
+      });
+    });
+  });
+  return rows;
+});
+
+/** 周次压缩展示：1,2,3,4,9,10 → "1-4,9-10"（复用节次压缩逻辑，只把顿号换成逗号） */
+function formatWeekRanges(weeks: number[]): string {
+  return formatSections(weeks).split("、").join(",");
+}
 
 /** 点「导入课表」按钮时唤起隐藏的文件选择框 */
 function openImportPicker(): void {
-  if (importUploading.value) return;
+  if (isImportBusy.value) return;
   importInputRef.value?.click();
 }
 
@@ -539,30 +602,80 @@ function handleImportFileChange(event: Event): void {
     notifyError("文件不能超过 10MB，请精简后再导入");
     return;
   }
-  void confirmImportSchedule(file);
+  void previewImportFile(file);
 }
 
-/** 确认后上传：成功后刷新列表并选中新导入的课表（复用 loadSchedules 的加载 / 选中逻辑） */
-async function confirmImportSchedule(file: File): Promise<void> {
+/** 第一步：上传文件做预检（只解析不写库），成功后弹预检对话框让用户核对 */
+async function previewImportFile(file: File): Promise<void> {
+  importPreviewLoading.value = true;
   try {
-    await ElMessageBox.confirm(
-      `将根据「${file.name}」新建一张课表，导入完成后会自动切换到这张课表。`,
-      "导入课表",
-      { type: "info", confirmButtonText: "导入", cancelButtonText: "取消" },
-    );
-  } catch {
+    const response = await scheduleApi.previewImport(file);
+    pendingImportFile.value = file;
+    importPreview.value = response.data;
+    importPreviewVisible.value = true;
+  } catch (error) {
+    notifyError(getApiErrorMessage(error, "课表预检失败"));
+  } finally {
+    importPreviewLoading.value = false;
+  }
+}
+
+/** 关闭预检对话框：丢弃本次选择的文件，不调用正式导入接口 */
+function closeImportPreview(): void {
+  importPreviewVisible.value = false;
+}
+
+/** 等对话框关闭动画结束后再清空数据，避免关闭过程中表格内容闪空 */
+function resetImportPreview(): void {
+  importPreview.value = null;
+  pendingImportFile.value = null;
+}
+
+/** 第二步：打开「命名并导入」弹窗（名称默认取预检里的课表名） */
+function handleImportNext(): void {
+  const preview = importPreview.value;
+  const file = pendingImportFile.value;
+  if (!preview || !file || isImportBusy.value) return;
+
+  importName.value = preview.scheduleName;
+  importNameError.value = "";
+  importNameDialogVisible.value = true;
+}
+
+/** 取消命名：留在预检弹窗，不上传正式接口 */
+function cancelImportName(): void {
+  if (importUploading.value) return;
+  importNameDialogVisible.value = false;
+  importNameError.value = "";
+}
+
+/** 校验名称后正式导入（同一个文件、同一套解析，保证预检与入库一致） */
+async function confirmImportName(): Promise<void> {
+  const file = pendingImportFile.value;
+  if (!file || importUploading.value) return;
+
+  const name = importName.value.trim();
+  if (!name) {
+    importNameError.value = "课表名称不能为空";
+    return;
+  }
+  if (name.length > 100) {
+    importNameError.value = "课表名称不能超过 100 个字符";
     return;
   }
 
+  importNameError.value = "";
   importUploading.value = true;
   try {
-    const response = await scheduleApi.importSchedule({ file });
+    const response = await scheduleApi.importSchedule({ file, scheduleName: name });
     const imported = response.data;
     const courseCount =
       typeof imported.courseCount === "number"
         ? imported.courseCount
         : (imported.courses?.length ?? 0);
     notifySuccess(`课表导入成功，共导入 ${courseCount} 门课程`);
+    importNameDialogVisible.value = false;
+    closeImportPreview();
     await loadSchedules(imported.id);
   } catch (error) {
     notifyError(getApiErrorMessage(error, "课表导入失败"));
@@ -627,14 +740,14 @@ onMounted(() => {
             <button type="button" class="schedule-btn is-primary" @click="openCreateCourse">添加课程</button>
             <button type="button" class="schedule-btn is-ghost" @click="openEditSchedule">课表设置</button>
             <button type="button" class="schedule-btn" @click="openCreateSchedule">新建课表</button>
-            <button type="button" class="schedule-btn" :disabled="importUploading" @click="openImportPicker">
-              {{ importUploading ? "导入中..." : "导入课表" }}
+            <button type="button" class="schedule-btn" :disabled="isImportBusy" @click="openImportPicker">
+              {{ importPreviewLoading ? "预检中..." : importUploading ? "导入中..." : "导入课表" }}
             </button>
           </template>
           <template v-else-if="!loading">
             <button type="button" class="schedule-btn is-primary" @click="openCreateSchedule">新建课表</button>
-            <button type="button" class="schedule-btn" :disabled="importUploading" @click="openImportPicker">
-              {{ importUploading ? "导入中..." : "导入课表" }}
+            <button type="button" class="schedule-btn" :disabled="isImportBusy" @click="openImportPicker">
+              {{ importPreviewLoading ? "预检中..." : importUploading ? "导入中..." : "导入课表" }}
             </button>
           </template>
         </div>
@@ -897,6 +1010,124 @@ onMounted(() => {
         </div>
       </template>
     </el-dialog>
+
+    <!-- ======================== 导入课表预检弹窗 ======================== -->
+    <ChatDialog v-model="importPreviewVisible" title="导入课表预检"
+      :subtitle="importPreview ? `${importPreview.courseCount} 门课程 · ${importPreview.timeCount} 个时间段` : ''"
+      content-width="860px" :closable="!importUploading" :close-on-click-modal="false"
+      :close-on-press-escape="!importUploading" :show-close="!importUploading"
+      @closed="resetImportPreview">
+      <div v-if="importPreview" class="schedule-import-preview">
+        <!-- 摘要：默认名称 / 学期 / 日期 / 周数节次 / 课程数 -->
+        <div class="schedule-import-summary">
+          <div class="schedule-import-summary-item">
+            <span>默认课表名</span>
+            <strong>{{ importPreview.scheduleName || "—" }}</strong>
+          </div>
+          <div v-if="importPreview.semesterLabel" class="schedule-import-summary-item">
+            <span>学期</span>
+            <strong>{{ importPreview.semesterLabel }}</strong>
+          </div>
+          <div class="schedule-import-summary-item">
+            <span>开课日期</span>
+            <strong>{{ importPreview.startTime || "—" }}</strong>
+          </div>
+          <div class="schedule-import-summary-item">
+            <span>周数 / 节次</span>
+            <strong>{{ importPreview.weekCount }} 周 · {{ importPreview.sectionCount }} 节</strong>
+          </div>
+          <div class="schedule-import-summary-item">
+            <span>课程 / 时间段</span>
+            <strong>{{ importPreview.courseCount }} 门 · {{ importPreview.timeCount }} 个</strong>
+          </div>
+        </div>
+
+        <!-- 需要用户确认的提示 -->
+        <div v-if="importPreview.warnings.length > 0" class="schedule-import-notice is-warning">
+          <div class="schedule-import-notice-title">请核对以下提示</div>
+          <ul class="schedule-import-notice-list">
+            <li v-for="(warning, index) in importPreview.warnings" :key="`warning-${index}`">{{ warning }}</li>
+          </ul>
+        </div>
+
+        <!-- 预检冲突 -->
+        <div v-if="importPreview.conflicts.length > 0" class="schedule-import-notice is-danger">
+          <div class="schedule-import-notice-title">检测到时间冲突（仍可导入，请导入后自行核对）</div>
+          <ul class="schedule-import-notice-list">
+            <li v-for="(conflict, index) in importPreview.conflicts" :key="`conflict-${index}`">{{ conflict }}</li>
+          </ul>
+        </div>
+
+        <!-- 课程明细：一节课一行，让用户核对识别结果 -->
+        <div class="schedule-sub-head">
+          <span>课程明细（{{ importPreviewRows.length }} 个时间段）</span>
+        </div>
+        <div v-if="importPreviewRows.length > 0" class="schedule-import-table-wrap">
+          <table class="schedule-import-table">
+            <thead>
+              <tr>
+                <th>课程</th>
+                <th class="is-narrow">星期</th>
+                <th class="is-narrow">节次</th>
+                <th>周次</th>
+                <th>地点</th>
+                <th>教师</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in importPreviewRows" :key="row.key">
+                <td>{{ row.courseName }}</td>
+                <td>{{ dayLabel(row.dayOfWeek) }}</td>
+                <td>第{{ formatSections(row.sectionList) }}节</td>
+                <td>{{ formatWeekRanges(row.weekList) }}</td>
+                <td>{{ row.location || "—" }}</td>
+                <td>{{ row.teacher || "—" }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="schedule-side-empty">没有识别到课程</div>
+      </div>
+
+      <template #footer>
+        <div class="schedule-dialog-footer">
+          <span class="schedule-footer-spacer"></span>
+          <button type="button" class="schedule-btn" :disabled="importUploading" @click="closeImportPreview">
+            取消
+          </button>
+          <button type="button" class="schedule-btn is-primary" :disabled="isImportBusy || !importPreview"
+            @click="handleImportNext">
+            {{ importUploading ? "导入中..." : "下一步：命名并导入" }}
+          </button>
+        </div>
+      </template>
+    </ChatDialog>
+
+    <!-- 命名并导入：名称默认取预检里的课表名，用户可改 -->
+    <ChatDialog v-model="importNameDialogVisible" title="命名并导入课表" content-width="480px"
+      :closable="!importUploading" :close-on-click-modal="false"
+      :close-on-press-escape="!importUploading" :show-close="!importUploading">
+      <div class="schedule-import-name">
+        <p class="schedule-import-name-tip">导入后会新建一张课表，可以在课表切换里找到它。</p>
+        <label class="schedule-import-name-label" for="schedule-import-name-input">课表名称</label>
+        <el-input id="schedule-import-name-input" v-model="importName" maxlength="100" show-word-limit
+          placeholder="如：2025-2026 学年第一学期" :disabled="importUploading" autofocus
+          @keyup.enter="confirmImportName" />
+        <p v-if="importNameError" class="schedule-import-name-error">{{ importNameError }}</p>
+      </div>
+      <template #footer>
+        <div class="schedule-dialog-footer">
+          <span class="schedule-footer-spacer"></span>
+          <button type="button" class="schedule-btn" :disabled="importUploading" @click="cancelImportName">
+            取消
+          </button>
+          <button type="button" class="schedule-btn is-primary" :disabled="importUploading"
+            @click="confirmImportName">
+            {{ importUploading ? "导入中..." : "导入" }}
+          </button>
+        </div>
+      </template>
+    </ChatDialog>
 
     <!-- ======================== 课表设置弹窗 ======================== -->
     <el-dialog v-model="scheduleFormVisible" :title="scheduleDraft.id ? '课表设置' : '新建课表'" width="600px"

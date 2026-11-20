@@ -7,6 +7,7 @@ import type {
   CoursePayload,
   ScheduleDetail,
   ScheduleImportPayload,
+  ScheduleImportPreview,
   SchedulePayload,
   ScheduleSummary,
 } from "../types";
@@ -36,6 +37,25 @@ export const scheduleApi = {
   /** 删除课表（伪删除，连带课程与时间段），返回 204 */
   async remove(id: number) {
     return await http.delete(`/mm/Schedule/${id}`, { showError: false });
+  },
+
+  /**
+   * 导入预检（multipart/form-data，只解析不写库）。
+   * 返回解析出的课表信息、课程明细、提示（warnings）与冲突（conflicts），
+   * 前端让用户确认后再调用 importSchedule 正式保存。
+   */
+  async previewImport(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    return await http.upload<ScheduleImportPreview>(
+      "/mm/Schedule/Import/Preview",
+      formData,
+      {
+        showError: false,
+        // FormData 节流 key 会退化成 "{}"，避免不同文件的预检被误判为重复请求
+        allowDuplicate: true,
+      },
+    );
   },
 
   /**

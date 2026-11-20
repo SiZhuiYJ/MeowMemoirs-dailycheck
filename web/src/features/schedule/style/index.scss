@@ -612,6 +612,33 @@
   }
 }
 
+/* ========== 命名并导入 ========== */
+.schedule-import-name {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.schedule-import-name-tip {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.schedule-import-name-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.schedule-import-name-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--el-color-danger, #ef4444);
+}
+
 /* ========== 弹窗外壳 ========== */
 .schedule-dialog {
   border-radius: 14px;
@@ -642,6 +669,122 @@
 
 .schedule-footer-spacer {
   flex: 1;
+}
+
+/* ========== 导入课表预检 ========== */
+.schedule-import-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.schedule-import-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+
+  > span {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  > strong {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-color);
+    word-break: break-all;
+  }
+}
+
+/* 预检提示 / 冲突（用项目自定义风格，不依赖 Element Plus 的 alert 主题） */
+.schedule-import-notice {
+  margin-bottom: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--surface-soft);
+
+  &.is-warning {
+    border-color: color-mix(in srgb, var(--el-color-warning, #f59e0b) 55%, var(--border-color));
+    background: color-mix(in srgb, var(--el-color-warning, #f59e0b) 10%, var(--bg-elevated));
+  }
+
+  &.is-danger {
+    border-color: color-mix(in srgb, var(--el-color-danger, #ef4444) 55%, var(--border-color));
+    background: color-mix(in srgb, var(--el-color-danger, #ef4444) 10%, var(--bg-elevated));
+  }
+}
+
+.schedule-import-notice-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.schedule-import-notice-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+
+  li {
+    color: var(--text-color);
+  }
+
+  .is-danger & li {
+    color: var(--el-color-danger, #ef4444);
+  }
+}
+
+.schedule-import-table-wrap {
+  margin-top: 6px;
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.schedule-import-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--text-color);
+
+  th,
+  td {
+    padding: 7px 10px;
+    text-align: left;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface-soft);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  tbody tr:hover td {
+    background: var(--surface-soft);
+  }
+
+  .is-narrow {
+    width: 64px;
+  }
 }
 
 /* ========== 弹窗表单 ========== */
