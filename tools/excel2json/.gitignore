@@ -1,0 +1,17 @@
+node_modules/
+
+# 构建产物 / 演示用的副本
+web/app.js
+web/sample-timetable.xlsx
+web/real-timetable.xls
+
+# 真实课表（含学生/教师姓名，别提交）
+real-timetable.xls
+real-timetable.markitdown.md
+
+# 解析输出（含真实课表数据）
+timetable.json
+timetable.dotnet.json
+
+# PDF 生成用的中文字体（16MB，从系统 TTC 抽取）
+assets/
