@@ -22,6 +22,26 @@ export function parseDateOnly(input: string): Date {
   const d = Number(parts[2] ?? "1") || 1;
   return new Date(y, m - 1, d);
 }
+
+/**
+ * 解析后端返回的完整时间字符串（ISO 8601，如 "2026-11-20T07:00:00Z"），
+ * 并格式化为本地时区的 YYYY-MM-DD。
+ *
+ * 注意：完整时间戳不能直接交给 parseDateOnly（它按 "YYYY-MM-DD" 切分，
+ * 会把 "20T07:00:00Z" 解析成 NaN，最终显示 "NaN-NaN-NaN"）。
+ *
+ * @param input 时间字符串或 Date 对象；空值 / 非法值返回空串
+ */
+export function toLocalDateOnlyStringFromDateTime(input: string | Date | null | undefined): string {
+  if (!input) return "";
+  const date = typeof input === "string" ? new Date(input) : input;
+  if (Number.isNaN(date.getTime())) {
+    // 兜底：ISO 字符串前 10 位即日期部分
+    return typeof input === "string" ? input.slice(0, 10) : "";
+  }
+  return toLocalDateOnlyString(date);
+}
+
 /**
  * 传入一个数，一个长度使用一个字符或者数字填充到指定长度
  * @param num 要填充的数

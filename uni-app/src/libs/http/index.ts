@@ -50,6 +50,14 @@ interface RequestConfig extends UniApp.RequestOptions {
     retryDelay?: number;
     /** 防抖间隔 (ms) */
     preventDuplicateInterval?: number;
+    /**
+     * 401 时跳过「自动刷新令牌 + 重放」逻辑，直接把 401 抛给调用方。
+     * 适用于「401 代表业务错误」的接口：例如微信绑定接口在微信 code 无效时返回 401，
+     * 此时刷新令牌再重放只会消费掉同一个一次性 code，错误信息反而更乱。
+     */
+    skipAuthRefresh?: boolean;
+    /** 内部标记：本次请求已经用刷新后的令牌重放过一次，用于防止 401 无限刷新死循环 */
+    _retriedAfterRefresh?: boolean;
 }
 
 /**
@@ -116,6 +124,34 @@ const createHttp = (
     const inFlightRequests = new Map<string, Promise<HttpResponse<any>>>();
     /** 上次请求完成时间映射 (用于防抖) */
     const lastRequestTimes = new Map<string, number>();
+
+    /** 刷新令牌的「单飞」Promise：并发 401 只刷新一次，避免同一个 refreshToken 并发请求把会话挤掉 */
+    let refreshSessionPromise: Promise<void> | null = null;
+
+    /**
+     * 用 refreshToken 换取新会话（全局单飞）。
+     * 失败时抛出错误，由调用方统一清理登录态，避免每个请求各自 reLaunch。
+     */
+    const refreshAccessToken = (): Promise<void> => {
+        if (!refreshSessionPromise) {
+            const auth = authStore;
+            refreshSessionPromise = (async () => {
+                const refreshBaseURL = await resolveBaseURL();
+                const refreshRes = await uni.request({
+                    url: refreshBaseURL + '/mm/Auth/refresh',
+                    method: 'POST',
+                    data: { refreshToken: auth.refreshToken },
+                });
+                if (refreshRes.statusCode !== 200) {
+                    throw refreshRes;
+                }
+                auth.setSession(refreshRes.data as any);
+            })().finally(() => {
+                refreshSessionPromise = null;
+            });
+        }
+        return refreshSessionPromise;
+    };
 
     /**
      * 生成请求唯一标识 (指纹)
@@ -196,7 +232,7 @@ const createHttp = (
                     } 
                     // 认证失效处理 (401)
                     else if (response.statusCode === 401) {
-                        // 登录或注册接口返回 401 不重试
+                        // 登录或注册接口返回 401 表示账号密码错误，不刷新、不重试
                         if (options.url?.includes('/Auth/login') || options.url?.includes('/Auth/register')) {
                             reject(response);
                             return;
@@ -207,42 +243,48 @@ const createHttp = (
                             return;
                         }
 
-                        // 无感刷新 Token 逻辑
-                        if (auth.refreshToken) {
-                            try {
-                                // 刷新接口本身返回 401，说明 Refresh Token 也失效了
-                                if (options.url?.includes('/Auth/refresh')) {
-                                    auth.clear();
-                                    uni.reLaunch({ url: '/pages/auth/index' });
-                                    reject(response);
-                                    return;
-                                }
-
-                                const refreshBaseURL = await resolveBaseURL();
-                                const refreshRes = await uni.request({
-                                    url: refreshBaseURL + '/mm/Auth/refresh',
-                                    method: 'POST',
-                                    data: { refreshToken: auth.refreshToken },
-                                });
-
-                                if (refreshRes.statusCode === 200) {
-                                    auth.setSession(refreshRes.data as any);
-                                    // 刷新成功后重试原请求
-                                    const retryRes = await coreRequest<T>(options);
-                                    resolve(retryRes);
-                                } else {
-                                    auth.clear();
-                                    uni.reLaunch({ url: '/pages/auth/index' });
-                                    reject(response);
-                                }
-                            } catch (e) {
-                                auth.clear();
-                                uni.reLaunch({ url: '/pages/auth/index' });
-                                reject(e);
-                            }
-                        } else {
+                        // 刷新接口自己返回 401，说明 Refresh Token 也失效了
+                        if (options.url?.includes('/Auth/refresh')) {
                             auth.clear();
                             uni.reLaunch({ url: '/pages/auth/index' });
+                            reject(response);
+                            return;
+                        }
+
+                        // 调用方声明该接口的 401 是业务错误（如微信绑定 code 失效），直接抛给调用方
+                        if (options.skipAuthRefresh) {
+                            reject(response);
+                            return;
+                        }
+
+                        // 没有 refreshToken 无法续期：清理登录态并回登录页（保持原有行为，避免接口静默 401）
+                        if (!auth.refreshToken) {
+                            auth.clear();
+                            uni.reLaunch({ url: '/pages/auth/index' });
+                            reject(response);
+                            return;
+                        }
+
+                        // 本次请求已经用刷新后的新令牌重放过一次仍是 401：不再刷新，直接抛给调用方。
+                        // 缺少这条会形成 401 → 刷新 → 重放 → 401 的无限循环（表现为「点了没反应」），
+                        // 并反复消费微信 code 这类一次性凭证。
+                        if (options._retriedAfterRefresh) {
+                            reject(response);
+                            return;
+                        }
+
+                        options._retriedAfterRefresh = true;
+                        try {
+                            // 并发 401 共用同一次刷新（单飞），避免把彼此挤下线
+                            await refreshAccessToken();
+                            resolve(await coreRequest<T>(options));
+                        } catch {
+                            // 刷新失败视为登录态失效：清理并回登录页；已无令牌时避免重复跳转
+                            const hadToken = !!auth.accessToken;
+                            auth.clear();
+                            if (hadToken) {
+                                uni.reLaunch({ url: '/pages/auth/index' });
+                            }
                             reject(response);
                         }
                     } else {

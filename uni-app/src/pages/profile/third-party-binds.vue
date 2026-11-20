@@ -4,29 +4,51 @@
     <MmNavBar title="第三方账号绑定" />
     <NotificationSystem />
 
+    <!-- 绑定状态总览：一眼看清「到底绑没绑」，从本页返回个人主页也能看到同样的结论 -->
     <view class="page-card">
       <view class="form-field">
-        <text class="label">第三方账号绑定</text>
-        <view class="desc">管理您绑定的第三方账号，用于便捷登录</view>
+        <text class="label">绑定状态</text>
+        <view class="status-row">
+          <view class="status-dot" :class="{ 'status-dot-bound': boundLabels.length > 0 }"></view>
+          <text class="status-text">{{ statusText }}</text>
+        </view>
+        <view class="desc">绑定后可使用对应平台快捷登录本账号；解绑不影响账号的其他功能。</view>
+      </view>
+    </view>
+
+    <view class="page-card">
+      <view class="form-field">
+        <text class="label">第三方账号</text>
+        <view class="desc">当前支持绑定微信一键登录，其他渠道后续开放。</view>
       </view>
 
       <view class="bind-list">
-        <view class="bind-item" v-for="binding in thirdPartyBindings" :key="binding.provider">
+        <view class="bind-item" v-for="binding in visibleBindings" :key="binding.provider">
           <view class="bind-info">
             <image class="bind-icon" :src="binding.icon" mode="aspectFit" />
             <view class="bind-details">
               <text class="bind-name">{{ binding.name }}</text>
-              <text class="bind-desc">
-                {{ hasProviderBind(binding.provider) ? '已绑定，' +
-                  toLocalDateOnlyString(parseDateOnly(getBindingDate(binding.provider)!))
-                  : '未绑定' }}
+              <text class="bind-desc" :class="{ 'bind-desc-bound': hasProviderBind(binding.provider) }">
+                {{ getBindingStatusText(binding.provider) }}
               </text>
             </view>
           </view>
-          <button class="bind-btn" :class="hasProviderBind(binding.provider) ? 'unbind-btn' : 'bind-btn-primary'"
+
+          <!-- 已开放渠道：绑定 / 解绑（操作期间禁用并显示 loading，避免重复点击） -->
+          <button v-if="isProviderAvailable(binding.provider)" class="bind-btn"
+            :class="hasProviderBind(binding.provider) ? 'unbind-btn' : 'bind-btn-primary'"
+            :loading="pendingProvider === binding.provider" :disabled="!!pendingProvider || confirming"
             hover-class="mm-hover" @click="binding.toggleBind(binding.name)">
-            {{ hasProviderBind(binding.provider) ? '解绑' : '绑定' }}
+            {{ pendingProvider === binding.provider
+              ? (hasProviderBind(binding.provider) ? '解绑中' : '绑定中')
+              : (hasProviderBind(binding.provider) ? '解绑' : '绑定') }}
           </button>
+          <!-- 未开放渠道：明确标注不可操作，不再点了没反应 -->
+          <view v-else class="bind-btn bind-btn-disabled">
+            <text class="bind-btn-disabled-text">
+              {{ hasProviderBind(binding.provider) ? '暂不支持' : '敬请期待' }}
+            </text>
+          </view>
         </view>
       </view>
     </view>
@@ -34,22 +56,39 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
 import { useAuthStore } from '@/stores/auth';
 import { useThemeStore } from '@/stores/theme';
 import MmNavBar from '@/components/MmNavBar.vue';
 import http from '@/libs/http/config';
-import { notifySuccess, notifyError } from '@/utils/notification';
-import { toLocalDateOnlyString, parseDateOnly } from "@/utils/date";
+import { notifySuccess, notifyError, notifyInfo } from '@/utils/notification';
+import {
+  formatThirdPartyBoundAt,
+  getBoundThirdPartyLabels,
+  normalizeThirdPartyBindings,
+} from '@/utils/third-party';
 
 const authStore = useAuthStore();
 const themeStore = useThemeStore();
+
+/** 只在微信小程序里开放微信绑定（其余渠道后端暂未提供绑定接口） */
+const AVAILABLE_PROVIDERS = ['wechat'];
+
+/** 正在绑定 / 解绑的渠道；有值时所有操作按钮禁用并显示 loading */
+const pendingProvider = ref<string | null>(null);
+/** 确认框展示中：防止快速连点弹出多个确认框 / 并发发起两次绑定 */
+const confirming = ref(false);
+/** 绑定状态是否正在同步（首次进入 / 手动刷新） */
+const loading = ref(false);
+
 interface thirdBinds {
   name: string;// 中文名
   provider: string;// 对应编号
   icon: string;// 图标路径
   toggleBind: (bindName: string) => void;// 绑定/解绑函数
 }
+
 // 绑定第三方映数组
 const thirdPartyBindings = ref<thirdBinds[]>([
   {
@@ -240,82 +279,101 @@ const thirdPartyBindings = ref<thirdBinds[]>([
 
 ]);
 
-onShow(async () => {
-  themeStore.updateNavBarColor();
-  // 获取最新的第三方绑定信息
-  await fetchThirdPartyBindings();
+/** 当前已绑定的渠道列表（统一从 store 解析，兼容后端字段大小写） */
+const boundBindings = computed(() => normalizeThirdPartyBindings(authStore.user?.thirdPartyBindings));
+/** 已绑定渠道的中文名，用于状态总览 */
+const boundLabels = computed(() => getBoundThirdPartyLabels(authStore.user?.thirdPartyBindings));
+/** 状态总览文案：正在同步 / 已绑定哪些 / 尚未绑定 */
+const statusText = computed(() => {
+  if (loading.value) return '正在同步绑定状态…';
+  return boundLabels.value.length ? `已绑定：${boundLabels.value.join('、')}` : '尚未绑定第三方账号';
 });
 
-// 获取第三方绑定信息
-async function fetchThirdPartyBindings() {
+/**
+ * 页面上实际展示的渠道：只显示已开放的（微信）和历史上已经绑定的渠道。
+ * 其余渠道后端还没有绑定接口，全部列出来只会制造「点了没反应」的困惑。
+ */
+const visibleBindings = computed(() =>
+  thirdPartyBindings.value.filter(
+    (binding) => isProviderAvailable(binding.provider) || hasProviderBind(binding.provider),
+  ),
+);
+
+onShow(async () => {
+  themeStore.updateNavBarColor();
+  // 每次进入 / 返回都重新拉取，避免显示上一次的旧状态
+  await fetchThirdPartyBindings(true);
+});
+
+/**
+ * 拉取第三方绑定状态
+ * @param silent 静默模式：自动刷新失败时只打日志，不打扰用户（手动操作失败才提示）
+ */
+async function fetchThirdPartyBindings(silent = false) {
+  loading.value = true;
   try {
     const res = await http.get('/mm/Auth/bindings');
-    if (res.statusCode === 200 && res.data) {
-      // 更新用户信息中的第三方绑定数据
+    if (res.statusCode === 200) {
       authStore.updateUser({
-        thirdPartyBindings: res.data.bindings || []
+        thirdPartyBindings: normalizeThirdPartyBindings(res.data),
       });
     }
   } catch (error) {
-    console.error('Failed to fetch third party bindings', error);
+    console.error('获取第三方绑定信息失败:', error);
+    if (!silent) notifyError('绑定状态获取失败，请稍后重试');
+  } finally {
+    loading.value = false;
   }
 }
 
-// 检查特定提供商是否已绑定
+/** 检查特定提供商是否已绑定 */
 function hasProviderBind(provider: string) {
-  return authStore.user?.thirdPartyBindings?.some((binding: any) => binding.provider === provider) || false;
+  return boundBindings.value.some((binding) => binding.provider === provider);
 }
 
-// 获取特定提供商的绑定日期
+/** 获取特定提供商的绑定日期（后端返回完整时间戳，这里统一格式化为 YYYY-MM-DD） */
 function getBindingDate(provider: string) {
-  const binding = authStore.user?.thirdPartyBindings?.find((binding: any) => binding.provider === provider);
-  return binding ? binding.boundAt : null;
+  const binding = boundBindings.value.find((item) => item.provider === provider);
+  return formatThirdPartyBoundAt(binding?.boundAt);
 }
 
-// 处理微信绑定/解绑
-async function toggleWechatBind() {
-  if (hasProviderBind('wechat')) {
-    // 解绑微信
-    uni.showModal({
-      title: '确认解绑',
-      content: '解绑后将无法使用微信一键登录，确定要解绑吗？',
-      confirmText: '确定解绑',
-      cancelText: '取消',
-      success: async (modalRes) => {
-        if (modalRes.confirm) {
-          try {
-            await http.delete('/mm/Auth/wechat/unbind');
-            notifySuccess('微信解绑成功');
-
-            // 更新用户信息
-            await authStore.fetchUserInfo();
-          } catch (error: any) {
-            console.error('解绑微信失败:', error);
-
-            if (error.statusCode === 401) {
-              notifyError('用户未登录或登录已过期');
-            } else if (error.statusCode === 404) {
-              notifyError('当前用户未绑定微信账号');
-            } else {
-              notifyError(error.data?.message || '解绑失败，请稍后重试');
-            }
-          }
-        }
-      }
-    });
-  } else {
-    // 绑定微信
-    if (hasWechatEnv()) {
-      await bindWechat();
-    } else {
-      notifyError('请在微信小程序环境中使用此功能');
-    }
+/** 列表里每行的状态文案 */
+function getBindingStatusText(provider: string): string {
+  if (hasProviderBind(provider)) {
+    const date = getBindingDate(provider);
+    return date ? `已绑定 · ${date}` : '已绑定';
   }
-  // 更新绑定信息
-  fetchThirdPartyBindings();
+  return isProviderAvailable(provider) ? '未绑定' : '暂未开放';
 }
 
-// 检查是否在微信环境中
+/** 该渠道是否已开放绑定 */
+function isProviderAvailable(provider: string): boolean {
+  return AVAILABLE_PROVIDERS.includes(provider);
+}
+
+/** 绑定 / 解绑的二次确认（uni.showModal 回调转 Promise，失败按取消处理） */
+function showConfirm(title: string, content: string, confirmText: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    uni.showModal({
+      title,
+      content,
+      confirmText,
+      cancelText: '取消',
+      success: (res) => resolve(!!res.confirm),
+      fail: () => resolve(false),
+    });
+  });
+}
+
+/** 从请求错误里提取服务端文案（后端业务错误常返回纯文本） */
+function extractServerMessage(error: any): string {
+  const data = error?.data;
+  if (typeof data === 'string' && data.trim()) return data.trim();
+  if (data && typeof data.message === 'string' && data.message.trim()) return data.message.trim();
+  return '';
+}
+
+/** 检查是否在微信环境中 */
 function hasWechatEnv() {
   // #ifdef MP-WEIXIN
   return true;
@@ -323,61 +381,196 @@ function hasWechatEnv() {
   return false;
 }
 
-// 绑定微信
-async function bindWechat() {
+// 处理微信绑定/解绑
+async function toggleWechatBind() {
+  // confirming 在确认框弹出前置位：避免快速连点弹两次确认框 / 并发发起两次绑定
+  if (pendingProvider.value || confirming.value) return;
+
+  confirming.value = true;
   try {
-    // #ifdef MP-WEIXIN
-    const loginRes: any = await new Promise((resolve, reject) => {
-      uni.login({
-        provider: 'weixin',
-        success: resolve,
-        fail: reject
-      });
-    });
-
-    if (!loginRes.code) {
-      throw new Error('获取微信登录凭证失败');
-    }
-
-    await http.post('/mm/Auth/wechat/bind', {
-      code: loginRes.code
-    });
-
-    notifySuccess('微信绑定成功');
-
-    // 更新用户信息
-    await authStore.fetchUserInfo();
-    // #endif
-
-    // #ifndef MP-WEIXIN
-    notifyError('请在微信小程序环境中使用此功能');
-    // #endif
-  } catch (error: any) {
-    console.error('绑定微信失败:', error);
-
-    // 后端业务错误（400/409/404 等）返回的是纯文本，直接展示服务端文案更准确；
-    // 401 有两种来源：登录态失效（middleware）或微信 code 无效/已使用（code2session 失败）。
-    const serverMessage =
-      typeof error?.data === 'string'
-        ? error.data
-        : error?.data?.message || error?.message;
-
-    if (error.statusCode === 409) {
-      notifyError(serverMessage || '绑定失败：该微信已绑定其他账号');
-    } else if (error.statusCode === 401) {
-      notifyError(serverMessage || '用户未登录或登录已过期，请重新登录');
+    if (hasProviderBind('wechat')) {
+      await unbindWechat();
     } else {
-      notifyError(serverMessage || '绑定失败，请稍后重试');
+      await bindWechat();
     }
+  } finally {
+    confirming.value = false;
   }
 }
-// 处理百度绑定/解绑
-async function toggleBind(bindName: string) {
-  console.log(`${bindName}绑定/解绑功能待实现`);
-  notifySuccess(`${bindName}绑定功能待实现`);
-  if (hasProviderBind(bindName)) {
 
+// 绑定微信
+async function bindWechat() {
+  if (!hasWechatEnv()) {
+    notifyError('请在微信小程序中使用此功能');
+    return;
   }
+
+  const confirmed = await showConfirm(
+    '绑定微信',
+    '将当前微信账号绑定到本账号后，可直接使用微信一键登录，是否继续？',
+    '绑定',
+  );
+  if (!confirmed) return;
+
+  pendingProvider.value = 'wechat';
+  // 原生 loading 遮罩：点击后立即有反馈，同时防止连点重复发起授权
+  uni.showLoading({ title: '绑定中…', mask: true });
+  let succeeded = false;
+  try {
+    // #ifdef MP-WEIXIN
+    const loginRes: any = await Promise.race([
+      new Promise((resolve, reject) => {
+        uni.login({
+          provider: 'weixin',
+          success: resolve,
+          fail: reject,
+        });
+      }),
+      // 兜底：uni.login 回调异常不触发时，最多等 10s 就结束 loading 并提示失败
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('微信授权超时，请重试')), 10000);
+      }),
+    ]);
+
+    if (!loginRes?.code) {
+      throw new Error('未获取到微信授权凭证，请重试');
+    }
+
+    // 401 在这里表示「微信授权失败」而不是登录态失效，跳过自动刷新，
+    // 否则会把同一个一次性 code 反复消费、错误信息也会变得难以理解。
+    // retryCount: 0 避免网络抖动时重放同一个 code；timeout 保证不会无限等待。
+    await http.post('/mm/Auth/wechat/bind', { code: loginRes.code }, {
+      skipAuthRefresh: true,
+      retryCount: 0,
+      timeout: 15000,
+    });
+    // #endif
+    succeeded = true;
+  } catch (error: any) {
+    handleBindError(error);
+  } finally {
+    uni.hideLoading();
+    pendingProvider.value = null;
+  }
+
+  if (!succeeded) return;
+
+  // 成功后的本地状态更新与提示放在网络请求之外：即使本地存储异常，也不会把「已绑定成功」误报成失败
+  try {
+    upsertLocalBinding('wechat');
+  } catch (storageError) {
+    console.error('本地记录微信绑定状态失败:', storageError);
+  }
+  notifySuccess('微信绑定成功');
+  // 后台再与服务端同步一次（失败也不影响本地呈现）
+  void fetchThirdPartyBindings(true);
+}
+
+// 解绑微信
+async function unbindWechat() {
+  const confirmed = await showConfirm(
+    '确认解绑',
+    '解绑后将无法使用微信一键登录，确定要解绑吗？',
+    '确定解绑',
+  );
+  if (!confirmed) return;
+
+  pendingProvider.value = 'wechat';
+  uni.showLoading({ title: '解绑中…', mask: true });
+  let succeeded = false;
+  try {
+    // 解绑不消费一次性凭证，保留 401 自动刷新；retryCount: 0 避免 DELETE 重试把 404 变成报错
+    await http.delete('/mm/Auth/wechat/unbind', {
+      retryCount: 0,
+      timeout: 15000,
+    });
+    succeeded = true;
+  } catch (error: any) {
+    handleUnbindError(error);
+  } finally {
+    uni.hideLoading();
+    pendingProvider.value = null;
+  }
+
+  if (!succeeded) return;
+
+  try {
+    removeLocalBinding('wechat');
+  } catch (storageError) {
+    console.error('本地清理微信绑定状态失败:', storageError);
+  }
+  notifySuccess('微信解绑成功');
+  void fetchThirdPartyBindings(true);
+}
+
+/** 本地标记已绑定：让页面状态立即更新（服务端同步在后台进行） */
+function upsertLocalBinding(provider: string) {
+  const others = normalizeThirdPartyBindings(authStore.user?.thirdPartyBindings)
+    .filter((item) => item.provider !== provider)
+    .map((item) => ({ provider: item.provider, boundAt: item.boundAt ?? '', isBound: item.isBound !== false }));
+  others.push({ provider, boundAt: new Date().toISOString(), isBound: true });
+  authStore.updateUser({ thirdPartyBindings: others });
+}
+
+/** 本地移除绑定：让页面状态立即更新 */
+function removeLocalBinding(provider: string) {
+  const rest = normalizeThirdPartyBindings(authStore.user?.thirdPartyBindings)
+    .filter((item) => item.provider !== provider)
+    .map((item) => ({ provider: item.provider, boundAt: item.boundAt ?? '', isBound: item.isBound !== false }));
+  authStore.updateUser({ thirdPartyBindings: rest });
+}
+
+/** 绑定失败：把不同状态码翻译成用户能看懂的提示，保证「一定有反馈」 */
+function handleBindError(error: any) {
+  console.error('绑定微信失败:', error);
+  const status = error?.statusCode;
+  const serverMessage = extractServerMessage(error);
+
+  if (status === 409) {
+    notifyError(serverMessage || '该微信已绑定其他账号，请先解绑后再试');
+    // 本地状态可能已过期（比如在另一台设备绑过），重新拉取让按钮回到真实状态
+    void fetchThirdPartyBindings(true);
+  } else if (status === 401) {
+    // bind 的 401 有两种来源：微信 code2session 失败（后端带 body 文案）或登录态过期（中间件 401、body 为空）。
+    // 有 body 就展示服务端原因方便排查；没有 body 则提示重新进入页面触发登录态刷新。
+    if (!serverMessage) {
+      notifyError('登录状态可能已过期，请返回个人主页重新进入后再试');
+    } else {
+      notifyError(`微信授权失败：${serverMessage}`);
+    }
+  } else if (status === 400) {
+    notifyError(serverMessage || '微信授权凭证无效，请重试');
+  } else if (!status) {
+    const fallback = error?.errMsg
+      ? '微信授权失败，请重试'
+      : (String(error?.message || '') || '绑定失败，请稍后重试');
+    notifyError(serverMessage || fallback);
+  } else {
+    notifyError(serverMessage || '绑定失败，请稍后重试');
+  }
+}
+
+/** 解绑失败提示 */
+function handleUnbindError(error: any) {
+  console.error('解绑微信失败:', error);
+  const status = error?.statusCode;
+  const serverMessage = extractServerMessage(error);
+
+  if (status === 401) {
+    notifyError(serverMessage || '登录已过期，请重新登录');
+  } else if (status === 404) {
+    notifyError(serverMessage || '当前尚未绑定微信');
+    void fetchThirdPartyBindings(true);
+  } else if (!status) {
+    notifyError('网络异常，请检查网络后重试');
+  } else {
+    notifyError(serverMessage || '解绑失败，请稍后重试');
+  }
+}
+
+// 暂未开放的渠道：给明确提示，不再假装成功
+function toggleBind(bindName: string) {
+  notifyInfo(`${bindName}绑定功能暂未开放，敬请期待`);
 }
 </script>
 
@@ -389,6 +582,31 @@ async function toggleBind(bindName: string) {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 4px;
+}
+
+/* 绑定状态总览：小圆点 + 文案，一眼看清是否已绑定 */
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--text-faint);
+}
+
+.status-dot-bound {
+  background-color: var(--color-success);
+}
+
+.status-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-color);
 }
 
 .bind-list {
@@ -447,6 +665,11 @@ async function toggleBind(bindName: string) {
   color: var(--text-muted);
 }
 
+/* 已绑定的行用成功语义色强调 */
+.bind-desc-bound {
+  color: var(--color-success-text);
+}
+
 /* 行内按钮：36px 高（列表内按钮按规范 36–40px）+ 10 圆角 */
 .bind-btn {
   display: flex;
@@ -462,6 +685,11 @@ async function toggleBind(bindName: string) {
   box-sizing: border-box;
 }
 
+/* 操作中禁用态：降低不透明度，避免误以为可继续点 */
+.bind-btn[disabled] {
+  opacity: 0.6;
+}
+
 /* 绑定：次按钮（主题浅底 + 描边 + 强调色文字） */
 .bind-btn-primary {
   background-color: var(--theme-color-soft);
@@ -474,5 +702,16 @@ async function toggleBind(bindName: string) {
   background-color: var(--color-danger-soft);
   border: 1px solid var(--color-danger);
   color: var(--color-danger-text);
+}
+
+/* 未开放渠道：中性灰占位，明确表示暂不可操作 */
+.bind-btn-disabled {
+  background-color: var(--surface-soft);
+  border: 1px solid var(--divider-color);
+}
+
+.bind-btn-disabled-text {
+  font-size: 12px;
+  color: var(--text-faint);
 }
 </style>

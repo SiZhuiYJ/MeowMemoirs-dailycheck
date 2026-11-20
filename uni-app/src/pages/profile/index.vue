@@ -6,6 +6,10 @@ import http from '@/libs/http/config';
 import { apiBase, getApiBase, thumbnailUrl } from '@/libs/http/apiBase';
 import { onLoad, onShow } from '@dcloudio/uni-app';
 import { notifySuccess, notifyError } from '@/utils/notification';
+import {
+  getBoundThirdPartyLabels,
+  normalizeThirdPartyBindings,
+} from '@/utils/third-party';
 import MmNavBar from '@/components/MmNavBar.vue';
 import MmLazyImage from '@/components/MmLazyImage.vue';
 
@@ -37,6 +41,17 @@ const profileBackgroundThumbUrl = computed(() => thumbnailUrl(profileBackgroundU
 /** 是否已设置自定义背景（决定操作表项与「查看大图 / 恢复默认」是否可用） */
 const hasCustomBackground = computed(() => !!authStore.user?.profileBackgroundKey);
 
+/** 已绑定第三方渠道的中文名，例如 ['微信']（个人主页展示用，避免只显示数量） */
+const boundThirdPartyLabels = computed(() =>
+  getBoundThirdPartyLabels(authStore.user?.thirdPartyBindings),
+);
+
+/** 第三方绑定入口右侧的状态文案：未绑定 / 已绑定微信 */
+const thirdPartyBindSummary = computed(() => {
+  const labels = boundThirdPartyLabels.value;
+  return labels.length ? `已绑定${labels.join('、')}` : '未绑定';
+});
+
 onShow(async () => {
   themeStore.updateNavBarColor();
   await authStore.fetchUserInfo();
@@ -48,10 +63,10 @@ onShow(async () => {
 async function fetchThirdPartyBindings() {
   try {
     const res = await http.get('/mm/Auth/bindings');
-    if (res.statusCode === 200 && res.data) {
-      // 更新用户信息中的第三方绑定数据
+    if (res.statusCode === 200) {
+      // 更新用户信息中的第三方绑定数据（统一解析，兼容后端字段大小写）
       authStore.updateUser({
-        thirdPartyBindings: res.data.bindings || []
+        thirdPartyBindings: normalizeThirdPartyBindings(res.data)
       });
     }
   } catch (error) {
@@ -483,10 +498,7 @@ async function handleAvatarClick() {
         <view class="list-item" hover-class="mm-hover" @click="handleNavigate('/pages/profile/third-party-binds')">
           <text class="item-label">第三方账号绑定</text>
           <view class="item-value">
-            <text class="value-text">
-              {{ authStore.user?.thirdPartyBindings?.length ? authStore.user.thirdPartyBindings.length + '个已绑定' : '未绑定'
-              }}
-            </text>
+            <text class="value-text">{{ thirdPartyBindSummary }}</text>
             <image class="arrow-icon" src="/static/svg/turn-right.svg" mode="aspectFit" />
           </view>
         </view>
