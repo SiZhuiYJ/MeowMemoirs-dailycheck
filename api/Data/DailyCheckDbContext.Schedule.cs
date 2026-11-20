@@ -52,7 +52,6 @@ public partial class DailyCheckDbContext
                 .HasColumnType("text")
                 .HasColumnName("remark");
             entity.Property(e => e.IsDeleted)
-                .HasDefaultValueSql("'0'")
                 .HasComment("是否伪删除：0正常，1已删除")
                 .HasColumnName("is_deleted");
             entity.Property(e => e.CreatedAt)
@@ -94,7 +93,6 @@ public partial class DailyCheckDbContext
                 .HasColumnType("text")
                 .HasColumnName("remark");
             entity.Property(e => e.IsDeleted)
-                .HasDefaultValueSql("'0'")
                 .HasComment("是否伪删除：0正常，1已删除")
                 .HasColumnName("is_deleted");
             entity.Property(e => e.CreatedAt)
@@ -154,7 +152,6 @@ public partial class DailyCheckDbContext
                 .HasColumnType("text")
                 .HasColumnName("remark");
             entity.Property(e => e.IsDeleted)
-                .HasDefaultValueSql("'0'")
                 .HasComment("是否伪删除：0正常，1已删除")
                 .HasColumnName("is_deleted");
             entity.Property(e => e.CreatedAt)

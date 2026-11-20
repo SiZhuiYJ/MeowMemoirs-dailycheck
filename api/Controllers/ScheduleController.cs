@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using api.Data;
+using api.Infrastructure;
 using api.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -123,6 +124,167 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
 
         var detail = await BuildDetailAsync(userId, schedule.Id);
         return detail == null ? NotFound(new { message = "未找到课表" }) : Ok(detail);
+    }
+
+    /// <summary>
+    /// 从 Excel 导入课表：解析文件 → 新建一张课表 + 课程 + 时间段，返回课表详情。
+    ///
+    /// 支持 .xlsx / .xls；解析规则与前端 demo 一致（自动识别通用横排 / 教务系统竖排、
+    /// 合并单元格、一格多课、周次等）。缺少的信息用默认值补齐（作息时间 12 节、周数 20）。
+    /// </summary>
+    /// <param name="file">课表 Excel（.xlsx / .xls）</param>
+    /// <param name="scheduleName">课表名称，不传则取文件里的标题或文件名</param>
+    /// <param name="startTime">开课日期 yyyy-MM-dd，不传则取文件里的学期或本周一</param>
+    /// <param name="weekCount">学期周数，不传则按文件里的最大周次（至少 20）</param>
+    [HttpPost("Import")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<ActionResult<ScheduleDetailDto>> ImportSchedule(
+        IFormFile? file,
+        [FromForm] string? scheduleName,
+        [FromForm] string? startTime,
+        [FromForm] int? weekCount)
+    {
+        var userId = GetUserId();
+        if (file is null || file.Length == 0)
+            return BadRequest(new { message = "请选择要导入的 Excel 文件" });
+
+        var extension = Path.GetExtension(file.FileName ?? string.Empty).ToLowerInvariant();
+        if (extension is not (".xlsx" or ".xls"))
+            return BadRequest(new { message = "仅支持 .xlsx / .xls 文件（.csv 请先用 Excel 另存为 xlsx）" });
+        if (file.Length > 10 * 1024 * 1024)
+            return BadRequest(new { message = "文件不能超过 10MB" });
+
+        ParsedTimetable parsed;
+        try
+        {
+            using var memory = new MemoryStream();
+            await using (var input = file.OpenReadStream())
+            {
+                await input.CopyToAsync(memory);
+            }
+            memory.Position = 0;
+            parsed = TimetableExcelParser.Parse(memory);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = $"解析失败：{ex.Message}" });
+        }
+
+        if (parsed.Slots.Count == 0)
+            return BadRequest(new { message = "没有从文件里识别到课程，请检查这张表是不是课表" });
+
+        var name = (scheduleName ?? string.Empty).Trim();
+        if (name.Length == 0) name = (parsed.Title ?? string.Empty).Trim();
+        if (name.Length == 0) name = Path.GetFileNameWithoutExtension(file.FileName);
+        if (name.Length == 0) name = "导入的课表";
+        if (name.Length > 100) name = name[..100];
+
+        DateOnly startDate;
+        if (!string.IsNullOrWhiteSpace(startTime))
+        {
+            if (!DateOnly.TryParseExact(startTime.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out startDate))
+                return BadRequest(new { message = "开课日期格式应为 yyyy-MM-dd" });
+        }
+        else
+        {
+            startDate = parsed.SuggestedStartDate ?? ThisMonday();
+        }
+
+        var maxWeekInFile = parsed.Slots
+            .Select(s => TimetableExcelParser.ParseWeekList(s.Weeks) is { Count: > 0 } list ? list.Max() : 0)
+            .DefaultIfEmpty(0)
+            .Max();
+
+        var weeks = weekCount ?? Math.Max(20, maxWeekInFile);
+        if (weeks < 1 || weeks > MaxWeekCount)
+            return BadRequest(new { message = $"学期周数需在 1-{MaxWeekCount} 之间" });
+        if (weeks < maxWeekInFile) weeks = maxWeekInFile;
+
+        var sectionCount = Math.Clamp(parsed.MaxSection, 1, MaxSections);
+        var timetable = TimetableExcelParser.DefaultTimetable(sectionCount);
+
+        var now = DateTime.UtcNow;
+        await using var transaction = await _db.Database.BeginTransactionAsync();
+
+        var schedule = new Schedule
+        {
+            UserId = userId,
+            ScheduleName = name,
+            StartTime = startDate,
+            WeekCount = weeks,
+            TimetableJson = JsonSerializer.Serialize(timetable, JsonOpts),
+            UpdatedAt = now,
+            CreatedAt = now,
+            IsDeleted = false,
+        };
+        _db.Schedules.Add(schedule);
+        await _db.SaveChangesAsync();
+
+        var palette = new[]
+        {
+            "#9b4f93", "#4f9b93", "#9b6b4f", "#4f6b9b", "#7a4f9b",
+            "#9b4f5a", "#4f9b6b", "#8f9b4f", "#4f8a9b", "#9b874f",
+        };
+        var allWeeks = Enumerable.Range(1, weeks).ToList();
+        var courseIndex = 0;
+
+        foreach (var group in parsed.Slots.GroupBy(s => s.Course.Trim()))
+        {
+            var course = new Course
+            {
+                ScheduleId = schedule.Id,
+                CourseName = group.Key.Length > 100 ? group.Key[..100] : group.Key,
+                Color = palette[courseIndex++ % palette.Length],
+                UpdatedAt = now,
+                CreatedAt = now,
+                IsDeleted = false,
+            };
+            _db.Courses.Add(course);
+            await _db.SaveChangesAsync();
+
+            foreach (var slot in group)
+            {
+                var sections = Enumerable.Range(slot.PeriodStart, slot.PeriodEnd - slot.PeriodStart + 1)
+                    .Where(v => v >= 1 && v <= MaxSections)
+                    .Distinct()
+                    .OrderBy(v => v)
+                    .ToList();
+                if (sections.Count == 0) continue;
+
+                var weekList = TimetableExcelParser.ParseWeekList(slot.Weeks);
+                weekList = weekList is { Count: > 0 }
+                    ? weekList.Where(w => w >= 1 && w <= weeks).Distinct().OrderBy(w => w).ToList()
+                    : allWeeks;
+                if (weekList.Count == 0) weekList = allWeeks;
+
+                _db.CourseTimes.Add(new CourseTime
+                {
+                    CourseId = course.Id,
+                    Location = (slot.Location ?? string.Empty).Trim(),
+                    Teacher = (slot.Teacher ?? string.Empty).Trim(),
+                    WeekListJson = JsonSerializer.Serialize(weekList, JsonOpts),
+                    SectionListJson = JsonSerializer.Serialize(sections, JsonOpts),
+                    DayOfWeek = Math.Clamp(slot.DayOfWeek, 1, 7),
+                    UpdatedAt = now,
+                    CreatedAt = now,
+                    IsDeleted = false,
+                });
+            }
+        }
+
+        await _db.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        var detail = await BuildDetailAsync(userId, schedule.Id);
+        return detail is null ? NotFound(new { message = "导入后读取课表失败" }) : Ok(detail);
+    }
+
+    static DateOnly ThisMonday()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var offset = ((int)today.DayOfWeek + 6) % 7;
+        return today.AddDays(-offset);
     }
 
     /// <summary>
