@@ -11,7 +11,13 @@
 import { http } from '@/libs/http/config';
 import { getAuthToken } from '@/libs/http';
 import { resolveApiBase } from '@/libs/http/apiBase';
-import type { Course, ScheduleDetail, ScheduleImportPreview, ScheduleSummary } from './type';
+import type {
+  Course,
+  SavedTimetable,
+  ScheduleDetail,
+  ScheduleImportPreview,
+  ScheduleSummary,
+} from './type';
 
 /**
  * 导入课表的可选参数（契约里的可选项，不传时由后端按文件名 / 导入内容兜底）
@@ -40,6 +46,35 @@ export interface ScheduleImportConfirmPayload {
   timetable?: string[];
   /** 课程列表（结构与预检返回的 courses 一致，ID 传 0 即可） */
   courses: Course[];
+}
+
+/**
+ * 新建 / 修改课表的请求体（POST /mm/Schedule，ScheduleEditDto）。
+ * id 省略或 0 = 新建；>0 = 修改该课表的设置（不会动课程）。
+ */
+export interface ScheduleEditPayload {
+  /** 课表 ID（省略或 0 = 新建） */
+  id?: number;
+  /** 课表名称（1-100 字） */
+  scheduleName: string;
+  /** 开课日期 yyyy-MM-dd */
+  startTime: string;
+  /** 学期总周数（1-100） */
+  weekCount: number;
+  /** 作息时间表（1-30 节，每项 HH:mm-HH:mm） */
+  timetable: string[];
+  /** 备注（可选） */
+  remark?: string;
+}
+
+/**
+ * 新建 / 修改作息表模板的请求体（POST/PUT /mm/Schedule/Timetables）。
+ */
+export interface TimetablePayload {
+  /** 作息表名称（1-100 字） */
+  name: string;
+  /** 作息时间（1-30 节，每项 HH:mm-HH:mm） */
+  times: string[];
 }
 
 /**
@@ -146,6 +181,62 @@ export const ScheduleApi = {
    */
   detail(id: number): Promise<ScheduleDetail> {
     return http.get<ScheduleDetail>(`/mm/Schedule/${id}`).then((res) => res.data);
+  },
+
+  /**
+   * 新建 / 修改课表（POST /mm/Schedule）。
+   * id 省略或 0 = 新建；>0 = 修改该课表设置（课程不受影响）。
+   * 写接口，显式关闭自动重试，避免网络抖动时重复创建课表。
+   * @param {ScheduleEditPayload} payload 课表名 / 开课日期 / 周数 / 作息
+   * @returns {Promise<ScheduleDetail>} 保存后的课表详情
+   */
+  createSchedule(payload: ScheduleEditPayload): Promise<ScheduleDetail> {
+    return http
+      .post<ScheduleDetail>('/mm/Schedule', payload, { retryCount: 0 })
+      .then((res) => res.data);
+  },
+
+  /**
+   * 新建作息表模板。
+   * @param {TimetablePayload} payload 名称 + 作息时间
+   * @returns {Promise<SavedTimetable>} 新建的模板
+   */
+  createTimetable(payload: TimetablePayload): Promise<SavedTimetable> {
+    return http
+      .post<SavedTimetable>('/mm/Schedule/Timetables', payload, { retryCount: 0 })
+      .then((res) => res.data);
+  },
+
+  /**
+   * 修改作息表模板。
+   * @param {number} id 模板 ID（必须 > 0，来自课表的作息不可改）
+   * @param {TimetablePayload} payload 名称 + 作息时间
+   * @returns {Promise<SavedTimetable>} 修改后的模板
+   */
+  updateTimetable(id: number, payload: TimetablePayload): Promise<SavedTimetable> {
+    return http
+      .put<SavedTimetable>(`/mm/Schedule/Timetables/${id}`, payload, { retryCount: 0 })
+      .then((res) => res.data);
+  },
+
+  /**
+   * 删除作息表模板（伪删除）。
+   * @param {number} id 模板 ID（必须 > 0，来自课表的作息不可删）
+   * @returns {Promise<void>}
+   */
+  removeTimetable(id: number): Promise<void> {
+    return http
+      .delete(`/mm/Schedule/Timetables/${id}`, { retryCount: 0 })
+      .then(() => undefined);
+  },
+
+  /**
+   * 获取当前用户历史保存过的作息时间表（去重、最近更新的在前）。
+   * 导入预检时文件里没有作息，可让用户直接复用其中一套。
+   * @returns {Promise<SavedTimetable[]>} 作息列表（可能为空）
+   */
+  getTimetables(): Promise<SavedTimetable[]> {
+    return http.get<SavedTimetable[]>('/mm/Schedule/Timetables').then((res) => res.data);
   },
 
   /**

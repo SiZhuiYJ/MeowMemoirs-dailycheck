@@ -54,8 +54,10 @@ export interface ScheduleImportPreview {
   weekCount: number;
   /** 节次数 */
   sectionCount: number;
-  /** 作息时间表（下标 + 1 = 节次） */
+  /** 作息时间表（下标 + 1 = 节次；文件没有作息时为服务端默认作息） */
   timetable: string[];
+  /** 作息是否解析自文件（false = 上面的 timetable 是默认值，可换用历史作息 / 默认 / 新建） */
+  timetableFromFile: boolean;
   /** 课程数 */
   courseCount: number;
   /** 上课时间段总数 */
@@ -66,6 +68,24 @@ export interface ScheduleImportPreview {
   warnings: string[];
   /** 预检出的时间冲突（同一天 + 节次重叠 + 周次有交集） */
   conflicts: string[];
+}
+
+/**
+ * 历史保存的作息时间表（GET /mm/Schedule/Timetables 列表项）
+ *
+ * 导入预检时如果文件里没有作息，可让用户直接复用之前保存过的作息。
+ */
+export interface SavedTimetable {
+  /** 作息表 ID：>0 = 可编辑/删除的模板；0 = 从已有课表提取（只读） */
+  id: number;
+  /** 名称（模板名 / 来源课表名） */
+  name: string;
+  /** 作息时间数组（第 1 节开始，格式 HH:mm-HH:mm） */
+  times: string[];
+  /** 是否来自已有课表（true 时只读，不能编辑 / 删除） */
+  fromSchedule: boolean;
+  /** 最近更新时间（ISO 字符串） */
+  updatedAt: string;
 }
 
 /**
