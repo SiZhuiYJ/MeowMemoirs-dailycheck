@@ -32,7 +32,7 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
     readonly DailyCheckDbContext _db = db;
 
     static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
-    static readonly Regex TimeRangeRegex = new(@"^\d{1,2}:\d{2}-\d{1,2}:\d{2}$", RegexOptions.Compiled);
+    static readonly Regex TimeRangeRegex = new(@"^([01]?\d|2[0-3]):([0-5]\d)-([01]?\d|2[0-3]):([0-5]\d)$", RegexOptions.Compiled);
     static readonly Regex ColorRegex = new(@"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$", RegexOptions.Compiled);
 
     const int MaxWeekCount = 100;
@@ -225,6 +225,135 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
     }
 
     /// <summary>
+    /// 作息表列表：作息表模板在前，再补上从已有课表里去重提取的历史作息。
+    /// 导入 / 新建课表时可以让用户选一套复用。
+    /// </summary>
+    [HttpGet("Timetables")]
+    public async Task<ActionResult<List<ScheduleTimetableDto>>> GetTimetables()
+    {
+        var userId = GetUserId();
+        var result = new List<ScheduleTimetableDto>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        var templates = await _db.TimetableTemplates
+            .Where(t => t.UserId == userId && !t.IsDeleted)
+            .OrderByDescending(t => t.UpdatedAt)
+            .ToListAsync();
+        foreach (var template in templates)
+        {
+            var times = JsonSerializer.Deserialize<List<string>>(template.TimesJson, JsonOpts) ?? new List<string>();
+            if (times.Count == 0) continue;
+            if (!seen.Add(string.Join('\u0001', times))) continue;
+            result.Add(new ScheduleTimetableDto
+            {
+                Id = template.Id,
+                Name = template.Name,
+                Times = times,
+                FromSchedule = false,
+                UpdatedAt = template.UpdatedAt,
+            });
+        }
+
+        var schedules = await _db.Schedules
+            .Where(s => s.UserId == userId && !s.IsDeleted)
+            .OrderByDescending(s => s.UpdatedAt)
+            .Select(s => new { s.ScheduleName, s.TimetableJson, s.UpdatedAt })
+            .ToListAsync();
+        foreach (var schedule in schedules)
+        {
+            var times = JsonSerializer.Deserialize<List<string>>(schedule.TimetableJson, JsonOpts) ?? new List<string>();
+            if (times.Count == 0) continue;
+            if (!seen.Add(string.Join('\u0001', times))) continue;
+            result.Add(new ScheduleTimetableDto
+            {
+                Id = 0,
+                Name = schedule.ScheduleName,
+                Times = times,
+                FromSchedule = true,
+                UpdatedAt = schedule.UpdatedAt,
+            });
+        }
+
+        return Ok(result.Take(50).ToList());
+    }
+
+    /// <summary>新建作息表模板。</summary>
+    [HttpPost("Timetables")]
+    public async Task<ActionResult<ScheduleTimetableDto>> CreateTimetable([FromBody] SaveTimetableDto dto)
+    {
+        var userId = GetUserId();
+        var name = (dto.Name ?? string.Empty).Trim();
+        if (name.Length == 0) return BadRequest(new { message = "作息表名称不能为空" });
+        if (name.Length > 100) return BadRequest(new { message = "作息表名称不能超过 100 个字符" });
+        var times = NormalizeTimetable(dto.Times);
+        if (times is null) return BadRequest(new { message = "作息时间不能为空，且每节格式应为 HH:mm-HH:mm" });
+
+        var now = DateTime.UtcNow;
+        var entity = new TimetableTemplate
+        {
+            UserId = userId,
+            Name = name,
+            TimesJson = JsonSerializer.Serialize(times, JsonOpts),
+            IsDeleted = false,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+        _db.TimetableTemplates.Add(entity);
+        await _db.SaveChangesAsync();
+        return Ok(new ScheduleTimetableDto
+        {
+            Id = entity.Id,
+            Name = entity.Name,
+            Times = times,
+            FromSchedule = false,
+            UpdatedAt = entity.UpdatedAt,
+        });
+    }
+
+    /// <summary>修改作息表模板。</summary>
+    [HttpPut("Timetables/{id:ulong}")]
+    public async Task<ActionResult<ScheduleTimetableDto>> UpdateTimetable(ulong id, [FromBody] SaveTimetableDto dto)
+    {
+        var userId = GetUserId();
+        var entity = await _db.TimetableTemplates
+            .FirstOrDefaultAsync(t => t.Id == id && t.UserId == userId && !t.IsDeleted);
+        if (entity is null) return NotFound(new { message = "未找到作息表" });
+
+        var name = (dto.Name ?? string.Empty).Trim();
+        if (name.Length == 0) return BadRequest(new { message = "作息表名称不能为空" });
+        if (name.Length > 100) return BadRequest(new { message = "作息表名称不能超过 100 个字符" });
+        var times = NormalizeTimetable(dto.Times);
+        if (times is null) return BadRequest(new { message = "作息时间不能为空，且每节格式应为 HH:mm-HH:mm" });
+
+        entity.Name = name;
+        entity.TimesJson = JsonSerializer.Serialize(times, JsonOpts);
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Ok(new ScheduleTimetableDto
+        {
+            Id = entity.Id,
+            Name = entity.Name,
+            Times = times,
+            FromSchedule = false,
+            UpdatedAt = entity.UpdatedAt,
+        });
+    }
+
+    /// <summary>删除作息表模板（伪删除）。</summary>
+    [HttpDelete("Timetables/{id:ulong}")]
+    public async Task<IActionResult> DeleteTimetable(ulong id)
+    {
+        var userId = GetUserId();
+        var entity = await _db.TimetableTemplates
+            .FirstOrDefaultAsync(t => t.Id == id && t.UserId == userId && !t.IsDeleted);
+        if (entity is null) return NotFound(new { message = "未找到作息表" });
+        entity.IsDeleted = true;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "已删除" });
+    }
+
+    /// <summary>
     /// 从 Excel 导入课表：解析文件 → 新建一张课表 + 课程 + 时间段，返回课表详情。
     ///
     /// 支持 .xlsx / .xls；解析规则与前端 demo 一致（自动识别通用横排 / 教务系统竖排、
@@ -394,11 +523,26 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
         if (weeks < maxWeekInFile) weeks = maxWeekInFile;
 
         var sectionCount = Math.Clamp(parsed.MaxSection, 1, MaxSections);
-        var timetable = TimetableExcelParser.DefaultTimetable(sectionCount);
+        var fileTimes = parsed.Times?.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+        var timetableFromFile = fileTimes is { Count: >= 4 };
+        var timetable = timetableFromFile
+            ? fileTimes!
+            : TimetableExcelParser.DefaultTimetable(sectionCount);
+        // 文件作息比课程节次短时用默认作息补齐；文件作息更长时以作息表节数为准。
+        if (timetable.Count < sectionCount)
+        {
+            var fallbackTimes = TimetableExcelParser.DefaultTimetable(sectionCount);
+            for (var i = timetable.Count; i < sectionCount; i++) timetable.Add(fallbackTimes[i]);
+        }
+        else if (sectionCount < timetable.Count)
+        {
+            sectionCount = Math.Clamp(timetable.Count, 1, MaxSections);
+        }
         if (parsed.SuggestedStartDate is not null)
-            warnings.Add($"文件里的学期：{parsed.SemesterLabel ?? "未识别"}；作息时间为默认 {sectionCount} 节（可在课表设置里修改）");
-        else
-            warnings.Add($"没有作息时间信息，已使用默认 {sectionCount} 节时间（可在课表设置里修改）");
+            warnings.Add($"文件里的学期：{parsed.SemesterLabel ?? "未识别"}");
+        warnings.Add(timetableFromFile
+            ? $"已从文件读取 {timetable.Count} 节作息时间（可在预检里修改或换用已保存的作息）"
+            : $"文件里没有作息时间，已使用默认 {sectionCount} 节时间（可在预检里换用已保存的作息或手动修改）");
 
         var palette = new[]
         {
@@ -465,7 +609,7 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
 
         var conflicts = DetectImportConflicts(courses);
         var plan = new ImportPlan(name, parsed.SemesterLabel, startDate, weeks, sectionCount,
-            timetable, courses, warnings, conflicts);
+            timetable, timetableFromFile, courses, warnings, conflicts);
         return (plan, null);
     }
 
@@ -502,10 +646,14 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
             .SelectMany(t => t.SectionList ?? new List<int>())
             .DefaultIfEmpty(0)
             .Max();
-        var sectionCount = Math.Clamp(maxSection, 1, MaxSections);
-        var timetable = dto.Timetable is { Count: > 0 }
-            ? dto.Timetable
-            : TimetableExcelParser.DefaultTimetable(sectionCount);
+        var incoming = dto.Timetable?.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+        // 节次数取「课程用到的最大节次」和「用户选择的作息表节数」中较大的：
+        // 用户可能选了一套 12 节的作息，但课程只排到第 6 节，作息表仍应完整保留。
+        var sectionCount = Math.Clamp(Math.Max(maxSection, incoming?.Count ?? 0), 1, MaxSections);
+        var defaultTimetable = TimetableExcelParser.DefaultTimetable(sectionCount);
+        var timetable = incoming is { Count: > 0 } ? incoming.Take(sectionCount).ToList() : new List<string>();
+        for (var i = timetable.Count; i < sectionCount; i++)
+            timetable.Add(defaultTimetable[i]);
         var allWeeks = Enumerable.Range(1, weeks).ToList();
         var palette = new[]
         {
@@ -554,7 +702,7 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
 
         var conflicts = DetectImportConflicts(planCourses);
         var plan = new ImportPlan(name, null, startDate, weeks, sectionCount,
-            timetable, planCourses, warnings, conflicts);
+            timetable, true, planCourses, warnings, conflicts);
         return (plan, null);
     }
 
@@ -569,6 +717,7 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
             WeekCount = plan.WeekCount,
             SectionCount = plan.SectionCount,
             Timetable = plan.Timetable,
+            TimetableFromFile = plan.TimetableFromFile,
             TimeCount = plan.Courses.Sum(c => c.Times.Count),
             Warnings = plan.Warnings,
             Conflicts = plan.Conflicts,
@@ -916,7 +1065,14 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
         foreach (var raw in timetable)
         {
             var item = (raw ?? string.Empty).Trim();
-            if (string.IsNullOrEmpty(item) || !TimeRangeRegex.IsMatch(item)) return null;
+            var match = TimeRangeRegex.Match(item);
+            if (!match.Success) return null;
+
+            // 还要校验结束晚于开始（允许 8:00-8:45 这种单位数小时，但 25:00 / 08:00-08:00 不合法）
+            var startMinutes = int.Parse(match.Groups[1].Value) * 60 + int.Parse(match.Groups[2].Value);
+            var endMinutes = int.Parse(match.Groups[3].Value) * 60 + int.Parse(match.Groups[4].Value);
+            if (endMinutes <= startMinutes) return null;
+
             result.Add(item);
         }
         return result;
@@ -971,6 +1127,7 @@ internal sealed record ImportPlan(
     int WeekCount,
     int SectionCount,
     List<string> Timetable,
+    bool TimetableFromFile,
     List<PlanCourse> Courses,
     List<string> Warnings,
     List<string> Conflicts);

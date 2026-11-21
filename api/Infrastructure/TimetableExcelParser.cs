@@ -22,7 +22,9 @@ public sealed record ParsedTimetable(
     string? SemesterLabel,
     DateOnly? SuggestedStartDate,
     int MaxSection,
-    List<ParsedSlot> Slots);
+    List<ParsedSlot> Slots,
+    /// <summary>文件里自带的作息时间（第 1 节开始，格式 "HH:mm-HH:mm"）；没有则为 null。</summary>
+    List<string>? Times = null);
 
 /// <summary>
 /// 课表 Excel 解析器（NPOI，支持 .xls / .xlsx）。
@@ -50,7 +52,145 @@ public static class TimetableExcelParser
         IWorkbook wb;
         wb = WorkbookFactory.Create(stream);
         var sheet = wb.GetSheetAt(0) ?? throw new InvalidOperationException("Excel 里没有工作表");
-        return ParseSheet(sheet);
+        var parsed = ParseSheet(sheet);
+        var times = TryExtractTimetable(wb);
+        return times is null ? parsed : parsed with { Times = times };
+    }
+
+    /// <summary>
+    /// 尝试从工作簿里读取「作息时间表」（如「第1节 08:00-08:45」或「1-2节 08:00-09:40」）。
+    /// 找不到就返回 null，由上层决定用默认作息还是让用户选/建。
+    /// </summary>
+    static List<string>? TryExtractTimetable(IWorkbook wb)
+    {
+        for (var s = 0; s < wb.NumberOfSheets && s < 5; s++)
+        {
+            var sheet = wb.GetSheetAt(s);
+            if (sheet is null) continue;
+            var times = ExtractTimetableFromSheet(sheet);
+            if (times is not null) return times;
+        }
+        return null;
+    }
+
+    static readonly Regex TimeRangeRegex = new(
+        @"([01]?\d|2[0-3])[:：]([0-5]\d)\s*[-~—－–至]\s*([01]?\d|2[0-3])[:：]([0-5]\d)",
+        RegexOptions.Compiled);
+    static readonly Regex SectionRangeRegex = new(@"第?\s*(\d{1,2})\s*[-~—－–至]\s*(\d{1,2})\s*节", RegexOptions.Compiled);
+    static readonly Regex SectionSingleRegex = new(@"第?\s*(\d{1,2})\s*节", RegexOptions.Compiled);
+    static readonly Regex ChineseNumberRegex = new(@"^[一二三四五六七八九十]{1,3}$", RegexOptions.Compiled);
+
+    static List<string>? ExtractTimetableFromSheet(ISheet sheet)
+    {
+        var bySection = new SortedDictionary<int, string>();
+        var ordered = new List<(int row, int col, string time)>();
+        var maxRow = sheet.LastRowNum;
+        for (var r = 0; r <= maxRow; r++)
+        {
+            var row = sheet.GetRow(r);
+            if (row is null) continue;
+            var texts = new List<(int col, string text)>();
+            for (var c = 0; c < row.LastCellNum; c++)
+            {
+                var text = row.GetCell(c)?.ToString()?.Trim();
+                if (!string.IsNullOrEmpty(text)) texts.Add((c, text));
+            }
+            if (texts.Count == 0) continue;
+
+            var time = texts.Select(t => NormalizeTimeRange(t.text)).FirstOrDefault(t => t is not null);
+            if (time is null) continue;
+            ordered.Add((r, texts[0].col, time));
+
+            // 看这一行有没有「第X节 / X-Y节 / 中文数字节次」
+            (int start, int end)? section = null;
+            foreach (var (_, text) in texts)
+            {
+                var m = SectionRangeRegex.Match(text);
+                if (m.Success)
+                {
+                    section = (int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value));
+                    break;
+                }
+                m = SectionSingleRegex.Match(text);
+                if (m.Success)
+                {
+                    var value = int.Parse(m.Groups[1].Value);
+                    section = (value, value);
+                    break;
+                }
+            }
+            if (section is null)
+            {
+                // 前 3 列里单独的数字 / 中文数字（常见：第一列「1」「一」）
+                foreach (var (col, text) in texts.Where(t => t.col <= 2))
+                {
+                    var value = ParseSimpleSection(text);
+                    if (value is > 0) { section = (value.Value, value.Value); break; }
+                }
+            }
+            if (section is null) continue;
+            var (start, end) = section.Value;
+            if (start < 1 || start > MaxSections) continue;
+            end = Math.Min(Math.Max(end, start), MaxSections);
+            for (var sec = start; sec <= end; sec++)
+                bySection.TryAdd(sec, time);
+        }
+
+        if (bySection.Count >= 4)
+        {
+            // 必须从第 1 节开始且连续，否则视为不是作息表
+            var keys = bySection.Keys.ToList();
+            if (keys[0] == 1 && keys.Count >= 4 && keys[^1] == keys.Count)
+                return keys.Select(k => bySection[k]).ToList();
+        }
+
+        // 兜底：没有节次标记，但按行顺序连续出现了 >= 6 个时间段的，按 1..N 处理
+        if (ordered.Count >= 6)
+        {
+            var times = ordered.OrderBy(x => x.row).ThenBy(x => x.col).Select(x => x.time).ToList();
+            var starts = times.Select(t => TimeSpan.ParseExact(t[..5], "hh\\:mm", CultureInfo.InvariantCulture)).ToList();
+            var increasing = starts.Zip(starts.Skip(1), (a, b) => b > a).All(x => x);
+            if (increasing && times.Distinct().Count() == times.Count) return times;
+        }
+        return null;
+    }
+
+    static string? NormalizeTimeRange(string text)
+    {
+        var m = TimeRangeRegex.Match(text);
+        if (!m.Success) return null;
+        var h1 = int.Parse(m.Groups[1].Value);
+        var m1 = int.Parse(m.Groups[2].Value);
+        var h2 = int.Parse(m.Groups[3].Value);
+        var m2 = int.Parse(m.Groups[4].Value);
+        return $"{h1:00}:{m1:00}-{h2:00}:{m2:00}";
+    }
+
+    static int? ParseSimpleSection(string text)
+    {
+        var trimmed = text.Trim();
+        if (trimmed.Length == 0 || trimmed.Length > 3) return null;
+        if (int.TryParse(trimmed, out var number) && number is >= 1 and <= MaxSections) return number;
+        if (!ChineseNumberRegex.IsMatch(trimmed)) return null;
+        var value = 0;
+        foreach (var ch in trimmed)
+        {
+            value = ch switch
+            {
+                '一' => value + 1,
+                '二' => value + 2,
+                '三' => value + 3,
+                '四' => value + 4,
+                '五' => value + 5,
+                '六' => value + 6,
+                '七' => value + 7,
+                '八' => value + 8,
+                '九' => value + 9,
+                '十' => value == 0 ? 10 : value * 10,
+                _ => value,
+            };
+        }
+        return value is >= 1 and <= MaxSections ? value : null;
     }
 
     static ParsedTimetable ParseSheet(ISheet sheet)

@@ -18,6 +18,8 @@ public partial class DailyCheckDbContext
 
     public virtual DbSet<CourseTime> CourseTimes { get; set; }
 
+    public virtual DbSet<TimetableTemplate> TimetableTemplates { get; set; }
+
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
         // 部分方法只允许有一个实现（本文件），其它业务模块的映射在这里统一挂载，
@@ -56,6 +58,42 @@ public partial class DailyCheckDbContext
                 .HasComment("备注")
                 .HasColumnType("text")
                 .HasColumnName("remark");
+            entity.Property(e => e.IsDeleted)
+                .HasComment("是否伪删除：0正常，1已删除")
+                .HasColumnName("is_deleted");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasComment("创建时间")
+                .HasColumnType("datetime")
+                .HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt)
+                .ValueGeneratedOnAddOrUpdate()
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasComment("更新时间")
+                .HasColumnType("datetime")
+                .HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<TimetableTemplate>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PRIMARY");
+
+            entity
+                .ToTable("timetable_templates", tb => tb.HasComment("作息表模板"))
+                .UseCollation("utf8mb4_unicode_ci");
+
+            entity.HasIndex(e => new { e.UserId, e.IsDeleted }, "idx_timetable_templates_user");
+
+            entity.Property(e => e.Id).HasComment("主键ID").HasColumnName("id");
+            entity.Property(e => e.UserId).HasComment("所属用户ID").HasColumnName("user_id");
+            entity.Property(e => e.Name)
+                .HasMaxLength(100)
+                .HasComment("作息表名称")
+                .HasColumnName("name");
+            entity.Property(e => e.TimesJson)
+                .HasComment("作息时间（JSON 数组，第1节开始）")
+                .HasColumnType("json")
+                .HasColumnName("times");
             entity.Property(e => e.IsDeleted)
                 .HasComment("是否伪删除：0正常，1已删除")
                 .HasColumnName("is_deleted");

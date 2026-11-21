@@ -194,6 +194,9 @@ public class ScheduleImportPreviewDto
     /// <summary>作息时间表</summary>
     public List<string> Timetable { get; set; } = new();
 
+    /// <summary>作息时间是否来自文件（false = 服务端默认作息，页面可让用户换用历史作息/默认/新建）</summary>
+    public bool TimetableFromFile { get; set; }
+
     /// <summary>课程数</summary>
     public int CourseCount => Courses.Count;
 
@@ -230,4 +233,33 @@ public class ScheduleImportConfirmDto
 
     /// <summary>课程列表（结构与预检返回的 courses 一致）</summary>
     public List<CourseDto> Courses { get; set; } = new();
+}
+
+/// <summary>一套作息时间表（作息表模板，或从已有课表里提取的历史作息）。</summary>
+public class ScheduleTimetableDto
+{
+    /// <summary>作息表模板 ID（0 = 从已有课表提取的，只读）</summary>
+    public ulong Id { get; set; }
+
+    /// <summary>名称（模板名 / 来源课表名）</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>作息时间（第 1 节开始，格式 HH:mm-HH:mm）</summary>
+    public List<string> Times { get; set; } = new();
+
+    /// <summary>是否来自已有课表（true 时不可改名/删除）</summary>
+    public bool FromSchedule { get; set; }
+
+    /// <summary>最近更新时间</summary>
+    public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>新建 / 修改作息表模板。</summary>
+public class SaveTimetableDto
+{
+    /// <summary>作息表名称</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>作息时间（第 1 节开始，格式 HH:mm-HH:mm）</summary>
+    public List<string> Times { get; set; } = new();
 }
