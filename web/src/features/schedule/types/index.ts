@@ -94,6 +94,8 @@ export interface ScheduleImportPreview {
   sectionCount: number;
   /** 作息时间表（每节 "HH:mm-HH:mm"） */
   timetable: string[];
+  /** 作息是否解析自文件（false = 后端默认作息，页面可让用户换历史作息 / 默认 / 新建） */
+  timetableFromFile: boolean;
   /** 课程数 */
   courseCount: number;
   /** 上课时间段总数 */
@@ -120,6 +122,29 @@ export interface ScheduleImportConfirmPayload {
   timetable?: string[];
   /** 预检返回的课程列表（id / scheduleId / courseId 均为 0） */
   courses: Course[];
+}
+
+/**
+ * 作息表列表项（GET /mm/Schedule/Timetables）。
+ * id>0 是作息表模板（可改 / 删）；id=0 且 fromSchedule=true 是从已有课表提取的历史作息（只读）。
+ */
+export interface ScheduleTimetableOption {
+  /** 作息表模板 ID（0 = 从已有课表提取的，只读） */
+  id: number;
+  /** 名称（模板名 / 来源课表名） */
+  name: string;
+  /** 作息时间（第 1 节开始，格式 "HH:mm-HH:mm"） */
+  times: string[];
+  /** 是否来自已有课表（true 时只读，不可改名 / 删除） */
+  fromSchedule: boolean;
+  /** 最近更新时间（ISO 字符串） */
+  updatedAt: string;
+}
+
+/** 新建 / 修改作息表模板请求体（POST / PUT /mm/Schedule/Timetables） */
+export interface TimetablePayload {
+  name: string;
+  times: string[];
 }
 
 /** 保存课程时间段请求体（id 省略 / 0 表示新增） */

@@ -33,6 +33,8 @@ import type {
   ScheduleDraft,
   ScheduleImportPreview,
   SchedulePayload,
+  ScheduleTimetableOption,
+  TimetablePayload,
 } from "@/features/schedule/types";
 
 /** 滚动区高度 = 真实视口高度 - 顶栏总高度（与首页保持一致） */
@@ -386,6 +388,8 @@ function openCreateSchedule(): void {
     timetable: [...DEFAULT_TIMETABLE],
     remark: "",
   };
+  scheduleFormTimetableIndex.value = null;
+  void loadScheduleFormTimetables();
   scheduleFormVisible.value = true;
 }
 
@@ -403,6 +407,8 @@ function openEditSchedule(): void {
     timetable: [...(detail.value?.timetable ?? schedule.timetable)],
     remark: detail.value?.remark ?? schedule.remark ?? "",
   };
+  scheduleFormTimetableIndex.value = null;
+  void loadScheduleFormTimetables();
   scheduleFormVisible.value = true;
 }
 
@@ -425,6 +431,29 @@ function removeTimetableRow(index: number): void {
 const timetableRows = computed(() =>
   scheduleDraft.value.timetable.map((_, index) => index),
 );
+
+/* 课表设置里的「套用作息表」：列出模板 + 历史作息，选中后填充下方作息行 */
+const scheduleFormTimetableOptions = ref<ScheduleTimetableOption[]>([]);
+const scheduleFormTimetableIndex = ref<number | null>(null);
+
+/** 拉取可套用的作息表；失败静默（只是快捷方式，不影响手填） */
+async function loadScheduleFormTimetables(): Promise<void> {
+  try {
+    const response = await scheduleApi.getTimetables();
+    scheduleFormTimetableOptions.value = response.data ?? [];
+  } catch {
+    scheduleFormTimetableOptions.value = [];
+  }
+}
+
+/** 选中一套作息表后填充到课表设置的时间行 */
+function applyScheduleFormTimetable(value: unknown): void {
+  if (typeof value !== "number") return;
+  const option = scheduleFormTimetableOptions.value[value];
+  if (!option) return;
+  scheduleDraft.value.timetable = [...option.times];
+  scheduleFormTimetableIndex.value = value;
+}
 
 function validateScheduleDraft(): string | null {
   const draft = scheduleDraft.value;
@@ -532,10 +561,401 @@ const importUploading = ref(false);
 /** 预检结果（非空时展示预检对话框） */
 const importPreview = ref<ScheduleImportPreview | null>(null);
 const importPreviewVisible = ref(false);
-/** 预检通过后待正式导入的同一个文件 */
-const pendingImportFile = ref<File | null>(null);
+/** 预检通过后待编辑的课程时间段行（一行 = 一个上课时间段） */
+interface EditableImportRow {
+  key: string;
+  courseName: string;
+  /** 课程颜色 #RRGGBB（沿用预检课程颜色；新增行用预设色补齐） */
+  color: string;
+  /** 星期 1-7 */
+  dayOfWeek: number;
+  /** 节次文本，如 "1-2" / "1,2" / "1-4,6" */
+  sectionText: string;
+  /** 周次文本，如 "1-4,9-16" */
+  weekText: string;
+  location: string;
+  teacher: string;
+}
+
+/** 预检成功后转成可编辑行，用户核对 / 修改后再保存 */
+const importRows = ref<EditableImportRow[]>([]);
+/** 「下一步」校验通过后按课程名分组好的保存数据（命名确认后提交 Confirm） */
+const pendingImportedCourses = ref<Course[] | null>(null);
 /** 本次选择的文件走哪条链路（Excel 解析 / OCR），选文件时确定 */
 const importFileKind = ref<ImportFileKind>("excel");
+
+/** 预检弹窗里可编辑的作息时间行（第 N 节 → "HH:mm-HH:mm"） */
+interface EditableTimetableRow {
+  key: string;
+  value: string;
+}
+
+/** 后端保存过的历史作息（获取失败静默为空，仅用于快捷复用） */
+const savedTimetables = ref<ScheduleTimetableOption[]>([]);
+/** 历史作息加载中（避免列表还没回来就误显示「没有已保存的作息」提示） */
+const savedTimetablesLoading = ref(false);
+/** 历史作息下拉当前选中的下标（null = 未套用 / 已手动修改） */
+const selectedSavedTimetable = ref<number | null>(null);
+/** 预检弹窗里可编辑的作息行 */
+const importTimetableRows = ref<EditableTimetableRow[]>([]);
+/** 用户是否手动动过作息（避免历史作息异步返回后覆盖用户已经改好的内容） */
+const importTimetableTouched = ref(false);
+/** 「下一步」校验通过后待提交的作息数组 */
+const pendingImportTimetable = ref<string[]>([]);
+
+let timetableRowSeed = 0;
+
+function nextTimetableRowKey(): string {
+  timetableRowSeed += 1;
+  return `import-timetable-${timetableRowSeed}`;
+}
+
+/** 用一组作息时间填充编辑行 */
+function fillImportTimetableRows(times: string[]): void {
+  importTimetableRows.value = times.map((value) => ({
+    key: nextTimetableRowKey(),
+    value,
+  }));
+}
+
+/** 预检成功后初始化作息编辑行：文件有就用文件内容，否则用后端给的默认作息 */
+function buildImportTimetableRows(preview: ScheduleImportPreview): void {
+  fillImportTimetableRows(preview.timetable);
+  importTimetableTouched.value = false;
+  selectedSavedTimetable.value = null;
+}
+
+/**
+ * 拉取历史作息：失败静默（只影响快捷复用，不影响导入主流程）。
+ * 规则：文件里没有作息时优先套用最近保存的一套；用户没手动改过才自动套用。
+ */
+async function loadSavedTimetables(): Promise<void> {
+  savedTimetablesLoading.value = true;
+  try {
+    const response = await scheduleApi.getTimetables();
+    savedTimetables.value = response.data ?? [];
+
+    const preview = importPreview.value;
+    const latest = savedTimetables.value[0];
+    if (
+      latest &&
+      preview &&
+      !preview.timetableFromFile &&
+      !importTimetableTouched.value
+    ) {
+      fillImportTimetableRows(latest.times);
+      selectedSavedTimetable.value = 0;
+    }
+  } catch {
+    savedTimetables.value = [];
+  } finally {
+    savedTimetablesLoading.value = false;
+  }
+}
+
+/** 套用一条历史作息 */
+function applySavedTimetable(value: unknown): void {
+  if (typeof value !== "number") return;
+  const option = savedTimetables.value[value];
+  if (!option) return;
+  importTimetableTouched.value = true;
+  fillImportTimetableRows(option.times);
+  selectedSavedTimetable.value = value;
+}
+
+/** 恢复预检建议的默认作息 */
+function useDefaultTimetable(): void {
+  const preview = importPreview.value;
+  if (!preview) return;
+  importTimetableTouched.value = true;
+  fillImportTimetableRows(preview.timetable);
+  selectedSavedTimetable.value = null;
+}
+
+/** 手动修改过作息后，历史作息下拉不再显示为已选中 */
+function markTimetableEdited(): void {
+  importTimetableTouched.value = true;
+  selectedSavedTimetable.value = null;
+}
+
+/** 添加一节作息 */
+function addImportTimetableRow(): void {
+  if (isImportBusy.value) return;
+  importTimetableRows.value.push({ key: nextTimetableRowKey(), value: "" });
+  markTimetableEdited();
+}
+
+/** 删除一节作息 */
+function removeImportTimetableRow(index: number): void {
+  if (isImportBusy.value) return;
+  importTimetableRows.value.splice(index, 1);
+  markTimetableEdited();
+}
+
+/** 后端作息时间格式：HH:mm-HH:mm（小时 1-2 位，结束必须晚于开始） */
+const TIMETABLE_SLOT_PATTERN =
+  /^([01]?\d|2[0-3]):[0-5]\d-([01]?\d|2[0-3]):[0-5]\d$/;
+
+/** 解析 "HH:mm-HH:mm" 为分钟数；格式不对或结束不晚于开始返回 null */
+function parseTimetableSlot(
+  value: string,
+): { start: number; end: number } | null {
+  const match = TIMETABLE_SLOT_PATTERN.exec(value.trim());
+  if (!match) return null;
+  const start = Number(match[1]) * 60 + Number(match[2]);
+  const end = Number(match[3]) * 60 + Number(match[4]);
+  return end > start ? { start, end } : null;
+}
+
+/** 校验作息行：至少一节、每行必填、格式 HH:mm-HH:mm、结束晚于开始 */
+function validateImportTimetable(): string | null {
+  if (importTimetableRows.value.length === 0) {
+    return "请至少保留一节作息时间（可点「使用默认作息」恢复）";
+  }
+  for (let index = 0; index < importTimetableRows.value.length; index += 1) {
+    const value = importTimetableRows.value[index]!.value.trim();
+    if (!value) return `作息时间第 ${index + 1} 节：不能为空`;
+    if (!TIMETABLE_SLOT_PATTERN.test(value)) {
+      return `作息时间第 ${index + 1} 节：格式应为 HH:mm-HH:mm`;
+    }
+    if (!parseTimetableSlot(value)) {
+      return `作息时间第 ${index + 1} 节：结束时间必须晚于开始时间`;
+    }
+  }
+  return null;
+}
+
+let importRowSeed = 0;
+
+function nextImportRowKey(): string {
+  importRowSeed += 1;
+  return `import-row-${importRowSeed}`;
+}
+
+/** 颜色兜底：预检颜色为空 / 非法时按序号取预设色（后端只接受 #RGB / #RRGGBB） */
+function normalizeImportColor(
+  color: string | null | undefined,
+  index: number,
+): string {
+  const value = (color ?? "").trim();
+  if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value)) return value;
+  return (
+    PRESET_COURSE_COLORS[index % PRESET_COURSE_COLORS.length] ?? "#9b4f93"
+  );
+}
+
+/** 压缩展示：1,2,3,4,9,10 → "1-4,9-10"；空数组 → ""（节次 / 周次编辑框共用） */
+function formatRanges(values: number[]): string {
+  const sorted = [...new Set(values)]
+    .filter((value) => Number.isInteger(value) && value > 0)
+    .sort((left, right) => left - right);
+  if (sorted.length === 0) return "";
+
+  const ranges: string[] = [];
+  let start = sorted[0]!;
+  let previous = sorted[0]!;
+  for (let index = 1; index < sorted.length; index += 1) {
+    const current = sorted[index]!;
+    if (current === previous + 1) {
+      previous = current;
+      continue;
+    }
+    ranges.push(start === previous ? `${start}` : `${start}-${previous}`);
+    start = current;
+    previous = current;
+  }
+  ranges.push(start === previous ? `${start}` : `${start}-${previous}`);
+  return ranges.join(",");
+}
+
+/**
+ * 解析 "1-2" / "1,2" / "1-4,6" 这类区间文本（支持中文逗号 / 顿号 / 空格）。
+ * 越界（> hardLimit）或格式错误返回 null。
+ */
+function parseRangeText(text: string, hardLimit: number): number[] | null {
+  const normalized = text
+    .trim()
+    .replace(/[，、]/g, ",")
+    .replace(/\s+/g, "");
+  if (!normalized) return null;
+
+  const values = new Set<number>();
+  for (const token of normalized.split(",")) {
+    if (!token) return null;
+    const match = /^(\d+)(?:-(\d+))?$/.exec(token);
+    if (!match) return null;
+    const start = Number(match[1]);
+    const end = match[2] ? Number(match[2]) : start;
+    if (!Number.isInteger(start) || !Number.isInteger(end)) return null;
+    if (start < 1 || end < start || end > hardLimit) return null;
+    for (let value = start; value <= end; value += 1) values.add(value);
+  }
+
+  const result = [...values].sort((left, right) => left - right);
+  return result.length > 0 ? result : null;
+}
+
+/** 节次文本 → 节次列表（1..30） */
+function parseSectionText(text: string): number[] | null {
+  return parseRangeText(text, 30);
+}
+
+/** 周次文本 → 周次列表（1..100，实际还受当前课表 weekCount 限制） */
+function parseWeekText(text: string): number[] | null {
+  return parseRangeText(text, 100);
+}
+
+/** 把预检返回的课程 / 时间段拍平成可编辑行（预检里的 id 都是 0，行 key 用自增序号） */
+function buildImportRows(preview: ScheduleImportPreview): void {
+  const rows: EditableImportRow[] = [];
+  preview.courses.forEach((course, courseIndex) => {
+    const color = normalizeImportColor(course.color, courseIndex);
+    course.times.forEach((time) => {
+      rows.push({
+        key: nextImportRowKey(),
+        courseName: course.courseName,
+        color,
+        dayOfWeek: Math.min(Math.max(time.dayOfWeek, 1), 7),
+        sectionText: formatRanges(time.sectionList),
+        weekText: formatRanges(time.weekList),
+        location: time.location,
+        teacher: time.teacher,
+      });
+    });
+  });
+  importRows.value = rows;
+}
+
+/** 摘要 / 副标题用：编辑后按课程名去重的课程数（时间段数直接用 importRows.length） */
+const importEditedCourseCount = computed(() => {
+  const names = new Set<string>();
+  for (const row of importRows.value) {
+    const name = row.courseName.trim();
+    if (name) names.add(name);
+  }
+  return names.size;
+});
+
+/** 弹窗副标题：实时反映编辑后的课程数 / 时间段数 */
+const importPreviewSubtitle = computed(() =>
+  importPreview.value
+    ? `${importEditedCourseCount.value} 门课程 · ${importRows.value.length} 个时间段`
+    : "",
+);
+
+/** 添加一行时间段：周次默认选满当前学期 */
+function addImportRow(): void {
+  const preview = importPreview.value;
+  if (!preview || isImportBusy.value) return;
+
+  const weekCount = Math.min(
+    Math.max(Math.round(preview.weekCount || 20), 1),
+    100,
+  );
+  const fullWeeks = Array.from(
+    { length: weekCount },
+    (_, index) => index + 1,
+  );
+  importRows.value.push({
+    key: nextImportRowKey(),
+    courseName: "",
+    color: normalizeImportColor(null, importRows.value.length),
+    dayOfWeek: getTodayDayOfWeek(),
+    sectionText: "1-2",
+    weekText: formatRanges(fullWeeks),
+    location: "",
+    teacher: "",
+  });
+}
+
+/** 删除一行时间段 */
+function removeImportRow(index: number): void {
+  if (isImportBusy.value) return;
+  importRows.value.splice(index, 1);
+}
+
+/** 校验编辑后的课程明细；返回第一处错误文案，全部合法返回 null */
+function validateImportRows(): string | null {
+  const preview = importPreview.value;
+  if (!preview) return "预检数据已失效，请重新选择文件";
+  if (importRows.value.length === 0) return "请至少保留一个上课时间段";
+
+  const maxWeek = Math.min(
+    Math.max(Math.round(preview.weekCount || 20), 1),
+    100,
+  );
+  for (let index = 0; index < importRows.value.length; index += 1) {
+    const row = importRows.value[index]!;
+    const label = `第 ${index + 1} 行`;
+
+    if (!row.courseName.trim()) return `${label}：课程名不能为空`;
+    if (row.courseName.trim().length > 100) {
+      return `${label}：课程名不能超过 100 个字符`;
+    }
+    if (
+      !Number.isInteger(row.dayOfWeek) ||
+      row.dayOfWeek < 1 ||
+      row.dayOfWeek > 7
+    ) {
+      return `${label}：星期不合法`;
+    }
+
+    if (!parseSectionText(row.sectionText)) {
+      return `${label}：节次格式不正确（示例：1-2 / 1,2 / 1-4,6，且需在 1-30 之间）`;
+    }
+    const weeks = parseWeekText(row.weekText);
+    if (!weeks) {
+      return `${label}：周次格式不正确（示例：1-4,9-16）`;
+    }
+    if (weeks.some((week) => week > maxWeek)) {
+      return `${label}：周次不能超过本课表的总周数（1-${maxWeek}）`;
+    }
+
+    if (row.location.trim().length > 255) {
+      return `${label}：上课地点不能超过 255 个字符`;
+    }
+    if (row.teacher.trim().length > 100) {
+      return `${label}：任课教师不能超过 100 个字符`;
+    }
+  }
+  return null;
+}
+
+/** 把编辑后的行按课程名分组，生成 Confirm 接口要的 courses（id 全 0，颜色沿用预检） */
+function buildEditedCourses(): Course[] {
+  const groups = new Map<string, Course>();
+  for (const row of importRows.value) {
+    const courseName = row.courseName.trim();
+    const sections = parseSectionText(row.sectionText);
+    const weeks = parseWeekText(row.weekText);
+    // 已通过 validateImportRows，理论上不会命中；这里再兜一层避免脏数据
+    if (!courseName || !sections || !weeks) continue;
+
+    let course = groups.get(courseName);
+    if (!course) {
+      course = {
+        id: 0,
+        scheduleId: 0,
+        courseName,
+        color: normalizeImportColor(row.color, groups.size),
+        remark: null,
+        times: [],
+      };
+      groups.set(courseName, course);
+    }
+    course.times.push({
+      id: 0,
+      courseId: 0,
+      location: row.location.trim(),
+      teacher: row.teacher.trim(),
+      weekList: weeks,
+      sectionList: sections,
+      dayOfWeek: row.dayOfWeek,
+      remark: null,
+    });
+  }
+  return [...groups.values()];
+}
 
 /** 命名弹窗打开中（防止「下一步」被连点两次弹出两个弹窗） */
 const importNameDialogVisible = ref(false);
@@ -569,44 +989,6 @@ const importPreviewTitle = computed(() =>
     ? "导入课表预检（OCR 识别结果）"
     : "导入课表预检",
 );
-
-/** 预检课程明细行：一节课一行（课程 × 时间段） */
-interface ImportPreviewRow {
-  key: string;
-  courseName: string;
-  dayOfWeek: number;
-  sectionList: number[];
-  weekList: number[];
-  location: string;
-  teacher: string;
-}
-
-/**
- * 预检数据里的课程 / 时间段 id 都是 0（还没入库），
- * 所以用两层下标拼 key，不能像详情页那样用 course.id-time.id。
- */
-const importPreviewRows = computed<ImportPreviewRow[]>(() => {
-  const rows: ImportPreviewRow[] = [];
-  importPreview.value?.courses.forEach((course, courseIndex) => {
-    course.times.forEach((time, timeIndex) => {
-      rows.push({
-        key: `${courseIndex}-${timeIndex}`,
-        courseName: course.courseName,
-        dayOfWeek: time.dayOfWeek,
-        sectionList: time.sectionList,
-        weekList: time.weekList,
-        location: time.location,
-        teacher: time.teacher,
-      });
-    });
-  });
-  return rows;
-});
-
-/** 周次压缩展示：1,2,3,4,9,10 → "1-4,9-10"（复用节次压缩逻辑，只把顿号换成逗号） */
-function formatWeekRanges(weeks: number[]): string {
-  return formatSections(weeks).split("、").join(",");
-}
 
 /** 点「导入课表」按钮时唤起隐藏的文件选择框 */
 function openImportPicker(): void {
@@ -666,7 +1048,10 @@ async function previewImportFile(
       kind === "ocr"
         ? await scheduleApi.previewOcrImport(file)
         : await scheduleApi.previewImport(file);
-    pendingImportFile.value = file;
+    buildImportRows(response.data);
+    buildImportTimetableRows(response.data);
+    // 历史作息只用于快捷复用，异步获取、失败静默
+    void loadSavedTimetables();
     importPreview.value = response.data;
     importPreviewVisible.value = true;
   } catch (error) {
@@ -683,7 +1068,7 @@ async function previewImportFile(
   }
 }
 
-/** 关闭预检对话框：丢弃本次选择的文件，不调用正式导入接口 */
+/** 关闭预检对话框：丢弃本次编辑与预检数据，不调用保存接口 */
 function closeImportPreview(): void {
   importPreviewVisible.value = false;
 }
@@ -691,15 +1076,34 @@ function closeImportPreview(): void {
 /** 等对话框关闭动画结束后再清空数据，避免关闭过程中表格内容闪空 */
 function resetImportPreview(): void {
   importPreview.value = null;
-  pendingImportFile.value = null;
+  importRows.value = [];
+  pendingImportedCourses.value = null;
+  importTimetableRows.value = [];
+  pendingImportTimetable.value = [];
+  selectedSavedTimetable.value = null;
 }
 
-/** 第二步：打开「命名并导入」弹窗（名称默认取预检里的课表名） */
+/** 第二步：校验编辑后的明细，分组生成保存数据，再打开「命名并导入」弹窗 */
 function handleImportNext(): void {
   const preview = importPreview.value;
-  const file = pendingImportFile.value;
-  if (!preview || !file || isImportBusy.value) return;
+  if (!preview || isImportBusy.value) return;
 
+  const timetableError = validateImportTimetable();
+  if (timetableError) {
+    notifyError(timetableError);
+    return;
+  }
+
+  const error = validateImportRows();
+  if (error) {
+    notifyError(error);
+    return;
+  }
+
+  pendingImportedCourses.value = buildEditedCourses();
+  pendingImportTimetable.value = importTimetableRows.value.map((row) =>
+    row.value.trim(),
+  );
   importName.value = preview.scheduleName;
   importNameError.value = "";
   importNameDialogVisible.value = true;
@@ -712,11 +1116,20 @@ function cancelImportName(): void {
   importNameError.value = "";
 }
 
-/** 校验名称后正式保存：Excel 重新上传文件解析；OCR 直接把预检结果存库（不重复识别） */
+/** 校验名称后统一走 Confirm 接口保存（Excel / OCR 都提交用户编辑后的数据） */
 async function confirmImportName(): Promise<void> {
   const preview = importPreview.value;
-  const file = pendingImportFile.value;
-  if (!preview || !file || importUploading.value) return;
+  const courses = pendingImportedCourses.value;
+  const timetable = pendingImportTimetable.value;
+  if (
+    !preview ||
+    !courses ||
+    courses.length === 0 ||
+    timetable.length === 0 ||
+    importUploading.value
+  ) {
+    return;
+  }
 
   const name = importName.value.trim();
   if (!name) {
@@ -731,23 +1144,16 @@ async function confirmImportName(): Promise<void> {
   importNameError.value = "";
   importUploading.value = true;
   try {
-    // OCR 结果直接回传预检数据，避免再跑一次 5~15 秒的识别；Excel 继续走文件导入接口
-    const response =
-      importFileKind.value === "ocr"
-        ? await scheduleApi.confirmImport({
-            scheduleName: name,
-            startTime: preview.startTime,
-            weekCount: preview.weekCount,
-            timetable: preview.timetable,
-            courses: preview.courses,
-          })
-        : await scheduleApi.importSchedule({ file, scheduleName: name });
+    // Excel / OCR 都提交编辑后的数据，不再重新上传文件解析，否则用户的修改会被丢弃
+    const response = await scheduleApi.confirmImport({
+      scheduleName: name,
+      startTime: preview.startTime,
+      weekCount: preview.weekCount,
+      timetable,
+      courses,
+    });
     const imported = response.data;
-    const courseCount =
-      typeof imported.courseCount === "number"
-        ? imported.courseCount
-        : (imported.courses?.length ?? 0);
-    notifySuccess(`课表导入成功，共导入 ${courseCount} 门课程`);
+    notifySuccess(`课表导入成功，共导入 ${courses.length} 门课程`);
     importNameDialogVisible.value = false;
     closeImportPreview();
     await loadSchedules(imported.id);
@@ -755,6 +1161,181 @@ async function confirmImportName(): Promise<void> {
     notifyError(getApiErrorMessage(error, "课表导入失败"));
   } finally {
     importUploading.value = false;
+  }
+}
+
+/* ======================== 作息表管理 ======================== */
+/** 作息表列表（模板 + 从已有课表提取的历史作息；来自课表的只读） */
+const timetableList = ref<ScheduleTimetableOption[]>([]);
+const timetableListLoading = ref(false);
+const timetableManagerVisible = ref(false);
+
+/** 新建 / 编辑作息表弹窗 */
+const timetableFormVisible = ref(false);
+const timetableSaving = ref(false);
+/** 正在编辑的模板 id；null = 新建 */
+const timetableEditingId = ref<number | null>(null);
+const timetableDraftName = ref("");
+const timetableDraftRows = ref<EditableTimetableRow[]>([]);
+
+const timetableFormTitle = computed(() =>
+  timetableEditingId.value == null ? "新建作息表" : "编辑作息表",
+);
+
+/** 作息表下拉 / 列表统一文案：名称（N 节）+ 来源课表后缀 */
+function timetableOptionLabel(option: ScheduleTimetableOption): string {
+  const suffix = option.fromSchedule ? " · 来自课表" : "";
+  return `${option.name}（${option.times.length} 节）${suffix}`;
+}
+
+/** 列表里的前 2 节时间预览 */
+function timetableTimesPreview(times: string[]): string {
+  const preview = times.slice(0, 2).join(" / ");
+  return times.length > 2 ? `${preview} …` : preview;
+}
+
+/** 拉取作息表列表（管理弹窗用，失败 notifyError） */
+async function loadTimetableList(): Promise<void> {
+  timetableListLoading.value = true;
+  try {
+    const response = await scheduleApi.getTimetables();
+    timetableList.value = response.data ?? [];
+  } catch (error) {
+    timetableList.value = [];
+    notifyError(getApiErrorMessage(error, "作息表加载失败"));
+  } finally {
+    timetableListLoading.value = false;
+  }
+}
+
+function openTimetableManager(): void {
+  timetableManagerVisible.value = true;
+  void loadTimetableList();
+}
+
+function closeTimetableManager(): void {
+  timetableManagerVisible.value = false;
+}
+
+/** 用一组时间填充作息表表单的编辑行 */
+function fillTimetableDraftRows(times: string[]): void {
+  timetableDraftRows.value = times.map((value) => ({
+    key: nextTimetableRowKey(),
+    value,
+  }));
+}
+
+function openCreateTimetableForm(): void {
+  if (timetableSaving.value) return;
+  timetableEditingId.value = null;
+  timetableDraftName.value = "";
+  fillTimetableDraftRows([...DEFAULT_TIMETABLE]);
+  timetableFormVisible.value = true;
+}
+
+function openEditTimetableForm(option: ScheduleTimetableOption): void {
+  if (option.fromSchedule || option.id <= 0 || timetableSaving.value) return;
+  timetableEditingId.value = option.id;
+  timetableDraftName.value = option.name;
+  fillTimetableDraftRows(option.times);
+  timetableFormVisible.value = true;
+}
+
+/** 「来自课表」的只读作息也可以复制成一份可编辑模板 */
+function copyTimetableAsNew(option: ScheduleTimetableOption): void {
+  if (timetableSaving.value) return;
+  timetableEditingId.value = null;
+  timetableDraftName.value = option.name;
+  fillTimetableDraftRows(option.times);
+  timetableFormVisible.value = true;
+}
+
+function addTimetableDraftRow(): void {
+  if (timetableSaving.value) return;
+  if (timetableDraftRows.value.length >= 30) {
+    notifyError("作息时间最多支持 30 节");
+    return;
+  }
+  timetableDraftRows.value.push({ key: nextTimetableRowKey(), value: "" });
+}
+
+function removeTimetableDraftRow(index: number): void {
+  if (timetableSaving.value) return;
+  timetableDraftRows.value.splice(index, 1);
+}
+
+/** 校验作息表表单：名称非空 ≤100、≥1 节、每节 HH:mm-HH:mm 且结束晚于开始 */
+function validateTimetableDraft(): string | null {
+  const name = timetableDraftName.value.trim();
+  if (!name) return "请输入作息表名称";
+  if (name.length > 100) return "作息表名称不能超过 100 个字符";
+  if (timetableDraftRows.value.length === 0) return "请至少添加一节作息时间";
+
+  for (let index = 0; index < timetableDraftRows.value.length; index += 1) {
+    const value = timetableDraftRows.value[index]!.value.trim();
+    if (!value) return `第 ${index + 1} 节：不能为空`;
+    if (!TIMETABLE_SLOT_PATTERN.test(value)) {
+      return `第 ${index + 1} 节：格式应为 HH:mm-HH:mm`;
+    }
+    if (!parseTimetableSlot(value)) {
+      return `第 ${index + 1} 节：结束时间必须晚于开始时间`;
+    }
+  }
+  return null;
+}
+
+async function saveTimetableForm(): Promise<void> {
+  const error = validateTimetableDraft();
+  if (error) {
+    notifyError(error);
+    return;
+  }
+
+  const payload: TimetablePayload = {
+    name: timetableDraftName.value.trim(),
+    times: timetableDraftRows.value.map((row) => row.value.trim()),
+  };
+  timetableSaving.value = true;
+  try {
+    if (timetableEditingId.value == null) {
+      await scheduleApi.createTimetable(payload);
+      notifySuccess("作息表已创建");
+    } else {
+      await scheduleApi.updateTimetable(timetableEditingId.value, payload);
+      notifySuccess("作息表已保存");
+    }
+    timetableFormVisible.value = false;
+    await loadTimetableList();
+    // 课表设置弹窗开着的话，套用下拉也同步刷新
+    if (scheduleFormVisible.value) void loadScheduleFormTimetables();
+  } catch (error) {
+    notifyError(getApiErrorMessage(error, "作息表保存失败"));
+  } finally {
+    timetableSaving.value = false;
+  }
+}
+
+/** 删除作息表模板（仅模板可删，来自课表的只读项没有入口） */
+async function handleDeleteTimetable(
+  option: ScheduleTimetableOption,
+): Promise<void> {
+  if (option.fromSchedule || option.id <= 0) return;
+  try {
+    await ElMessageBox.confirm(
+      `确定删除作息表「${option.name}」吗？已套用它新建的课表不受影响。`,
+      "删除作息表",
+      { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" },
+    );
+  } catch {
+    return;
+  }
+
+  try {
+    await scheduleApi.removeTimetable(option.id);
+    notifySuccess("作息表已删除");
+    await loadTimetableList();
+  } catch (error) {
+    notifyError(getApiErrorMessage(error, "删除作息表失败"));
   }
 }
 
@@ -814,12 +1395,14 @@ onMounted(() => {
             <button type="button" class="schedule-btn is-primary" @click="openCreateCourse">添加课程</button>
             <button type="button" class="schedule-btn is-ghost" @click="openEditSchedule">课表设置</button>
             <button type="button" class="schedule-btn" @click="openCreateSchedule">新建课表</button>
+            <button type="button" class="schedule-btn" @click="openTimetableManager">作息表</button>
             <button type="button" class="schedule-btn" :disabled="isImportBusy" @click="openImportPicker">
               {{ importButtonLabel }}
             </button>
           </template>
           <template v-else-if="!loading">
             <button type="button" class="schedule-btn is-primary" @click="openCreateSchedule">新建课表</button>
+            <button type="button" class="schedule-btn" @click="openTimetableManager">作息表</button>
             <button type="button" class="schedule-btn" :disabled="isImportBusy" @click="openImportPicker">
               {{ importButtonLabel }}
             </button>
@@ -1086,8 +1669,7 @@ onMounted(() => {
     </AppDialog>
 
     <!-- ======================== 导入课表预检弹窗 ======================== -->
-    <AppDialog v-model="importPreviewVisible" :title="importPreviewTitle"
-      :subtitle="importPreview ? `${importPreview.courseCount} 门课程 · ${importPreview.timeCount} 个时间段` : ''"
+    <AppDialog v-model="importPreviewVisible" :title="importPreviewTitle" :subtitle="importPreviewSubtitle"
       content-width="860px" :closable="!importUploading" :close-on-click-modal="false"
       :close-on-press-escape="!importUploading" :show-close="!importUploading"
       @closed="resetImportPreview">
@@ -1113,11 +1695,11 @@ onMounted(() => {
           </div>
           <div class="schedule-import-summary-item">
             <span>周数 / 节次</span>
-            <strong>{{ importPreview.weekCount }} 周 · {{ importPreview.sectionCount }} 节</strong>
+            <strong>{{ importPreview.weekCount }} 周 · {{ importTimetableRows.length }} 节</strong>
           </div>
           <div class="schedule-import-summary-item">
             <span>课程 / 时间段</span>
-            <strong>{{ importPreview.courseCount }} 门 · {{ importPreview.timeCount }} 个</strong>
+            <strong>{{ importEditedCourseCount }} 门 · {{ importRows.length }} 个</strong>
           </div>
         </div>
 
@@ -1137,35 +1719,110 @@ onMounted(() => {
           </ul>
         </div>
 
-        <!-- 课程明细：一节课一行，让用户核对识别结果 -->
-        <div class="schedule-sub-head">
-          <span>课程明细（{{ importPreviewRows.length }} 个时间段）</span>
+        <!-- 作息时间表：文件里有就沿用，没有则提供历史作息 / 默认 / 手动新建 -->
+        <div class="schedule-import-timetable">
+          <div class="schedule-import-timetable-head">
+            <span class="schedule-import-timetable-title">作息时间表</span>
+            <span class="schedule-import-timetable-source">
+              {{ importPreview.timetableFromFile
+                ? `已从文件读取 ${importPreview.timetable.length} 节作息`
+                : "文件里没有作息时间表" }}
+            </span>
+          </div>
+
+          <div class="schedule-import-timetable-actions">
+            <span v-if="savedTimetables.length > 0" class="schedule-import-timetable-actions-label">
+              使用已保存的作息
+            </span>
+            <el-select v-if="savedTimetables.length > 0" :model-value="selectedSavedTimetable ?? undefined"
+              class="schedule-import-timetable-select" placeholder="使用已保存的作息" @change="applySavedTimetable">
+              <el-option v-for="(option, index) in savedTimetables" :key="index"
+                :label="timetableOptionLabel(option)" :value="index" />
+            </el-select>
+            <button type="button" class="schedule-btn is-ghost is-small" :disabled="isImportBusy"
+              @click="useDefaultTimetable">使用默认作息</button>
+          </div>
+
+          <div v-if="!importPreview.timetableFromFile && !savedTimetablesLoading && savedTimetables.length === 0"
+            class="schedule-import-timetable-notice">
+            文件里没有作息时间表，也没有已保存的作息；可以直接编辑下方时间（新建作息），或使用默认作息。
+          </div>
+
+          <div class="schedule-import-timetable-list">
+            <div v-for="(row, index) in importTimetableRows" :key="row.key" class="schedule-import-timetable-row">
+              <span class="schedule-import-timetable-index">第 {{ index + 1 }} 节</span>
+              <el-input v-model="row.value" size="small" class="schedule-import-timetable-input" maxlength="11"
+                placeholder="HH:mm-HH:mm" :disabled="importUploading" @input="markTimetableEdited" />
+              <button type="button" class="schedule-btn is-danger is-small" :disabled="importUploading"
+                @click="removeImportTimetableRow(index)">删除</button>
+            </div>
+          </div>
+          <div class="schedule-import-timetable-footer">
+            <button type="button" class="schedule-btn is-ghost is-small" :disabled="isImportBusy"
+              @click="addImportTimetableRow">＋ 添加一节</button>
+          </div>
         </div>
-        <div v-if="importPreviewRows.length > 0" class="schedule-import-table-wrap">
-          <table class="schedule-import-table">
+
+        <!-- 课程明细：一行 = 一个时间段，可直接修改；核对无误再点「下一步」 -->
+        <div class="schedule-sub-head">
+          <span>课程明细（{{ importRows.length }} 个时间段，可直接修改）</span>
+          <button type="button" class="schedule-btn is-ghost is-small" :disabled="isImportBusy" @click="addImportRow">
+            ＋ 添加一行
+          </button>
+        </div>
+        <div v-if="importRows.length > 0" class="schedule-import-table-wrap">
+          <table class="schedule-import-table is-editable">
             <thead>
               <tr>
                 <th>课程</th>
-                <th class="is-narrow">星期</th>
-                <th class="is-narrow">节次</th>
-                <th>周次</th>
+                <th class="is-day">星期</th>
+                <th class="is-sections">节次</th>
+                <th class="is-weeks">周次</th>
                 <th>地点</th>
                 <th>教师</th>
+                <th class="is-action">操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in importPreviewRows" :key="row.key">
-                <td>{{ row.courseName }}</td>
-                <td>{{ dayLabel(row.dayOfWeek) }}</td>
-                <td>第{{ formatSections(row.sectionList) }}节</td>
-                <td>{{ formatWeekRanges(row.weekList) }}</td>
-                <td>{{ row.location || "—" }}</td>
-                <td>{{ row.teacher || "—" }}</td>
+              <tr v-for="(row, index) in importRows" :key="row.key">
+                <td>
+                  <div class="schedule-import-course-cell">
+                    <span class="schedule-dot" :style="{ backgroundColor: row.color }"></span>
+                    <el-input v-model="row.courseName" size="small" maxlength="100" placeholder="课程名"
+                      :disabled="importUploading" />
+                  </div>
+                </td>
+                <td>
+                  <el-select v-model="row.dayOfWeek" size="small" class="schedule-import-day-select"
+                    :disabled="importUploading">
+                    <el-option v-for="day in DAY_OPTIONS" :key="day.value" :label="day.label" :value="day.value" />
+                  </el-select>
+                </td>
+                <td>
+                  <el-input v-model="row.sectionText" size="small" placeholder="如 1-2" :disabled="importUploading" />
+                </td>
+                <td>
+                  <el-input v-model="row.weekText" size="small" placeholder="如 1-16" :disabled="importUploading" />
+                </td>
+                <td>
+                  <el-input v-model="row.location" size="small" maxlength="255" placeholder="地点"
+                    :disabled="importUploading" />
+                </td>
+                <td>
+                  <el-input v-model="row.teacher" size="small" maxlength="100" placeholder="教师"
+                    :disabled="importUploading" />
+                </td>
+                <td>
+                  <button type="button" class="schedule-btn is-danger is-small" :disabled="importUploading"
+                    @click="removeImportRow(index)">删除</button>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <div v-else class="schedule-side-empty">没有识别到课程</div>
+        <div v-else class="schedule-side-empty">
+          没有识别到课程，请点「添加一行」手动补充
+        </div>
       </div>
 
       <template #footer>
@@ -1208,6 +1865,86 @@ onMounted(() => {
       </template>
     </AppDialog>
 
+    <!-- ======================== 作息表管理弹窗 ======================== -->
+    <AppDialog v-model="timetableManagerVisible" title="作息表管理" content-width="640px"
+      :subtitle="timetableList.length > 0 ? `共 ${timetableList.length} 套` : ''" :close-on-click-modal="false">
+      <div class="schedule-timetable-manager">
+        <div v-if="timetableListLoading" class="schedule-timetable-empty">加载中…</div>
+        <div v-else-if="timetableList.length === 0" class="schedule-timetable-empty">
+          还没有保存过作息表，点下方「新建作息表」创建一套，之后新建课表或导入时可以一键套用。
+        </div>
+        <div v-else class="schedule-timetable-list">
+          <div v-for="(option, index) in timetableList" :key="index" class="schedule-timetable-item">
+            <div class="schedule-timetable-item-main">
+              <div class="schedule-timetable-item-head">
+                <span class="schedule-timetable-item-name">{{ option.name }}</span>
+                <span v-if="option.fromSchedule" class="schedule-timetable-item-badge">来自课表 · 只读</span>
+                <span class="schedule-timetable-item-badge">{{ option.times.length }} 节</span>
+              </div>
+              <div class="schedule-timetable-item-times">{{ timetableTimesPreview(option.times) }}</div>
+            </div>
+            <div class="schedule-timetable-item-actions">
+              <template v-if="!option.fromSchedule && option.id > 0">
+                <button type="button" class="schedule-btn is-ghost is-small"
+                  @click="openEditTimetableForm(option)">编辑</button>
+                <button type="button" class="schedule-btn is-danger is-small"
+                  @click="handleDeleteTimetable(option)">删除</button>
+              </template>
+              <button v-else type="button" class="schedule-btn is-ghost is-small"
+                @click="copyTimetableAsNew(option)">复制为新作息表</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <div class="schedule-dialog-footer">
+          <span class="schedule-footer-spacer"></span>
+          <button type="button" class="schedule-btn" @click="closeTimetableManager">关闭</button>
+          <button type="button" class="schedule-btn is-primary" @click="openCreateTimetableForm">新建作息表</button>
+        </div>
+      </template>
+    </AppDialog>
+
+    <!-- ======================== 新建 / 编辑作息表弹窗 ======================== -->
+    <AppDialog v-model="timetableFormVisible" :title="timetableFormTitle" content-width="520px"
+      :closable="!timetableSaving" :close-on-click-modal="false"
+      :close-on-press-escape="!timetableSaving" :show-close="!timetableSaving">
+      <div class="schedule-timetable-form">
+        <label class="schedule-field">
+          <span>作息表名称</span>
+          <input v-model="timetableDraftName" class="schedule-input" maxlength="100" :disabled="timetableSaving"
+            placeholder="如：夏季作息 / 高中部作息" />
+        </label>
+
+        <div class="schedule-sub-head">
+          <span>作息时间（{{ timetableDraftRows.length }} 节）</span>
+          <button type="button" class="schedule-btn is-ghost is-small" :disabled="timetableSaving"
+            @click="addTimetableDraftRow">＋ 添加一节</button>
+        </div>
+
+        <div class="schedule-timetable-form-rows">
+          <div v-for="(row, index) in timetableDraftRows" :key="row.key" class="schedule-timetable-form-row">
+            <span class="schedule-timetable-form-index">第 {{ index + 1 }} 节</span>
+            <el-input v-model="row.value" class="schedule-timetable-form-input" size="small" maxlength="11"
+              placeholder="HH:mm-HH:mm" :disabled="timetableSaving" />
+            <button type="button" class="schedule-btn is-danger is-small" :disabled="timetableSaving"
+              @click="removeTimetableDraftRow(index)">删除</button>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="schedule-dialog-footer">
+          <span class="schedule-footer-spacer"></span>
+          <button type="button" class="schedule-btn" :disabled="timetableSaving"
+            @click="timetableFormVisible = false">取消</button>
+          <button type="button" class="schedule-btn is-primary" :disabled="timetableSaving" @click="saveTimetableForm">
+            {{ timetableSaving ? "保存中..." : "保存" }}
+          </button>
+        </div>
+      </template>
+    </AppDialog>
+
     <!-- ======================== 课表设置弹窗 ======================== -->
     <AppDialog v-model="scheduleFormVisible" :title="scheduleDraft.id ? '课表设置' : '新建课表'" content-width="600px"
       :close-on-click-modal="false">
@@ -1233,6 +1970,15 @@ onMounted(() => {
           <span>课表备注（可选）</span>
           <textarea v-model="scheduleDraft.remark" class="schedule-textarea" rows="2"
             placeholder="如：示例课表（联调用）"></textarea>
+        </label>
+
+        <label class="schedule-field">
+          <span>套用作息表（可选）</span>
+          <el-select :model-value="scheduleFormTimetableIndex ?? undefined" class="schedule-select"
+            placeholder="选择一套作息表填充下方时间" @change="applyScheduleFormTimetable">
+            <el-option v-for="(option, index) in scheduleFormTimetableOptions" :key="index"
+              :label="timetableOptionLabel(option)" :value="index" />
+          </el-select>
         </label>
 
         <div class="schedule-sub-head">

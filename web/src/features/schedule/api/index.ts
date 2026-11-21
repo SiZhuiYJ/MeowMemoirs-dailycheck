@@ -11,6 +11,8 @@ import type {
   ScheduleImportPreview,
   SchedulePayload,
   ScheduleSummary,
+  ScheduleTimetableOption,
+  TimetablePayload,
 } from "../types";
 
 export const scheduleApi = {
@@ -38,6 +40,43 @@ export const scheduleApi = {
   /** 删除课表（伪删除，连带课程与时间段），返回 204 */
   async remove(id: number) {
     return await http.delete(`/mm/Schedule/${id}`, { showError: false });
+  },
+
+  /**
+   * 作息表列表：模板在前，再补上从已有课表提取的历史作息。
+   * 导入预检弹窗 / 作息表管理 / 课表设置套用都用它；失败由页面处理。
+   */
+  async getTimetables() {
+    return await http.get<ScheduleTimetableOption[]>(
+      "/mm/Schedule/Timetables",
+      undefined,
+      { showError: false },
+    );
+  },
+
+  /** 新建作息表模板，返回创建后的条目 */
+  async createTimetable(payload: TimetablePayload) {
+    return await http.post<ScheduleTimetableOption>(
+      "/mm/Schedule/Timetables",
+      payload,
+      { showError: false },
+    );
+  },
+
+  /** 修改作息表模板，返回更新后的条目 */
+  async updateTimetable(id: number, payload: TimetablePayload) {
+    return await http.put<ScheduleTimetableOption>(
+      `/mm/Schedule/Timetables/${id}`,
+      payload,
+      { showError: false },
+    );
+  },
+
+  /** 删除作息表模板（伪删除），返回 204 */
+  async removeTimetable(id: number) {
+    return await http.delete(`/mm/Schedule/Timetables/${id}`, {
+      showError: false,
+    });
   },
 
   /**
