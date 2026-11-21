@@ -209,3 +209,25 @@ public class ScheduleImportPreviewDto
     /// <summary>预检出来的时间冲突（同一天 + 节次重叠 + 周次有交集）</summary>
     public List<string> Conflicts { get; set; } = new();
 }
+
+/// <summary>
+/// 按预检结果正式保存课表（OCR / 图片流程用）。
+/// 前端把预检返回的 courses 原样传回来，服务端校验后入库。
+/// </summary>
+public class ScheduleImportConfirmDto
+{
+    /// <summary>课表名称</summary>
+    public string ScheduleName { get; set; } = string.Empty;
+
+    /// <summary>开课日期（yyyy-MM-dd，可选）</summary>
+    public string? StartTime { get; set; }
+
+    /// <summary>学期周数（可选，默认 20）</summary>
+    public int? WeekCount { get; set; }
+
+    /// <summary>作息时间表（可选；不传则按节次数生成默认值）</summary>
+    public List<string>? Timetable { get; set; }
+
+    /// <summary>课程列表（结构与预检返回的 courses 一致）</summary>
+    public List<CourseDto> Courses { get; set; } = new();
+}

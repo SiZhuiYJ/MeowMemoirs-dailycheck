@@ -87,6 +87,23 @@ public static class TimetableExcelParser
                     grid[r, c] = v;
         }
 
+
+        return ParseGrid(grid, merges
+            .Select(m => (m.FirstRow, m.FirstColumn, m.LastRow, m.LastColumn))
+            .ToList());
+    }
+
+    /// <summary>
+    /// 二维文本网格 → 课表。Excel / OCR 共用同一套网格归一化逻辑。
+    /// mergeRanges 用于识别「合并区左上角」和跳过横跨多列的标题行；OCR 没有合并信息时传 null。
+    /// </summary>
+    public static ParsedTimetable ParseGrid(string[,] grid, List<(int r1, int c1, int r2, int c2)>? mergeRanges = null)
+    {
+        var merges = mergeRanges ?? new List<(int r1, int c1, int r2, int c2)>();
+        var maxRow = grid.GetLength(0) - 1;
+        var maxCol = grid.GetLength(1) - 1;
+        if (maxRow < 1 || maxCol < 1) throw new InvalidOperationException("内容太少，识别不了课表");
+
         // ---- 2. 表头 / 星期列 ----
         var headerRow = -1;
         for (var r = 0; r <= maxRow && headerRow < 0; r++)
@@ -151,11 +168,11 @@ public static class TimetableExcelParser
                 if (raw.Length == 0) continue;
 
                 var merge = merges.FirstOrDefault(m =>
-                    r >= m.FirstRow && r <= m.LastRow && col >= m.FirstColumn && col <= m.LastColumn);
-                if (merge is not null)
+                    r >= m.r1 && r <= m.r2 && col >= m.c1 && col <= m.c2);
+                if (merge != default)
                 {
-                    if (!(merge.FirstRow == r && merge.FirstColumn == col)) continue; // 被纵向合并覆盖
-                    if (merge.LastColumn - merge.FirstColumn >= 1) continue;          // 横跨多列 = 标题/说明
+                    if (!(merge.r1 == r && merge.c1 == col)) continue; // 被纵向合并覆盖
+                    if (merge.c2 - merge.c1 >= 1) continue;            // 横跨多列 = 标题/说明
                 }
 
                 foreach (var e in ParseCell(raw))
@@ -203,6 +220,7 @@ public static class TimetableExcelParser
 
         return new ParsedTimetable(title, semester, startDate, maxSection, slots);
     }
+
 
     // ---------- 表头信息 ----------
     static (string? title, string? semester, DateOnly? startDate) ParseHeaderInfo(string[,] grid, int headerRow)

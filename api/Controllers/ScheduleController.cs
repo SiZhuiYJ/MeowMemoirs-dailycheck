@@ -126,8 +126,11 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
         return detail == null ? NotFound(new { message = "未找到课表" }) : Ok(detail);
     }
 
+    const int MaxOcrFileBytes = 30 * 1024 * 1024;
+    static readonly string[] OcrExtensions = { ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp" };
+
     /// <summary>
-    /// 导入预检：只解析 Excel 并返回预览，不写数据库。
+    /// 导入预检（Excel）：只解析文件并返回预览，不写数据库。
     /// 前端先拿这个结果让用户确认识别有没有问题，确认后再调 <see cref="ImportSchedule"/> 正式保存。
     /// </summary>
     /// <param name="file">课表 Excel（.xlsx / .xls）</param>
@@ -142,16 +145,90 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
         [FromForm] string? startTime,
         [FromForm] int? weekCount)
     {
-        var (plan, error) = await BuildImportPlanAsync(file, scheduleName, startTime, weekCount);
+        var (plan, error) = await BuildExcelImportPlanAsync(file, scheduleName, startTime, weekCount);
         if (plan is null) return BadRequest(new { message = error });
         return Ok(ToPreview(plan));
+    }
+
+    /// <summary>
+    /// 导入预检（图片 / PDF 兜底 OCR）：识别截图里的课表并返回预览，不写数据库。
+    /// 需要服务器安装 poppler / tesseract（含 chi_sim 语言包），见 TimetableOcr 注释。
+    /// </summary>
+    /// <param name="file">课表截图或 PDF（.pdf/.png/.jpg/.jpeg/.webp/.bmp）</param>
+    /// <param name="scheduleName">课表名称（可选）</param>
+    /// <param name="startTime">开课日期 yyyy-MM-dd（可选）</param>
+    /// <param name="weekCount">学期周数（可选）</param>
+    [HttpPost("Import/Ocr/Preview")]
+    [RequestSizeLimit(MaxOcrFileBytes)]
+    public async Task<ActionResult<ScheduleImportPreviewDto>> PreviewOcrImport(
+        IFormFile? file,
+        [FromForm] string? scheduleName,
+        [FromForm] string? startTime,
+        [FromForm] int? weekCount)
+    {
+        if (file is null || file.Length == 0)
+            return BadRequest(new { message = "请选择课表截图或 PDF" });
+
+        var extension = Path.GetExtension(file.FileName ?? string.Empty).ToLowerInvariant();
+        if (!OcrExtensions.Contains(extension))
+            return BadRequest(new { message = "仅支持 PDF / PNG / JPG / JPEG / WEBP / BMP" });
+        if (file.Length > MaxOcrFileBytes)
+            return BadRequest(new { message = "文件不能超过 30MB" });
+
+        var temp = Path.Combine(Path.GetTempPath(),
+            "timetable-ocr-upload-" + Guid.NewGuid().ToString("N") + extension);
+        try
+        {
+            await using (var stream = System.IO.File.Create(temp))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            ParsedTimetable parsed;
+            try
+            {
+                parsed = await TimetableOcr.ParseAsync(temp, extension);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = "OCR 识别失败：" + ex.Message });
+            }
+            if (parsed.Slots.Count == 0)
+                return BadRequest(new { message = "没有从图片里识别到课程，请换一张更清晰的课表截图" });
+
+            var fallbackName = Path.GetFileNameWithoutExtension(file.FileName) ?? "OCR 导入的课表";
+            var (plan, error) = BuildPlanFromParsed(
+                parsed, scheduleName, startTime, weekCount, fallbackName,
+                extraWarnings: new[] { "本次结果来自图片/PDF 文字识别（OCR），可能有错别字，请重点核对课程名、地点和教师" });
+            if (plan is null) return BadRequest(new { message = error });
+            return Ok(ToPreview(plan));
+        }
+        finally
+        {
+            try { System.IO.File.Delete(temp); } catch { /* 清理失败无所谓 */ }
+        }
+    }
+
+    /// <summary>
+    /// 按预检结果正式保存课表（OCR / 图片流程用；前端把预检返回的课程原样传回来）。
+    /// Excel 流程也可以用它，避免重复上传解析。
+    /// </summary>
+    [HttpPost("Import/Confirm")]
+    public async Task<ActionResult<ScheduleDetailDto>> ConfirmImport([FromBody] ScheduleImportConfirmDto dto)
+    {
+        var userId = GetUserId();
+        var (plan, error) = BuildPlanFromConfirm(dto);
+        if (plan is null) return BadRequest(new { message = error });
+
+        var detail = await SavePlanAsync(userId, plan);
+        return detail is null ? NotFound(new { message = "导入后读取课表失败" }) : Ok(detail);
     }
 
     /// <summary>
     /// 从 Excel 导入课表：解析文件 → 新建一张课表 + 课程 + 时间段，返回课表详情。
     ///
     /// 支持 .xlsx / .xls；解析规则与前端 demo 一致（自动识别通用横排 / 教务系统竖排、
-    /// 合并单元格、一格多课、周次等）。缺少的信息用默认值补齐（作息时间 12 节、周数 20）。
+    /// 合并单元格、一格多课、周次等）。缺少的信息用默认值补齐（作息时间、周数 20）。
     /// 建议先调 <see cref="PreviewImport"/> 让用户确认后再调用本接口。
     /// </summary>
     /// <param name="file">课表 Excel（.xlsx / .xls）</param>
@@ -167,9 +244,16 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
         [FromForm] int? weekCount)
     {
         var userId = GetUserId();
-        var (plan, error) = await BuildImportPlanAsync(file, scheduleName, startTime, weekCount);
+        var (plan, error) = await BuildExcelImportPlanAsync(file, scheduleName, startTime, weekCount);
         if (plan is null) return BadRequest(new { message = error });
 
+        var detail = await SavePlanAsync(userId, plan);
+        return detail is null ? NotFound(new { message = "导入后读取课表失败" }) : Ok(detail);
+    }
+
+    /// <summary>把导入计划写库（新建课表 + 课程 + 时间段），返回详情。</summary>
+    async Task<ScheduleDetailDto?> SavePlanAsync(ulong userId, ImportPlan plan)
+    {
         var now = DateTime.UtcNow;
         await using var transaction = await _db.Database.BeginTransactionAsync();
 
@@ -221,12 +305,11 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
         await _db.SaveChangesAsync();
         await transaction.CommitAsync();
 
-        var detail = await BuildDetailAsync(userId, schedule.Id);
-        return detail is null ? NotFound(new { message = "导入后读取课表失败" }) : Ok(detail);
+        return await BuildDetailAsync(userId, schedule.Id);
     }
 
-    /// <summary>解析 Excel → 生成「导入计划」（预检和正式导入共用，保证两边看到的数据完全一致）。</summary>
-    async Task<(ImportPlan? plan, string? error)> BuildImportPlanAsync(
+    /// <summary>解析 Excel → 导入计划。</summary>
+    async Task<(ImportPlan? plan, string? error)> BuildExcelImportPlanAsync(
         IFormFile? file,
         string? scheduleName,
         string? startTime,
@@ -257,17 +340,31 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
             return (null, $"解析失败：{ex.Message}");
         }
 
+        return BuildPlanFromParsed(parsed, scheduleName, startTime, weekCount,
+            Path.GetFileNameWithoutExtension(file.FileName) ?? "导入的课表");
+    }
+
+    /// <summary>解析结果（Excel / OCR 共用）→ 导入计划。</summary>
+    (ImportPlan? plan, string? error) BuildPlanFromParsed(
+        ParsedTimetable parsed,
+        string? scheduleName,
+        string? startTime,
+        int? weekCount,
+        string fallbackName,
+        string[]? extraWarnings = null)
+    {
         if (parsed.Slots.Count == 0)
             return (null, "没有从文件里识别到课程，请检查这张表是不是课表");
 
         var warnings = new List<string>();
+        if (extraWarnings is { Length: > 0 }) warnings.AddRange(extraWarnings);
 
         var name = (scheduleName ?? string.Empty).Trim();
         if (name.Length == 0) name = (parsed.Title ?? string.Empty).Trim();
         if (name.Length == 0)
         {
-            name = Path.GetFileNameWithoutExtension(file.FileName);
-            if (name.Length > 0) warnings.Add($"未从文件里识别到课表名称，默认使用文件名「{name}」");
+            name = fallbackName;
+            if (name.Length > 0) warnings.Add($"未识别到课表名称，默认使用「{name}」");
         }
         if (name.Length == 0) name = "导入的课表";
         if (name.Length > 100) name = name[..100];
@@ -283,7 +380,7 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
         {
             startDate = parsed.SuggestedStartDate ?? ThisMonday();
             if (parsed.SuggestedStartDate is null)
-                warnings.Add($"文件里没有学期信息，开课日期默认用本周一（{startDate:yyyy-MM-dd}）");
+                warnings.Add($"没有识别到学期信息，开课日期默认用本周一（{startDate:yyyy-MM-dd}）");
         }
 
         var maxWeekInFile = parsed.Slots
@@ -298,7 +395,10 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
 
         var sectionCount = Math.Clamp(parsed.MaxSection, 1, MaxSections);
         var timetable = TimetableExcelParser.DefaultTimetable(sectionCount);
-        warnings.Add($"文件里没有作息时间，已使用默认 {sectionCount} 节时间（可在课表设置里修改）");
+        if (parsed.SuggestedStartDate is not null)
+            warnings.Add($"文件里的学期：{parsed.SemesterLabel ?? "未识别"}；作息时间为默认 {sectionCount} 节（可在课表设置里修改）");
+        else
+            warnings.Add($"没有作息时间信息，已使用默认 {sectionCount} 节时间（可在课表设置里修改）");
 
         var palette = new[]
         {
@@ -360,9 +460,101 @@ public class ScheduleController(DailyCheckDbContext db) : ControllerBase
             if (missingWeeks) warnings.Add($"「{courseName}」未识别到周次（已按第 1-{weeks} 周处理）");
         }
 
+        if (courses.Count == 0)
+            return (null, "识别到的内容里没有有效课程");
+
         var conflicts = DetectImportConflicts(courses);
         var plan = new ImportPlan(name, parsed.SemesterLabel, startDate, weeks, sectionCount,
             timetable, courses, warnings, conflicts);
+        return (plan, null);
+    }
+
+    /// <summary>预检结果（前端回传）→ 导入计划。</summary>
+    (ImportPlan? plan, string? error) BuildPlanFromConfirm(ScheduleImportConfirmDto dto)
+    {
+        if (dto is null) return (null, "请求内容为空");
+        var courses = dto.Courses ?? new List<CourseDto>();
+        if (courses.Count == 0) return (null, "没有要导入的课程");
+
+        var name = (dto.ScheduleName ?? string.Empty).Trim();
+        if (name.Length == 0) name = "导入的课表";
+        if (name.Length > 100) name = name[..100];
+
+        DateOnly startDate;
+        if (!string.IsNullOrWhiteSpace(dto.StartTime))
+        {
+            if (!DateOnly.TryParseExact(dto.StartTime.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out startDate))
+                return (null, "开课日期格式应为 yyyy-MM-dd");
+        }
+        else
+        {
+            startDate = ThisMonday();
+        }
+
+        var weeks = dto.WeekCount ?? 20;
+        if (weeks < 1 || weeks > MaxWeekCount)
+            return (null, $"学期周数需在 1-{MaxWeekCount} 之间");
+
+        var warnings = new List<string>();
+        var maxSection = courses
+            .SelectMany(c => c.Times ?? new List<CourseTimeDto>())
+            .SelectMany(t => t.SectionList ?? new List<int>())
+            .DefaultIfEmpty(0)
+            .Max();
+        var sectionCount = Math.Clamp(maxSection, 1, MaxSections);
+        var timetable = dto.Timetable is { Count: > 0 }
+            ? dto.Timetable
+            : TimetableExcelParser.DefaultTimetable(sectionCount);
+        var allWeeks = Enumerable.Range(1, weeks).ToList();
+        var palette = new[]
+        {
+            "#9b4f93", "#4f9b93", "#9b6b4f", "#4f6b9b", "#7a4f9b",
+            "#9b4f5a", "#4f9b6b", "#8f9b4f", "#4f8a9b", "#9b874f",
+        };
+
+        var planCourses = new List<PlanCourse>();
+        var index = 0;
+        foreach (var course in courses)
+        {
+            var courseName = (course.CourseName ?? string.Empty).Trim();
+            if (courseName.Length == 0) continue;
+            if (courseName.Length > 100) courseName = courseName[..100];
+
+            var times = new List<PlanTime>();
+            foreach (var time in course.Times ?? new List<CourseTimeDto>())
+            {
+                var sections = (time.SectionList ?? new List<int>())
+                    .Where(v => v >= 1 && v <= MaxSections).Distinct().OrderBy(v => v).ToList();
+                if (sections.Count == 0) continue;
+                var weekList = (time.WeekList ?? new List<int>())
+                    .Where(v => v >= 1 && v <= weeks).Distinct().OrderBy(v => v).ToList();
+                if (weekList.Count == 0) weekList = allWeeks;
+                var location = (time.Location ?? string.Empty).Trim();
+                var teacher = (time.Teacher ?? string.Empty).Trim();
+                if (teacher.Length == 0) warnings.Add($"「{courseName}」缺少任课教师（已留空）");
+                if (location.Length == 0) warnings.Add($"「{courseName}」缺少上课地点（已留空）");
+                times.Add(new PlanTime(
+                    Math.Clamp(time.DayOfWeek, 1, 7),
+                    weekList,
+                    sections,
+                    location,
+                    teacher));
+            }
+            if (times.Count == 0) continue;
+            var color = string.IsNullOrWhiteSpace(course.Color) || !ColorRegex.IsMatch(course.Color)
+                ? palette[index % palette.Length]
+                : course.Color!;
+            index++;
+            planCourses.Add(new PlanCourse(courseName, color, times));
+        }
+
+        if (planCourses.Count == 0) return (null, "没有有效课程");
+        warnings.Add("课表已按预检结果保存，可随时在课表设置里修改");
+
+        var conflicts = DetectImportConflicts(planCourses);
+        var plan = new ImportPlan(name, null, startDate, weeks, sectionCount,
+            timetable, planCourses, warnings, conflicts);
         return (plan, null);
     }
 
