@@ -764,7 +764,9 @@ Markdown 源文件格式（`api/Resources/changelog/CHANGELOG.md`，Keep a Chang
 | GET | `/mm/Schedule` | 当前用户的课表列表（概要，含课程数量） |
 | GET | `/mm/Schedule/{id}` | 课表详情（课表信息 + 课程列表 + 每门课的上课时间段） |
 | POST | `/mm/Schedule` | 新建 / 更新课表（`id=0` 新建；同时保存作息时间表） |
-| POST | `/mm/Schedule/Import/Preview` | **导入预检**（只解析不写库，返回预览：课程/提示/冲突，供用户确认） |
+| POST | `/mm/Schedule/Import/Preview` | **导入预检**（只解析 Excel，不写库，返回预览：课程/提示/冲突，供用户确认） |
+| POST | `/mm/Schedule/Import/Ocr/Preview` | **OCR 预检兜底**（图片/PDF 截图识别课表，不写库，返回同结构预览） |
+| POST | `/mm/Schedule/Import/Confirm` | **按预检结果保存**（JSON：课程 + 名称，OCR 流程用） |
 | POST | `/mm/Schedule/Import` | **从 Excel 导入课表**（multipart 上传，解析后新建一张课表，返回课表详情） |
 | DELETE | `/mm/Schedule/{id}` | 删除课表（伪删除，连带课程与时间段） |
 | GET | `/mm/Schedule/{id}/Course/{courseId}` | 课程详情（含全部时间段） |
@@ -803,6 +805,21 @@ Markdown 源文件格式（`api/Resources/changelog/CHANGELOG.md`，Keep a Chang
 
 同上 multipart，另可带用户确认后的 `scheduleName`（留空则用默认名称）。
 响应 `200` 为 `ScheduleDetail`（新建的课表 + 课程 + 时间段）。
+
+**OCR 兜底：图片 / PDF 截图导入（两步）**
+
+1. `POST /mm/Schedule/Import/Ocr/Preview`：multipart `file`（`.pdf/.png/.jpg/.jpeg/.webp/.bmp`，≤30MB），
+   服务端用 poppler 渲染 + tesseract（chi_sim）OCR，再由文字框重建网格，返回与 Excel 预检**相同**的
+   `ScheduleImportPreviewDto`；`warnings` 里会带「本次结果来自 OCR，请核对」提示。
+   依赖服务器安装 `poppler` / `tesseract` 及 `chi_sim` 语言包（见 `api/Infrastructure/TimetableOcr.cs` 注释）。
+2. `POST /mm/Schedule/Import/Confirm`：JSON 提交预检确认后的数据：
+   ```json
+   { "scheduleName": "…", "startTime": "yyyy-MM-dd", "weekCount": 20,
+     "timetable": ["08:00-08:45", "…"], "courses": [ /* 预检返回的 courses 原样传回 */ ] }
+   ```
+   服务端校验后入库，返回 `ScheduleDetail`。
+
+> OCR 是兜底：识别质量取决于截图清晰度，结果必须让用户在预检弹窗里核对后再保存。
 
 解析能力（`api/Infrastructure/TimetableExcelParser.cs`，与前端 demo 规则一致）：
 - 自动识别通用横排课表（节次列 `1-2节`）和教务系统竖排课表（大节列 + 中文小节列 `一…十二`）；

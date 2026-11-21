@@ -2202,7 +2202,7 @@
         </member>
         <member name="M:api.Controllers.ScheduleController.PreviewImport(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})">
             <summary>
-            导入预检：只解析 Excel 并返回预览，不写数据库。
+            导入预检（Excel）：只解析文件并返回预览，不写数据库。
             前端先拿这个结果让用户确认识别有没有问题，确认后再调 <see cref="M:api.Controllers.ScheduleController.ImportSchedule(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})"/> 正式保存。
             </summary>
             <param name="file">课表 Excel（.xlsx / .xls）</param>
@@ -2210,12 +2210,28 @@
             <param name="startTime">开课日期 yyyy-MM-dd（可选）</param>
             <param name="weekCount">学期周数（可选）</param>
         </member>
+        <member name="M:api.Controllers.ScheduleController.PreviewOcrImport(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})">
+            <summary>
+            导入预检（图片 / PDF 兜底 OCR）：识别截图里的课表并返回预览，不写数据库。
+            需要服务器安装 poppler / tesseract（含 chi_sim 语言包），见 TimetableOcr 注释。
+            </summary>
+            <param name="file">课表截图或 PDF（.pdf/.png/.jpg/.jpeg/.webp/.bmp）</param>
+            <param name="scheduleName">课表名称（可选）</param>
+            <param name="startTime">开课日期 yyyy-MM-dd（可选）</param>
+            <param name="weekCount">学期周数（可选）</param>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.ConfirmImport(api.Models.ScheduleImportConfirmDto)">
+            <summary>
+            按预检结果正式保存课表（OCR / 图片流程用；前端把预检返回的课程原样传回来）。
+            Excel 流程也可以用它，避免重复上传解析。
+            </summary>
+        </member>
         <member name="M:api.Controllers.ScheduleController.ImportSchedule(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})">
              <summary>
              从 Excel 导入课表：解析文件 → 新建一张课表 + 课程 + 时间段，返回课表详情。
             
              支持 .xlsx / .xls；解析规则与前端 demo 一致（自动识别通用横排 / 教务系统竖排、
-             合并单元格、一格多课、周次等）。缺少的信息用默认值补齐（作息时间 12 节、周数 20）。
+             合并单元格、一格多课、周次等）。缺少的信息用默认值补齐（作息时间、周数 20）。
              建议先调 <see cref="M:api.Controllers.ScheduleController.PreviewImport(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})"/> 让用户确认后再调用本接口。
              </summary>
              <param name="file">课表 Excel（.xlsx / .xls）</param>
@@ -2223,8 +2239,17 @@
              <param name="startTime">开课日期 yyyy-MM-dd，不传则取文件里的学期或本周一</param>
              <param name="weekCount">学期周数，不传则按文件里的最大周次（至少 20）</param>
         </member>
-        <member name="M:api.Controllers.ScheduleController.BuildImportPlanAsync(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})">
-            <summary>解析 Excel → 生成「导入计划」（预检和正式导入共用，保证两边看到的数据完全一致）。</summary>
+        <member name="M:api.Controllers.ScheduleController.SavePlanAsync(System.UInt64,api.Controllers.ImportPlan)">
+            <summary>把导入计划写库（新建课表 + 课程 + 时间段），返回详情。</summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.BuildExcelImportPlanAsync(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})">
+            <summary>解析 Excel → 导入计划。</summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.BuildPlanFromParsed(api.Infrastructure.ParsedTimetable,System.String,System.String,System.Nullable{System.Int32},System.String,System.String[])">
+            <summary>解析结果（Excel / OCR 共用）→ 导入计划。</summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.BuildPlanFromConfirm(api.Models.ScheduleImportConfirmDto)">
+            <summary>预检结果（前端回传）→ 导入计划。</summary>
         </member>
         <member name="M:api.Controllers.ScheduleController.ToPreview(api.Controllers.ImportPlan)">
             <summary>把导入计划转成预览 DTO（课程/时间段 ID 都是 0，因为还没写库）。</summary>
@@ -4658,11 +4683,62 @@
              → 逐格解析 → 相邻同门课合并。算法与前端 TS 版一致。
              </summary>
         </member>
+        <member name="M:api.Infrastructure.TimetableExcelParser.ParseGrid(System.String[0:,0:],System.Collections.Generic.List{System.ValueTuple{System.Int32,System.Int32,System.Int32,System.Int32}})">
+            <summary>
+            二维文本网格 → 课表。Excel / OCR 共用同一套网格归一化逻辑。
+            mergeRanges 用于识别「合并区左上角」和跳过横跨多列的标题行；OCR 没有合并信息时传 null。
+            </summary>
+        </member>
         <member name="M:api.Infrastructure.TimetableExcelParser.ParseWeekList(System.String)">
             <summary>"1-4周,6-17周" / "8周" / "1-3周,6周,9-17周(单)" → 周次集合；解析不了返回 null</summary>
         </member>
         <member name="M:api.Infrastructure.TimetableExcelParser.DefaultTimetable(System.Int32)">
             <summary>默认作息时间（没有来源数据时使用；第 1 节 08:00 起，上午 4 节 / 下午 4 节 / 晚上 4 节）。</summary>
+        </member>
+        <member name="T:api.Infrastructure.TimetableOcr">
+             <summary>
+             课表图片 / PDF 兜底识别（OCR）。
+            
+             流程：PDF → pdftoppm 渲染成 PNG（每页 300dpi）→ tesseract（chi_sim+eng, psm 6）输出 TSV
+                  → 按文字框坐标重建二维网格 → 复用 <see cref="M:api.Infrastructure.TimetableExcelParser.ParseGrid(System.String[0:,0:],System.Collections.Generic.List{System.ValueTuple{System.Int32,System.Int32,System.Int32,System.Int32}})"/> 归一化。
+            
+             依赖服务器上有 poppler（pdftoppm）和 tesseract（含 chi_sim 语言包）：
+               pkg install poppler tesseract poppler-data
+               curl -L -o $PREFIX/share/tessdata/chi_sim.traineddata \
+                 https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/chi_sim.traineddata
+            
+             只做「兜底」：OCR 一定有错字，结果交给前端预检让用户核对后再入库。
+             </summary>
+        </member>
+        <member name="P:api.Infrastructure.TimetableOcr.LastWorkDir">
+            <summary>调试用：最近一次 OCR 的工作目录（KEEP_OCR_TEMP=1 时不会删除）。</summary>
+        </member>
+        <member name="M:api.Infrastructure.TimetableOcr.ParseAsync(System.String,System.String)">
+            <summary>识别图片 / PDF 课表。extension 为小写扩展名（含点）。</summary>
+        </member>
+        <member name="M:api.Infrastructure.TimetableOcr.MergePages(System.Collections.Generic.List{api.Infrastructure.ParsedTimetable})">
+            <summary>多页合并：拼 slots / 去重 / 取最大节次。</summary>
+        </member>
+        <member name="M:api.Infrastructure.TimetableOcr.PreprocessAsync(System.String,System.String)">
+             <summary>
+             预处理：灰度阈值 + 去掉表格线。
+            
+             tesseract 对穿过文字的表格线很敏感（会把「星期一」切成「星期」+ 噪声），
+             这里把「一行/一列里暗像素超过 50%」的直线擦成白色，再交给 tesseract；
+             不依赖 OpenCV，只用项目已有的 ImageSharp。
+             </summary>
+        </member>
+        <member name="T:api.Infrastructure.TimetableOcr.OcrLine">
+            <summary>OCR 的一行文字（同一 tesseract line_num 的 word 集合）</summary>
+        </member>
+        <member name="M:api.Infrastructure.TimetableOcr.OcrLine.#ctor(System.Collections.Generic.List{api.Infrastructure.TimetableOcr.OcrWord})">
+            <summary>OCR 的一行文字（同一 tesseract line_num 的 word 集合）</summary>
+        </member>
+        <member name="M:api.Infrastructure.TimetableOcr.BuildGrid(System.Collections.Generic.List{api.Infrastructure.TimetableOcr.OcrLine})">
+            <summary>OCR 行 → 二维网格（第 0 行是表头或标题行；之后每个节次一行）。</summary>
+        </member>
+        <member name="M:api.Infrastructure.TimetableOcr.MergeTokens(System.Collections.Generic.List{api.Infrastructure.TimetableOcr.OcrWord})">
+            <summary>把一行里的字符合并成 token：中文单字间距很小，按最大字高做阈值。</summary>
         </member>
         <member name="T:api.Infrastructure.ULongRouteConstraint">
             <summary>
@@ -6615,6 +6691,27 @@
         </member>
         <member name="P:api.Models.ScheduleImportPreviewDto.Conflicts">
             <summary>预检出来的时间冲突（同一天 + 节次重叠 + 周次有交集）</summary>
+        </member>
+        <member name="T:api.Models.ScheduleImportConfirmDto">
+            <summary>
+            按预检结果正式保存课表（OCR / 图片流程用）。
+            前端把预检返回的 courses 原样传回来，服务端校验后入库。
+            </summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportConfirmDto.ScheduleName">
+            <summary>课表名称</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportConfirmDto.StartTime">
+            <summary>开课日期（yyyy-MM-dd，可选）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportConfirmDto.WeekCount">
+            <summary>学期周数（可选，默认 20）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportConfirmDto.Timetable">
+            <summary>作息时间表（可选；不传则按节次数生成默认值）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleImportConfirmDto.Courses">
+            <summary>课程列表（结构与预检返回的 courses 一致）</summary>
         </member>
         <member name="T:Program">
             <summary>
