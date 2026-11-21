@@ -86,6 +86,8 @@ mysql -u root dailycheck < sql/2026-11-19_user_login_devices_activity.sql
 mysql -u root dailycheck < sql/2026-11-19_user_previous_avatar.sql
 # 意见反馈表（feedbacks）——缺了 /mm/Feedback 接口会 500
 mysql -u root dailycheck < sql/2026-11-20_feedback.sql
+# 作息表模板（timetable_templates）——课表导入 / 新建课表时的作息快捷复用
+mysql -u root dailycheck < sql/2026-11-21_timetable_templates.sql
 ```
 
 > 早期 MySQL 8 的导出已归档到 `sql/legacy/`，仅在考古时使用。导入 MariaDB 时注意两点：
