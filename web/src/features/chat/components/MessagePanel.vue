@@ -37,7 +37,7 @@ import { useAuthStore } from '@/stores';
 import MessageItem from './MessageItem.vue';
 import FileUploadButton from './FileUploadButton.vue';
 import ChatContextMenu, { type ChatContextMenuItem } from './ChatContextMenu.vue';
-import ChatDialog from './ChatDialog.vue';
+import AppDialog from "@/components/AppDialog.vue";
 import { rememberBlobUrl, useFileDownloader } from '../composables/useFileDownloader';
 import { useChatContextMenu } from '../composables/useChatContextMenu';
 import { copyImageFromUrl, copyTextToClipboard } from '../utils/clipboard';
@@ -1856,7 +1856,7 @@ onBeforeUnmount(() => {
       <ChatContextMenu v-model="avatarMenuVisible" :x="avatarMenuX" :y="avatarMenuY" :items="avatarMenuItems"
         aria-label="用户头像操作" @select="handleAvatarMenuSelect" />
 
-      <ChatDialog v-model="dropUploadDialogVisible" title="确认上传文件" content-width="640px"
+      <AppDialog v-model="dropUploadDialogVisible" title="确认上传文件" content-width="640px"
         :closable="!dropUploadBusy" :close-on-click-modal="!dropUploadBusy" :close-on-press-escape="!dropUploadBusy"
         :show-close="!dropUploadBusy" @closed="clearDroppedFiles">
         <div class="drop-file-dialog">
@@ -1899,7 +1899,7 @@ onBeforeUnmount(() => {
             </el-button>
           </div>
         </template>
-      </ChatDialog>
+      </AppDialog>
     </div>
 
     <div v-else class="empty">请选择一个会话开始聊天。</div>

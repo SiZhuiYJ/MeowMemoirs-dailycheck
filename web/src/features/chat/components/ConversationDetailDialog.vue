@@ -8,7 +8,7 @@ import { storeToRefs } from "pinia";
 import { useAuthStore } from "@/stores";
 import router from "@/routers";
 import IsPin from "./IsPin.vue";
-import ChatDialog from "./ChatDialog.vue";
+import AppDialog from "@/components/AppDialog.vue";
 import type {
   ConversationDetail,
   ConversationDetailUpdateOptions,
@@ -644,7 +644,7 @@ watch(
 </script>
 
 <template>
-  <ChatDialog :model-value="modelValue" title="会话详情" content-width="760px"
+  <AppDialog :model-value="modelValue" title="会话详情" content-width="760px"
     @update:model-value="emit('update:modelValue', $event)">
     <div class="conversation-detail-dialog">
 
@@ -819,9 +819,9 @@ watch(
         <el-button type="primary" class="load-more" @click="emit('load-more')">加载更早消息</el-button>
       </div>
     </template>
-  </ChatDialog>
+  </AppDialog>
 
-  <ChatDialog v-model="inviteDialogVisible" title="邀请好友入群" content-width="520px" :closable="!inviting"
+  <AppDialog v-model="inviteDialogVisible" title="邀请好友入群" content-width="520px" :closable="!inviting"
     :close-on-click-modal="!inviting" :close-on-press-escape="!inviting" :show-close="!inviting"
     @closed="resetInviteDialog">
     <div class="invite-dialog-body">
@@ -846,9 +846,9 @@ watch(
         </el-button>
       </div>
     </template>
-  </ChatDialog>
+  </AppDialog>
 
-  <ChatDialog v-model="joinRequestDialogVisible" title="加群申请" content-width="640px"
+  <AppDialog v-model="joinRequestDialogVisible" title="加群申请" content-width="640px"
     :closable="joinRequestHandlingId === null" :close-on-click-modal="joinRequestHandlingId === null"
     :close-on-press-escape="joinRequestHandlingId === null" :show-close="joinRequestHandlingId === null"
     @closed="resetJoinRequestDialog">
@@ -884,9 +884,9 @@ watch(
         </div>
       </div>
     </div>
-  </ChatDialog>
+  </AppDialog>
 
-  <ChatDialog v-model="muteDialogVisible" title="设置禁言" content-width="480px" :closable="!muteConfirmLoading"
+  <AppDialog v-model="muteDialogVisible" title="设置禁言" content-width="480px" :closable="!muteConfirmLoading"
     :close-on-click-modal="!muteConfirmLoading" :close-on-press-escape="!muteConfirmLoading"
     :show-close="!muteConfirmLoading" @closed="resetMuteDialog">
     <div class="mute-dialog-body">
@@ -905,7 +905,7 @@ watch(
         </el-button>
       </div>
     </template>
-  </ChatDialog>
+  </AppDialog>
 </template>
 
 <style scoped lang="scss">

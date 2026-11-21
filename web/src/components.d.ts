@@ -11,6 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AppDialog: typeof import('./components/AppDialog.vue')['default']
     ElBadge: typeof import('element-plus/es')['ElBadge']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElCalendar: typeof import('element-plus/es')['ElCalendar']
@@ -20,7 +21,6 @@ declare module 'vue' {
     ElCollapseItem: typeof import('element-plus/es')['ElCollapseItem']
     ElConfigProvider: typeof import('element-plus/es')['ElConfigProvider']
     ElDatePicker: typeof import('element-plus/es')['ElDatePicker']
-    ElDialog: typeof import('element-plus/es')['ElDialog']
     ElDivider: typeof import('element-plus/es')['ElDivider']
     ElDrawer: typeof import('element-plus/es')['ElDrawer']
     ElEmpty: typeof import('element-plus/es')['ElEmpty']

@@ -289,10 +289,10 @@
 // ==============================================
 // 右侧主面板 - 会话详情
 // ==============================================
-// .conversation-detail / .chat-header / .composer 也被 components/ChatDialog.vue
+// .conversation-detail / .chat-header / .composer 也被 components/AppDialog.vue
 // 复用（聊天页弹层）。弹层 Teleport 到 body，拿不到 .chat-page 上的 --chat-* 变量，
-// 所以 ChatDialog 在 .chat-dialog 上重新声明了一套同样的变量与三档密度。
-// 改这里的变量 / 间距 / 三档边界时，记得同步 ChatDialog.vue 的样式块。
+// 所以 AppDialog 在 .chat-dialog 上重新声明了一套同样的变量与三档密度。
+// 改这里的变量 / 间距 / 三档边界时，记得同步 AppDialog.vue 的样式块。
 .conversation-detail {
   @include shell.app-panel-body;
 }

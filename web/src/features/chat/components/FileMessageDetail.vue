@@ -18,7 +18,7 @@
  *   - 弹层里只有一个滚动区（.chat-dialog-scrollbar），不再出现双层滚动。
  */
 import FileMessageDetailBody from './FileMessageDetailBody.vue';
-import ChatDialog from './ChatDialog.vue';
+import AppDialog from "@/components/AppDialog.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -56,7 +56,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <ChatDialog v-model="visible" :title="fileName" content-width="520px">
+  <AppDialog v-model="visible" :title="fileName" content-width="520px">
     <FileMessageDetailBody :file-size="fileSize" :type-label="typeLabel" :icon-class="iconClass" :sent-at="sentAt"
       :preview-disabled="previewDisabled" :preview-hint="previewHint" :download-disabled="downloadDisabled"
       @download="emit('download')" @preview="emit('preview')" />
@@ -64,5 +64,5 @@ const emit = defineEmits<{
     <template #footer>
       <el-button @click="visible = false">关闭</el-button>
     </template>
-  </ChatDialog>
+  </AppDialog>
 </template>

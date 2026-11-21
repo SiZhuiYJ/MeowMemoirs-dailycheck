@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
+import AppDialog from "@/components/AppDialog.vue";
 import ProgressiveAvatar from "@/components/ProgressiveAvatar/index.vue";
 import ImageUploader from "@/features/file/components/ImageUploader.vue";
 import { SettingApi } from "@/features/setting/api";
@@ -135,9 +136,9 @@ async function usePreviousAvatar() {
       </div>
     </div>
 
-    <el-dialog v-model="previousAvatarVisible" title="上次使用的头像" width="380px"
-      :close-on-click-modal="!switchingPreviousAvatar" :close-on-press-escape="!switchingPreviousAvatar"
-      :show-close="!switchingPreviousAvatar">
+    <AppDialog v-model="previousAvatarVisible" title="上次使用的头像" content-width="380px"
+      :closable="!switchingPreviousAvatar" :close-on-click-modal="!switchingPreviousAvatar"
+      :close-on-press-escape="!switchingPreviousAvatar" :show-close="!switchingPreviousAvatar">
       <div class="previous-avatar-dialog">
         <div class="previous-avatar-frame">
           <ProgressiveAvatar :src="previousAvatar.src" :thumbnail-src="previousAvatar.thumbnailSrc"
@@ -160,7 +161,7 @@ async function usePreviousAvatar() {
           使用该头像
         </el-button>
       </template>
-    </el-dialog>
+    </AppDialog>
   </div>
 </template>
 

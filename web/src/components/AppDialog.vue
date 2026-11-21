@@ -37,9 +37,22 @@ function unlockBodyScroll() {
 
 <script setup lang="ts">
 /**
- * 聊天页专用弹层（替代 Element Plus 的 `el-dialog`）。
- * 全局的 `components/ThemeColorDialog.vue` 也复用它：同一套主题色底、悬浮
- * 毛玻璃栏和高度自适应，避免主题色对话框再维护一套 el-dialog 皮肤。
+ * 全局通用弹层（替代 Element Plus 的 `el-dialog`）。
+ *
+ * 原本是聊天页的弹层组件，现提取到 `components/` 作为**全站统一弹窗**：
+ * 主题色底、悬浮毛玻璃栏、高度自适应、嵌套弹层栈、ESC / 遮罩关闭、焦点圈定，
+ * 全部内置；业务方只需要标题 + 内容 + 可选 footer。
+ *
+ *   <AppDialog v-model="visible" title="标题" content-width="480px">
+ *     <div>内容</div>
+ *     <template #footer>
+ *       <button @click="visible = false">取消</button>
+ *       <button @click="submit">确定</button>
+ *     </template>
+ *   </AppDialog>
+ *
+ * 原名 `ChatDialog.vue`（在 `features/chat/components/` 下），已整体迁移到这里并删除旧文件；
+ * 原来引用它的聊天页 / 主题色弹窗 / 课表页都改为引用本组件。
  *
  * ## 为什么不用 el-dialog
  *
@@ -128,6 +141,12 @@ const props = withDefaults(
     showClose?: boolean;
     /** 内容列最大宽度，默认 760px；铺满传 "100%"。 */
     contentWidth?: string;
+    /**
+     * 面板高度，默认 "auto"（内容少时是卡片、内容多时被 max-height 夹住后内部滚动）。
+     * 需要固定高度时在组件上传（如 "min(80vh, 720px)"），**不要**在内容元素上写
+     * height / max-height / overflow —— 弹层内部已经统一由 .el-scrollbar 滚动。
+     */
+    height?: string;
   }>(),
   {
     title: '',
@@ -137,6 +156,7 @@ const props = withDefaults(
     closeOnPressEscape: true,
     showClose: true,
     contentWidth: '760px',
+    height: 'auto',
   },
 );
 
@@ -205,8 +225,11 @@ const titleId = `chat-dialog-title-${instanceId}`;
 
 const zIndex = ref(BASE_Z_INDEX + Z_INDEX_STEP);
 const contentStyle = computed(() => ({ maxWidth: props.contentWidth }));
-/** 面板宽度 = contentWidth：内容少时是一张居中卡片，窗口更窄时才被 max-width 夹住。 */
-const panelStyle = computed(() => ({ width: props.contentWidth }));
+/** 面板宽 / 高由组件控制：宽度 = contentWidth，高度默认 auto（超过 max-height 时内部滚动）。 */
+const panelStyle = computed(() => ({
+  width: props.contentWidth,
+  height: props.height,
+}));
 
 /** 打开前的焦点元素：关闭后还回去。 */
 let previousActiveElement: HTMLElement | null = null;

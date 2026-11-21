@@ -5,7 +5,7 @@ import ProgressiveAvatar from "@/components/ProgressiveAvatar/index.vue";
 import SettingsMenu from "@/components/Menu/SettingsMenu.vue";
 import SettingsMenuItem from "@/components/Menu/SettingsMenuItem.vue";
 import MarqueeText from "@/components/Text/MarqueeText.vue";
-import ChatDialog from "./ChatDialog.vue";
+import AppDialog from "@/components/AppDialog.vue";
 import ThemeColorDialog from "@/components/ThemeColorDialog.vue";
 import router from "@/routers";
 import { getUserAvatarUrl } from "@/utils/avatar";
@@ -262,7 +262,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
       </SettingsMenu>
     </div>
 
-    <ChatDialog v-model="friendListDialogVisible" title="好友列表" content-width="640px">
+    <AppDialog v-model="friendListDialogVisible" title="好友列表" content-width="640px">
       <div v-loading="friendLoading" class="friend-list-panel">
         <div class="friend-list-toolbar">
           <span class="friend-list-count">共 {{ friends.length }} 位好友</span>
@@ -291,9 +291,9 @@ function handleMoreMenuVisibleChange(visible: boolean) {
 
         <p class="friend-list-tip">点击好友即可开始单聊；需要拉多人时用「发起群聊」。</p>
       </div>
-    </ChatDialog>
+    </AppDialog>
 
-    <ChatDialog v-model="createGroupDialogVisible" title="发起群聊" content-width="640px">
+    <AppDialog v-model="createGroupDialogVisible" title="发起群聊" content-width="640px">
       <div class="create-group-panel">
         <el-input v-model="createTitle" clearable placeholder="群聊标题（可选）" />
         <el-select v-model="createMemberUserIds" class="member-select" multiple filterable clearable collapse-tags
@@ -327,9 +327,9 @@ function handleMoreMenuVisibleChange(visible: boolean) {
           </el-button>
         </div>
       </template>
-    </ChatDialog>
+    </AppDialog>
 
-    <ChatDialog v-model="friendSearchDialogVisible" title="搜索好友" content-width="640px"
+    <AppDialog v-model="friendSearchDialogVisible" title="搜索好友" content-width="640px"
       :closable="canCloseFriendSearchDialog" :close-on-click-modal="canCloseFriendSearchDialog"
       :close-on-press-escape="canCloseFriendSearchDialog" :show-close="canCloseFriendSearchDialog"
       @closed="resetFriendSearchDialog">
@@ -392,9 +392,9 @@ function handleMoreMenuVisibleChange(visible: boolean) {
           </div>
         </div>
       </div>
-    </ChatDialog>
+    </AppDialog>
 
-    <ChatDialog v-model="friendRequestDialogVisible" title="好友申请" content-width="720px">
+    <AppDialog v-model="friendRequestDialogVisible" title="好友申请" content-width="720px">
       <div class="friend-request-panel">
         <div class="friend-request-toolbar">
           <el-button plain :loading="friendRequestLoading || friendLoading" @click="refreshFriendData(true)">
@@ -459,9 +459,9 @@ function handleMoreMenuVisibleChange(visible: boolean) {
           </div>
         </div>
       </div>
-    </ChatDialog>
+    </AppDialog>
 
-    <ChatDialog v-model="blacklistDialogVisible" title="黑名单" content-width="640px">
+    <AppDialog v-model="blacklistDialogVisible" title="黑名单" content-width="640px">
       <div v-loading="blacklistLoading" class="blacklist-panel">
         <div class="blacklist-toolbar">
           <span class="blacklist-count">共 {{ blacklist.length }} 位用户</span>
@@ -497,9 +497,9 @@ function handleMoreMenuVisibleChange(visible: boolean) {
           拉黑后，对方无法添加你为好友、与你发起单聊或搜索到你；主页仍可查看，好友状态会保留，群聊也不受影响。
         </p>
       </div>
-    </ChatDialog>
+    </AppDialog>
 
-    <ChatDialog v-model="groupJoinDialogVisible" title="申请加入群聊" content-width="600px"
+    <AppDialog v-model="groupJoinDialogVisible" title="申请加入群聊" content-width="600px"
       :closable="canCloseGroupJoinDialog" :close-on-click-modal="canCloseGroupJoinDialog"
       :close-on-press-escape="canCloseGroupJoinDialog" :show-close="canCloseGroupJoinDialog"
       @closed="resetGroupJoinDialog">
@@ -559,7 +559,7 @@ function handleMoreMenuVisibleChange(visible: boolean) {
           </el-button>
         </div>
       </template>
-    </ChatDialog>
+    </AppDialog>
   </div>
 
     <!-- 主题色设置 -->

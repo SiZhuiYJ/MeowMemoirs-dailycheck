@@ -4,6 +4,7 @@ import ProgressiveAvatar from "@/components/ProgressiveAvatar/index.vue";
 import SettingsMenu from "@/components/Menu/SettingsMenu.vue";
 import SettingsMenuItem from "@/components/Menu/SettingsMenuItem.vue";
 import MarqueeText from "@/components/Text/MarqueeText.vue";
+import AppDialog from "@/components/AppDialog.vue";
 import ThemeColorDialog from "@/components/ThemeColorDialog.vue";
 import { useAuthStore } from "@/features/auth/stores";
 import { authApi } from "@/features/auth/api/index";
@@ -322,7 +323,7 @@ async function handleDeactivateConfirm(): Promise<void> {
     </div>
 
     <!-- Change Password Dialog -->
-    <el-dialog v-model="changePasswordVisible" title="修改密码" width="400px">
+    <AppDialog v-model="changePasswordVisible" title="修改密码" content-width="400px">
       <div class="setting-form">
         <div class="method-selector">
           <label class="radio-label">
@@ -372,10 +373,10 @@ async function handleDeactivateConfirm(): Promise<void> {
           </button>
         </span>
       </template>
-    </el-dialog>
+    </AppDialog>
 
     <!-- Deactivate Account Dialog -->
-    <el-dialog v-model="deactivateVisible" title="注销账号" width="400px">
+    <AppDialog v-model="deactivateVisible" title="注销账号" content-width="400px">
       <div class="setting-form">
         <p class="setting-warning-text">
           注销后账号将无法登录，所有数据保留30天后彻底删除。请输入验证码确认注销。
@@ -403,7 +404,7 @@ async function handleDeactivateConfirm(): Promise<void> {
           </button>
         </span>
       </template>
-    </el-dialog>
+    </AppDialog>
   </header>
 
     <!-- 主题色设置 -->
