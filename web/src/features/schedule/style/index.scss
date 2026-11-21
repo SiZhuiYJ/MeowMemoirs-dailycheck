@@ -639,28 +639,6 @@
   color: var(--el-color-danger, #ef4444);
 }
 
-/* ========== 弹窗外壳 ========== */
-.schedule-dialog {
-  border-radius: 14px;
-  background: var(--bg-elevated);
-
-  .el-dialog__title {
-    color: var(--text-color);
-    font-size: 15px;
-    font-weight: 600;
-  }
-
-  .el-dialog__header {
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--border-color);
-  }
-
-  .el-dialog__body {
-    padding-top: 14px;
-    color: var(--text-color);
-  }
-}
-
 .schedule-dialog-footer {
   display: flex;
   align-items: center;
@@ -672,6 +650,18 @@
 }
 
 /* ========== 导入课表预检 ========== */
+/* OCR 来源提示（图片 / PDF 识别结果可能有错别字） */
+.schedule-import-ocr-tip {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px dashed color-mix(in srgb, var(--theme-color-strong) 55%, var(--border-color));
+  border-radius: 10px;
+  background: var(--theme-color-soft);
+  color: var(--theme-color-strong);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .schedule-import-summary {
   display: flex;
   flex-wrap: wrap;
@@ -792,9 +782,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: min(62vh, 620px);
-  overflow-y: auto;
-  padding-right: 2px;
+  // 高度 / 滚动交给 AppDialog 组件控制，这里不要再写 max-height / overflow-y
 }
 
 .schedule-form-grid {
@@ -1042,9 +1030,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: min(60vh, 560px);
-  overflow-y: auto;
-  padding-right: 2px;
+  // 高度 / 滚动交给 AppDialog 组件控制，这里不要再写 max-height / overflow-y
 }
 
 .schedule-detail-head {
@@ -1157,13 +1143,6 @@
 
   .schedule-loading {
     min-height: 340px;
-  }
-
-  // 窄屏弹窗铺满（EP 的宽度是行内样式，必须 !important 才能覆盖）
-  .schedule-dialog {
-    width: 94% !important;
-    max-width: 660px;
-    margin-top: 8vh !important;
   }
 
   .schedule-form-grid {

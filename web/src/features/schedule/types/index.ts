@@ -106,6 +106,22 @@ export interface ScheduleImportPreview {
   conflicts: string[];
 }
 
+/**
+ * 按预检结果正式保存（POST /mm/Schedule/Import/Confirm，JSON；OCR / 图片流程用）。
+ * 把预检返回的 courses 原样传回，后端不再解析文件。
+ */
+export interface ScheduleImportConfirmPayload {
+  scheduleName: string;
+  /** 开课日期 yyyy-MM-dd（不传后端按本周一兜底） */
+  startTime?: string;
+  /** 学期总周数（不传后端默认 20） */
+  weekCount?: number;
+  /** 作息时间表（不传后端按节次数生成默认值） */
+  timetable?: string[];
+  /** 预检返回的课程列表（id / scheduleId / courseId 均为 0） */
+  courses: Course[];
+}
+
 /** 保存课程时间段请求体（id 省略 / 0 表示新增） */
 export interface CourseTimePayload {
   id?: number;

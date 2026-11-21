@@ -6,6 +6,7 @@ import type {
   Course,
   CoursePayload,
   ScheduleDetail,
+  ScheduleImportConfirmPayload,
   ScheduleImportPayload,
   ScheduleImportPreview,
   SchedulePayload,
@@ -55,6 +56,36 @@ export const scheduleApi = {
         // FormData 节流 key 会退化成 "{}"，避免不同文件的预检被误判为重复请求
         allowDuplicate: true,
       },
+    );
+  },
+
+  /**
+   * OCR 预检（图片 / PDF，multipart/form-data，只识别不写库）。
+   * OCR 较慢（Termux 单页约 5~15 秒），返回结构与 Excel 预检一致。
+   */
+  async previewOcrImport(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    return await http.upload<ScheduleImportPreview>(
+      "/mm/Schedule/Import/Ocr/Preview",
+      formData,
+      {
+        showError: false,
+        // FormData 节流 key 会退化成 "{}"，避免不同文件的 OCR 预检被误判为重复请求
+        allowDuplicate: true,
+      },
+    );
+  },
+
+  /**
+   * 按预检结果正式保存（JSON，OCR / 图片流程用）。
+   * 直接把预检返回的 courses 原样传回，不用再上传文件 / 重新 OCR。
+   */
+  async confirmImport(payload: ScheduleImportConfirmPayload) {
+    return await http.post<ScheduleDetail>(
+      "/mm/Schedule/Import/Confirm",
+      payload,
+      { showError: false },
     );
   },
 

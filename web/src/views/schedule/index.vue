@@ -11,7 +11,7 @@
  */
 import { computed, onMounted, ref } from "vue";
 import { ElMessageBox } from "element-plus";
-import ChatDialog from "@/features/chat/components/ChatDialog.vue";
+import AppDialog from "@/components/AppDialog.vue";
 import { notifyError, notifySuccess } from "@/utils/notification";
 import { scheduleApi } from "@/features/schedule/api";
 import {
@@ -507,13 +507,25 @@ async function handleDeleteSchedule(): Promise<void> {
 }
 
 /* ======================== 导入课表 ======================== */
-/** 导入文件类型白名单（与后端解析器支持的类型保持一致） */
-const IMPORT_FILE_EXTENSIONS = [".xlsx", ".xls"];
-/** 导入文件大小上限：10MB */
-const IMPORT_FILE_MAX_SIZE = 10 * 1024 * 1024;
+/** 导入方式：Excel 解析 / 图片·PDF 的 OCR 识别（决定预检接口、保存接口与文案） */
+type ImportFileKind = "excel" | "ocr";
+
+/** Excel 课表文件白名单 */
+const EXCEL_IMPORT_EXTENSIONS = [".xlsx", ".xls"];
+/** 图片 / PDF 兜底 OCR 白名单（与后端 OcrExtensions 保持一致） */
+const OCR_IMPORT_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp"];
+/** 文件选择框 accept：Excel 表格 + 截图 / PDF */
+const IMPORT_FILE_ACCEPT = [
+  ...EXCEL_IMPORT_EXTENSIONS,
+  ...OCR_IMPORT_EXTENSIONS,
+].join(",");
+/** Excel 文件大小上限：10MB（后端 RequestSizeLimit） */
+const EXCEL_IMPORT_FILE_MAX_SIZE = 10 * 1024 * 1024;
+/** OCR 文件大小上限：30MB（后端 RequestSizeLimit） */
+const OCR_IMPORT_FILE_MAX_SIZE = 30 * 1024 * 1024;
 
 const importInputRef = ref<HTMLInputElement | null>(null);
-/** 预检请求中：上传文件解析，尚未写库 */
+/** 预检请求中：上传文件解析 / OCR 识别，尚未写库 */
 const importPreviewLoading = ref(false);
 /** 正式导入请求中：写库 */
 const importUploading = ref(false);
@@ -522,6 +534,8 @@ const importPreview = ref<ScheduleImportPreview | null>(null);
 const importPreviewVisible = ref(false);
 /** 预检通过后待正式导入的同一个文件 */
 const pendingImportFile = ref<File | null>(null);
+/** 本次选择的文件走哪条链路（Excel 解析 / OCR），选文件时确定 */
+const importFileKind = ref<ImportFileKind>("excel");
 
 /** 命名弹窗打开中（防止「下一步」被连点两次弹出两个弹窗） */
 const importNameDialogVisible = ref(false);
@@ -536,6 +550,24 @@ const isImportBusy = computed(
     importPreviewLoading.value ||
     importNameDialogVisible.value ||
     importUploading.value,
+);
+
+/** 导入按钮文案：OCR 较慢（Termux 单页约 5~15 秒），loading 时明确说明耗时 */
+const importButtonLabel = computed(() => {
+  if (importPreviewLoading.value) {
+    return importFileKind.value === "ocr"
+      ? "识别中...（约 5~15 秒）"
+      : "预检中...";
+  }
+  if (importUploading.value) return "导入中...";
+  return "导入课表（Excel / 截图 / PDF）";
+});
+
+/** 预检弹窗标题：OCR 时标注识别来源，提醒用户重点核对 */
+const importPreviewTitle = computed(() =>
+  importFileKind.value === "ocr"
+    ? "导入课表预检（OCR 识别结果）"
+    : "导入课表预检",
 );
 
 /** 预检课程明细行：一节课一行（课程 × 时间段） */
@@ -582,9 +614,16 @@ function openImportPicker(): void {
   importInputRef.value?.click();
 }
 
-function isSupportedImportFile(file: File): boolean {
+/** 按后缀判断导入方式；不在白名单里返回 null */
+function resolveImportFileKind(file: File): ImportFileKind | null {
   const name = file.name.toLowerCase();
-  return IMPORT_FILE_EXTENSIONS.some((extension) => name.endsWith(extension));
+  if (EXCEL_IMPORT_EXTENSIONS.some((extension) => name.endsWith(extension))) {
+    return "excel";
+  }
+  if (OCR_IMPORT_EXTENSIONS.some((extension) => name.endsWith(extension))) {
+    return "ocr";
+  }
+  return null;
 }
 
 function handleImportFileChange(event: Event): void {
@@ -594,27 +633,51 @@ function handleImportFileChange(event: Event): void {
   input.value = "";
   if (!file) return;
 
-  if (!isSupportedImportFile(file)) {
-    notifyError("仅支持 .xlsx / .xls 格式的课表文件（.csv 请先用 Excel 另存为 xlsx）");
+  const kind = resolveImportFileKind(file);
+  if (!kind) {
+    notifyError(
+      "仅支持 Excel（.xlsx / .xls）或截图 / PDF（.pdf / .png / .jpg / .jpeg / .webp / .bmp）",
+    );
     return;
   }
-  if (file.size > IMPORT_FILE_MAX_SIZE) {
-    notifyError("文件不能超过 10MB，请精简后再导入");
+
+  const maxSize =
+    kind === "ocr" ? OCR_IMPORT_FILE_MAX_SIZE : EXCEL_IMPORT_FILE_MAX_SIZE;
+  if (file.size > maxSize) {
+    notifyError(
+      kind === "ocr"
+        ? "截图 / PDF 不能超过 30MB，请压缩后再试"
+        : "文件不能超过 10MB，请精简后再导入",
+    );
     return;
   }
-  void previewImportFile(file);
+  void previewImportFile(file, kind);
 }
 
-/** 第一步：上传文件做预检（只解析不写库），成功后弹预检对话框让用户核对 */
-async function previewImportFile(file: File): Promise<void> {
+/** 第一步：上传文件做预检（Excel 解析 / OCR 识别，只读不写库），成功后弹预检对话框让用户核对 */
+async function previewImportFile(
+  file: File,
+  kind: ImportFileKind,
+): Promise<void> {
+  importFileKind.value = kind;
   importPreviewLoading.value = true;
   try {
-    const response = await scheduleApi.previewImport(file);
+    const response =
+      kind === "ocr"
+        ? await scheduleApi.previewOcrImport(file)
+        : await scheduleApi.previewImport(file);
     pendingImportFile.value = file;
     importPreview.value = response.data;
     importPreviewVisible.value = true;
   } catch (error) {
-    notifyError(getApiErrorMessage(error, "课表预检失败"));
+    notifyError(
+      getApiErrorMessage(
+        error,
+        kind === "ocr"
+          ? "OCR 识别失败，请换一张更清晰的课表截图"
+          : "课表预检失败",
+      ),
+    );
   } finally {
     importPreviewLoading.value = false;
   }
@@ -649,10 +712,11 @@ function cancelImportName(): void {
   importNameError.value = "";
 }
 
-/** 校验名称后正式导入（同一个文件、同一套解析，保证预检与入库一致） */
+/** 校验名称后正式保存：Excel 重新上传文件解析；OCR 直接把预检结果存库（不重复识别） */
 async function confirmImportName(): Promise<void> {
+  const preview = importPreview.value;
   const file = pendingImportFile.value;
-  if (!file || importUploading.value) return;
+  if (!preview || !file || importUploading.value) return;
 
   const name = importName.value.trim();
   if (!name) {
@@ -667,7 +731,17 @@ async function confirmImportName(): Promise<void> {
   importNameError.value = "";
   importUploading.value = true;
   try {
-    const response = await scheduleApi.importSchedule({ file, scheduleName: name });
+    // OCR 结果直接回传预检数据，避免再跑一次 5~15 秒的识别；Excel 继续走文件导入接口
+    const response =
+      importFileKind.value === "ocr"
+        ? await scheduleApi.confirmImport({
+            scheduleName: name,
+            startTime: preview.startTime,
+            weekCount: preview.weekCount,
+            timetable: preview.timetable,
+            courses: preview.courses,
+          })
+        : await scheduleApi.importSchedule({ file, scheduleName: name });
     const imported = response.data;
     const courseCount =
       typeof imported.courseCount === "number"
@@ -741,19 +815,19 @@ onMounted(() => {
             <button type="button" class="schedule-btn is-ghost" @click="openEditSchedule">课表设置</button>
             <button type="button" class="schedule-btn" @click="openCreateSchedule">新建课表</button>
             <button type="button" class="schedule-btn" :disabled="isImportBusy" @click="openImportPicker">
-              {{ importPreviewLoading ? "预检中..." : importUploading ? "导入中..." : "导入课表" }}
+              {{ importButtonLabel }}
             </button>
           </template>
           <template v-else-if="!loading">
             <button type="button" class="schedule-btn is-primary" @click="openCreateSchedule">新建课表</button>
             <button type="button" class="schedule-btn" :disabled="isImportBusy" @click="openImportPicker">
-              {{ importPreviewLoading ? "预检中..." : importUploading ? "导入中..." : "导入课表" }}
+              {{ importButtonLabel }}
             </button>
           </template>
         </div>
 
-        <!-- 导入课表的隐藏文件选择框：由「导入课表」按钮触发 -->
-        <input ref="importInputRef" type="file" class="schedule-import-input" accept=".xlsx,.xls"
+        <!-- 导入课表的隐藏文件选择框：由「导入课表」按钮触发（Excel 表格 / 截图 / PDF） -->
+        <input ref="importInputRef" type="file" class="schedule-import-input" :accept="IMPORT_FILE_ACCEPT"
           @change="handleImportFileChange" />
       </header>
 
@@ -865,8 +939,8 @@ onMounted(() => {
     </div>
 
     <!-- ======================== 课程详情弹窗 ======================== -->
-    <el-dialog v-model="courseDetailVisible" :title="detailCourse?.courseName ?? '课程详情'" width="440px"
-      class="schedule-dialog" append-to-body :close-on-click-modal="false">
+    <AppDialog v-model="courseDetailVisible" :title="detailCourse?.courseName ?? '课程详情'" content-width="440px"
+      :close-on-click-modal="false">
       <div v-if="detailCourse" class="schedule-detail">
         <div class="schedule-detail-head">
           <span class="schedule-dot is-lg" :style="{ backgroundColor: detailCourse.color }"></span>
@@ -902,11 +976,11 @@ onMounted(() => {
           <button type="button" class="schedule-btn is-primary" @click="handleEditCourse">编辑</button>
         </div>
       </template>
-    </el-dialog>
+    </AppDialog>
 
     <!-- ======================== 添加 / 编辑课程弹窗 ======================== -->
-    <el-dialog v-model="courseFormVisible" :title="courseDraft.id ? '编辑课程' : '添加课程'" width="660px"
-      class="schedule-dialog" append-to-body :close-on-click-modal="false">
+    <AppDialog v-model="courseFormVisible" :title="courseDraft.id ? '编辑课程' : '添加课程'" content-width="660px"
+      :close-on-click-modal="false">
       <div class="schedule-form">
         <div class="schedule-form-grid">
           <label class="schedule-field">
@@ -1009,15 +1083,20 @@ onMounted(() => {
           </button>
         </div>
       </template>
-    </el-dialog>
+    </AppDialog>
 
     <!-- ======================== 导入课表预检弹窗 ======================== -->
-    <ChatDialog v-model="importPreviewVisible" title="导入课表预检"
+    <AppDialog v-model="importPreviewVisible" :title="importPreviewTitle"
       :subtitle="importPreview ? `${importPreview.courseCount} 门课程 · ${importPreview.timeCount} 个时间段` : ''"
       content-width="860px" :closable="!importUploading" :close-on-click-modal="false"
       :close-on-press-escape="!importUploading" :show-close="!importUploading"
       @closed="resetImportPreview">
       <div v-if="importPreview" class="schedule-import-preview">
+        <!-- OCR 来源提示：识别结果可能带错别字，提醒重点核对 -->
+        <div v-if="importFileKind === 'ocr'" class="schedule-import-ocr-tip">
+          以下内容由图片 / PDF 文字识别（OCR）得出，可能存在错别字，请重点核对课程名、节次、周次后再导入。
+        </div>
+
         <!-- 摘要：默认名称 / 学期 / 日期 / 周数节次 / 课程数 -->
         <div class="schedule-import-summary">
           <div class="schedule-import-summary-item">
@@ -1101,10 +1180,10 @@ onMounted(() => {
           </button>
         </div>
       </template>
-    </ChatDialog>
+    </AppDialog>
 
     <!-- 命名并导入：名称默认取预检里的课表名，用户可改 -->
-    <ChatDialog v-model="importNameDialogVisible" title="命名并导入课表" content-width="480px"
+    <AppDialog v-model="importNameDialogVisible" title="命名并导入课表" content-width="480px"
       :closable="!importUploading" :close-on-click-modal="false"
       :close-on-press-escape="!importUploading" :show-close="!importUploading">
       <div class="schedule-import-name">
@@ -1127,11 +1206,11 @@ onMounted(() => {
           </button>
         </div>
       </template>
-    </ChatDialog>
+    </AppDialog>
 
     <!-- ======================== 课表设置弹窗 ======================== -->
-    <el-dialog v-model="scheduleFormVisible" :title="scheduleDraft.id ? '课表设置' : '新建课表'" width="600px"
-      class="schedule-dialog" append-to-body :close-on-click-modal="false">
+    <AppDialog v-model="scheduleFormVisible" :title="scheduleDraft.id ? '课表设置' : '新建课表'" content-width="600px"
+      :close-on-click-modal="false">
       <div class="schedule-form">
         <div class="schedule-form-grid">
           <label class="schedule-field">
@@ -1186,7 +1265,7 @@ onMounted(() => {
           </button>
         </div>
       </template>
-    </el-dialog>
+    </AppDialog>
   </el-scrollbar>
 </template>
 
