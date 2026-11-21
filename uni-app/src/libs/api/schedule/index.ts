@@ -1,17 +1,17 @@
 /**
  * @file 课表接口请求（小程序端）
  * @description 走主业务 HTTP 实例（`@/libs/http/config`，开发环境自动探测可达后端），
- * 路径前缀 /mm。小程序端只读：只封装列表与详情；写操作只有「导入课表」——
- * 从微信会话选 Excel（.xlsx/.xls）上传，服务端负责解析并创建课表。
- *
- * 导入是两步：先调 Preview（只解析不写库）让用户确认识别结果、填课表名，
- * 再调 Import 正式保存。两个接口都是 multipart/form-data，共用同一个上传实现。
+ * 路径前缀 /mm。小程序端只读：只封装列表与详情；写操作只有「导入课表」，分两套：
+ * · Excel：选 .xlsx/.xls → Preview 解析预检 → Import 重新上传并保存；
+ * · PDF/图片兜底：选 .pdf/.png/.jpg/.jpeg/.webp/.bmp → Ocr/Preview 识别预检
+ *   → Import/Confirm 把预检结果（courses 原样回传）保存入库。
+ * 预检接口都是 multipart/form-data，共用同一个上传实现；Confirm 走 http 实例 POST JSON。
  */
 
 import { http } from '@/libs/http/config';
 import { getAuthToken } from '@/libs/http';
 import { resolveApiBase } from '@/libs/http/apiBase';
-import type { ScheduleDetail, ScheduleImportPreview, ScheduleSummary } from './type';
+import type { Course, ScheduleDetail, ScheduleImportPreview, ScheduleSummary } from './type';
 
 /**
  * 导入课表的可选参数（契约里的可选项，不传时由后端按文件名 / 导入内容兜底）
@@ -23,6 +23,23 @@ export interface ScheduleImportOptions {
   startTime?: string;
   /** 学期总周数 */
   weekCount?: number;
+}
+
+/**
+ * 按预检结果正式保存（OCR / 图片流程用）的请求体。
+ * 直接把预检返回的 courses / timetable 原样回传，服务端按同样的规则校验后入库。
+ */
+export interface ScheduleImportConfirmPayload {
+  /** 课表名称（用户输入，留空时后端用「导入的课表」） */
+  scheduleName: string;
+  /** 开课日期 yyyy-MM-dd（可选） */
+  startTime?: string;
+  /** 学期总周数（可选） */
+  weekCount?: number;
+  /** 作息时间表（可选，不传则后端按节次数生成默认值） */
+  timetable?: string[];
+  /** 课程列表（结构与预检返回的 courses 一致，ID 传 0 即可） */
+  courses: Course[];
 }
 
 /**
@@ -146,6 +163,21 @@ export const ScheduleApi = {
   },
 
   /**
+   * OCR 预检导入：识别课表截图 / PDF，只识别不写库，返回识别结果供用户确认。
+   * 服务端 OCR 较慢（单页约 5~15 秒），调用方需要更长的 loading 文案并防重复点击。
+   * @param {string} filePath wx.chooseMessageFile 返回的本地临时文件路径（pdf / png / jpg / jpeg / webp / bmp）
+   * @returns {Promise<ScheduleImportPreview>} 预检结果（课程 / 周次 / 冲突 / 提示）
+   */
+  previewOcrFile(filePath: string): Promise<ScheduleImportPreview> {
+    return uploadScheduleFile<ScheduleImportPreview>(
+      '/mm/Schedule/Import/Ocr/Preview',
+      filePath,
+      {},
+      '识别结果无法读取，请稍后重试',
+    );
+  },
+
+  /**
    * 导入课表：把微信会话里的文件上传给后端解析，成功后返回新建课表的详情。
    * 建议先调 previewFile 让用户确认，再用同一个 tempFilePath 调本方法正式保存。
    *
@@ -160,6 +192,19 @@ export const ScheduleApi = {
       buildImportFormData(options),
       '导入返回数据无法解析，请稍后重试',
     );
+  },
+
+  /**
+   * 按预检结果正式保存（OCR / 图片流程用）：不再上传文件，直接把预检结果提交入库。
+   * 走 http 实例（POST JSON）。这是写接口，显式关闭自动重试——网络抖动重试可能重复创建课表。
+   *
+   * @param {ScheduleImportConfirmPayload} payload 课表名 + 预检返回的日期/周数/作息/课程
+   * @returns {Promise<ScheduleDetail>} 新导入课表的详情（结构同 GET /mm/Schedule/{id}）
+   */
+  confirmImport(payload: ScheduleImportConfirmPayload): Promise<ScheduleDetail> {
+    return http
+      .post<ScheduleDetail>('/mm/Schedule/Import/Confirm', payload, { retryCount: 0 })
+      .then((res) => res.data);
   },
 };
 

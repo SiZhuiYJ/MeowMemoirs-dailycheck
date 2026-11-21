@@ -22,9 +22,10 @@ import { getMenuButtonRectCompat, getWindowInfoCompat } from '@/utils/systemInfo
  * 3. 周次切换条：上一周 / 第 N 周（本周高亮）/ 下一周；
  * 4. 网格：左侧节次/时间列固定，右侧 7 天用 scroll-view 横向滚动；课程块按
  *    sectionList 跨行、用数据 color 做浅底 + 左侧条；
- * 5. 数据只读展示，唯一写入口是顶栏「导入」：从微信会话选 Excel，先走后端
- *    Preview 预检、弹层确认识别结果并填课表名，再正式导入，成功后刷新并切换到
- *    新导入的课表；进入 tab 时自动刷新（isActive watch + onMounted）。
+ * 5. 数据只读展示，唯一写入口是顶栏「导入」：从微信会话选 Excel / PDF / 课表截图，
+ *    先走后端预检（Excel 解析、图片/PDF 走 OCR）、弹层确认识别结果并填课表名，
+ *    再按类型保存（Excel 重新上传 Import、OCR 走 Confirm 回传预检结果），
+ *    成功后刷新并切换到新导入的课表；进入 tab 时自动刷新（isActive watch + onMounted）。
  */
 const props = defineProps<{
   isActive: boolean;
@@ -145,27 +146,42 @@ function courseTimeText(block: ScheduleBlock): string {
 }
 
 /* ============================================================
-   导入课表（两步）：选文件 → 预检确认 → 命名保存 → 刷新并切到新课表
+   导入课表（两步，两套保存）：
+   · Excel(.xlsx/.xls)：预检解析 → 命名 → 重新上传 Import
+   · 截图/PDF：OCR 预检识别 → 命名 → Confirm 回传预检结果保存
    ============================================================ */
 
-/** 导入文件大小上限 10MB（服务端也会校验；本机先拦一次，避免白传流量） */
-const MAX_IMPORT_FILE_SIZE = 10 * 1024 * 1024;
+/** 微信聊天里可选的导入文件后缀：Excel 走解析，PDF/图片走 OCR 兜底 */
+const EXCEL_IMPORT_EXTENSIONS = ['xlsx', 'xls'];
+const OCR_IMPORT_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'bmp'];
+const IMPORT_EXTENSIONS = [...EXCEL_IMPORT_EXTENSIONS, ...OCR_IMPORT_EXTENSIONS];
 
-/** 微信 chooseMessageFile 返回的聊天文件（只取上传要用的字段） */
+/** 文件大小上限：Excel 10MB；PDF/图片 OCR 30MB（与后端 RequestSizeLimit 一致） */
+const MAX_EXCEL_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_OCR_FILE_SIZE = 30 * 1024 * 1024;
+
+/** 导入方式：Excel 解析 / OCR 识别 */
+type ImportFileKind = 'excel' | 'ocr';
+
+/** 微信 chooseMessageFile 返回的聊天文件（只取上传 / 分流要用的字段） */
 interface ChosenMessageFile {
+  /** 原始文件名（含后缀；微信临时路径没有后缀时用它判断类型） */
+  name: string;
   /** 本地临时文件路径（uni.uploadFile 用；预检与正式导入复用同一个） */
   path: string;
-  /** 文件大小（字节），用于上传前拦截 > 10MB */
+  /** 文件大小（字节），用于上传前拦截超限文件 */
   size: number;
 }
 
-/** 预检解析中：防止重复选文件 / 重复解析 */
+/** 预检（解析 / 识别）中：防止重复选文件 / 重复请求 */
 const isPreviewing = ref(false);
 /** 正式导入中：防止重复提交 */
 const isImporting = ref(false);
 /** 预检结果：非 null 时展示预检弹层 */
 const importPreview = ref<ScheduleImportPreview | null>(null);
-/** 已选好的文件：预检通过、用户点「下一步」后还要用它调正式导入 */
+/** 预检对应的导入方式：决定弹层文案与「下一步」走哪套保存逻辑 */
+const pendingImportKind = ref<ImportFileKind | null>(null);
+/** 已选好的文件：Excel 流程点「下一步」后要重新上传；OCR 流程只是留档 */
 const pendingImportFile = ref<ChosenMessageFile | null>(null);
 /** 导入流程任一环节进行中：用于「导入」按钮置灰和入口防重 */
 const isImportBusy = computed(() => isPreviewing.value || isImporting.value);
@@ -176,7 +192,7 @@ const previewScrollHeight = Math.max(
   Math.round((getWindowInfoCompat().windowHeight || 640) * 0.52),
 );
 
-/** 头部「导入」按钮：从微信聊天选文件 → 大小校验 → 预检解析 */
+/** 头部「导入」按钮：从微信聊天选文件 → 按后缀分流 → 预检 */
 function handleImportClick(): void {
   if (isImportBusy.value) return;
   // chooseMessageFile 仅微信小程序支持；H5 / App 端给提示，避免点了没反应
@@ -186,18 +202,29 @@ function handleImportClick(): void {
   }
   uni.chooseMessageFile({
     count: 1,
-    type: 'file',
-    // 只让选 Excel；低版本基础库会忽略 extension，服务端仍会按后缀校验
-    extension: ['xlsx', 'xls'],
+    // 用 'all'：聊天里的截图是「图片消息」，type:'file' 列表里没有图片，选不到截图；
+    // 'all' 能同时选 Excel/PDF 文件消息和图片消息，选完再按后缀分流
+    type: 'all',
+    // 传给微信做类型提示（微信仅在 type:'file' 时严格按 extension 过滤，这里保留兜底）
+    extension: IMPORT_EXTENSIONS,
     success: (res) => {
       const file = res.tempFiles?.[0];
       if (!file?.path) return;
-      // 先在本机拦一次大小，超过上限不白传一遍
-      if (typeof file.size === 'number' && file.size > MAX_IMPORT_FILE_SIZE) {
-        uni.showToast({ title: '文件不能超过 10MB', icon: 'none' });
+      const kind = resolveImportKind(file);
+      if (!kind) {
+        uni.showToast({ title: '仅支持 Excel、PDF 或图片', icon: 'none' });
         return;
       }
-      void previewImportFile(file);
+      // 先在本机拦一次大小，超限不白传一遍
+      const maxSize = kind === 'excel' ? MAX_EXCEL_FILE_SIZE : MAX_OCR_FILE_SIZE;
+      if (typeof file.size === 'number' && file.size > maxSize) {
+        uni.showToast({
+          title: kind === 'excel' ? 'Excel 文件不能超过 10MB' : '截图 / PDF 不能超过 30MB',
+          icon: 'none',
+        });
+        return;
+      }
+      void previewImportFile(file, kind);
     },
     fail: (err) => {
       // 用户取消选择不是错误，不打扰
@@ -207,23 +234,45 @@ function handleImportClick(): void {
   });
 }
 
-/** 第一步：上传文件做预检解析（后端不写库），成功后弹出确认面板 */
-async function previewImportFile(file: ChosenMessageFile): Promise<void> {
+/** 取文件后缀：优先微信临时路径，没有时退回原始文件名 */
+function extractFileExtension(file: ChosenMessageFile): string {
+  for (const source of [file.path, file.name]) {
+    const match = /\.([a-z0-9]+)$/i.exec((source || '').trim());
+    if (match) return match[1]!.toLowerCase();
+  }
+  return '';
+}
+
+/** 按后缀分流：xlsx/xls 走 Excel 解析，pdf 与图片走 OCR；不支持的类型返回 null */
+function resolveImportKind(file: ChosenMessageFile): ImportFileKind | null {
+  const extension = extractFileExtension(file);
+  if (EXCEL_IMPORT_EXTENSIONS.includes(extension)) return 'excel';
+  if (OCR_IMPORT_EXTENSIONS.includes(extension)) return 'ocr';
+  return null;
+}
+
+/** 第一步：上传文件做预检（Excel 解析 / OCR 识别，均不写库），成功后弹确认面板 */
+async function previewImportFile(file: ChosenMessageFile, kind: ImportFileKind): Promise<void> {
   isPreviewing.value = true;
-  uni.showLoading({ title: '解析中...', mask: true });
+  // OCR 较慢（单页约 5~15 秒）：文案用「识别中…」，mask 防止等待期间重复点击
+  uni.showLoading({ title: kind === 'ocr' ? '识别中…' : '解析中...', mask: true });
   try {
-    const preview = await ScheduleApi.previewFile(file.path);
+    const preview =
+      kind === 'ocr'
+        ? await ScheduleApi.previewOcrFile(file.path)
+        : await ScheduleApi.previewFile(file.path);
     // 防御：返回缺字段时不进确认流程，避免弹层渲染出错
     if (!preview || !Array.isArray(preview.courses)) {
-      throw new Error('解析结果异常，请稍后重试');
+      throw new Error(kind === 'ocr' ? '识别结果异常，请稍后重试' : '解析结果异常，请稍后重试');
     }
-    // 解析期间用户可能切走了 tab：丢弃结果，避免弹层出现在别的 tab 上
+    // 预检期间用户可能切走了 tab：丢弃结果，避免弹层出现在别的 tab 上
     if (!props.isActive) return;
     pendingImportFile.value = file;
+    pendingImportKind.value = kind;
     importPreview.value = preview;
   } catch (e: any) {
     uni.showModal({
-      title: '解析失败',
+      title: kind === 'ocr' ? '识别失败' : '解析失败',
       content: toImportErrorMessage(e),
       showCancel: false,
       confirmText: '知道了',
@@ -237,14 +286,16 @@ async function previewImportFile(file: ChosenMessageFile): Promise<void> {
 /** 关闭预检弹层并丢弃已选文件（取消导入 / 离开 tab 时调用） */
 function cancelImportPreview(): void {
   importPreview.value = null;
+  pendingImportKind.value = null;
   pendingImportFile.value = null;
 }
 
-/** 预检弹层「下一步」：关弹层 → 让用户输入课表名 → 正式导入 */
+/** 预检弹层「下一步」：关弹层 → 让用户输入课表名 → 按导入方式保存 */
 async function confirmImportPreview(): Promise<void> {
   const preview = importPreview.value;
   const file = pendingImportFile.value;
-  if (!preview || !file) return;
+  const kind = pendingImportKind.value;
+  if (!preview || !file || !kind) return;
 
   const defaultName = (preview.scheduleName || '').trim();
   cancelImportPreview();
@@ -252,10 +303,16 @@ async function confirmImportPreview(): Promise<void> {
   const inputName = await askScheduleName(defaultName);
   // 用户在命名弹窗点取消：什么都不做，回到课表页
   if (inputName === null) return;
+  const typedName = inputName.trim();
 
-  // 输入为空就什么都不传，让后端用文件内标题 / 文件名兜底（比传默认名更稳）
-  const scheduleName = inputName.trim() || undefined;
-  await importScheduleFile(file, scheduleName);
+  if (kind === 'ocr') {
+    // OCR：文件已经识别过，直接把预检结果提交保存；课表名留空时用预检默认名
+    await confirmOcrImport(preview, typedName || defaultName || '导入的课表');
+    return;
+  }
+
+  // Excel：输入为空就不传，让后端用文件内标题 / 文件名兜底（比传默认名更稳）
+  await importScheduleFile(file, typedName || undefined);
 }
 
 /**
@@ -278,7 +335,7 @@ function askScheduleName(defaultName: string): Promise<string | null> {
   });
 }
 
-/** 第二步：正式导入并应用结果：成功后 toast 课程数、刷新列表并切换到新课表 */
+/** 第二步-A（Excel）：重新上传文件并保存；成功后 toast 课程数、刷新并切换 */
 async function importScheduleFile(file: ChosenMessageFile, scheduleName?: string): Promise<void> {
   isImporting.value = true;
   uni.showLoading({ title: '导入中...', mask: true });
@@ -299,8 +356,45 @@ async function importScheduleFile(file: ChosenMessageFile, scheduleName?: string
     isImporting.value = false;
   }
 
-  if (!imported) return;
-  // 课程数来自后端解析结果
+  if (imported) await applyImportResult(imported);
+}
+
+/**
+ * 第二步-B（OCR）：把预检结果原样提交保存，不再上传文件。
+ * 有预检结果就说明 OCR 已经跑完，用户改的只是课表名，没必要再识别一次。
+ */
+async function confirmOcrImport(preview: ScheduleImportPreview, scheduleName: string): Promise<void> {
+  isImporting.value = true;
+  uni.showLoading({ title: '保存中...', mask: true });
+
+  let imported: ScheduleDetail | null = null;
+  try {
+    imported = await ScheduleApi.confirmImport({
+      scheduleName,
+      startTime: preview.startTime || undefined,
+      weekCount: preview.weekCount,
+      timetable: preview.timetable,
+      // 预检课程直接回传（id/scheduleId 都是 0，服务端按同样规则校验后入库）
+      courses: preview.courses,
+    });
+  } catch (e: any) {
+    uni.showModal({
+      title: '保存失败',
+      content: toImportErrorMessage(e),
+      showCancel: false,
+      confirmText: '知道了',
+    });
+  } finally {
+    uni.hideLoading();
+    isImporting.value = false;
+  }
+
+  if (imported) await applyImportResult(imported);
+}
+
+/** 导入成功统一收尾：toast 课程数 + 刷新课表并切到新导入的课表 */
+async function applyImportResult(imported: ScheduleDetail): Promise<void> {
+  // 课程数来自后端解析 / 识别结果
   const courseCount = Number(imported.courseCount) || 0;
   uni.showToast({ title: `已导入 ${courseCount} 门课程`, icon: 'none' });
   // 刷新课表数据并切换到新导入的课表（新 id 可能不在导入前的列表里）
@@ -560,7 +654,7 @@ onMounted(() => {
         <view class="sheet-head">
           <view class="sheet-title-row">
             <view class="sheet-color-dot" :style="{ backgroundColor: 'var(--theme-primary)' }"></view>
-            <text class="sheet-title">确认导入内容</text>
+            <text class="sheet-title">{{ pendingImportKind === 'ocr' ? 'OCR 识别结果' : '确认导入内容' }}</text>
           </view>
           <view class="sheet-close" hover-class="mm-hover" @click="cancelImportPreview">
             <text class="sheet-close-icon">✕</text>
@@ -568,6 +662,11 @@ onMounted(() => {
         </view>
 
         <scroll-view scroll-y="true" class="preview-scroll" :style="{ height: previewScrollHeight + 'px' }">
+          <!-- OCR 兜底入口的提示：截图/PDF 识别可能有误差，提醒重点核对 -->
+          <view v-if="pendingImportKind === 'ocr'" class="preview-ocr-hint">
+            <text class="preview-ocr-hint-text">这是截图 / PDF 的 OCR 识别结果，可能存在误差，请重点核对课程名、周次与节次。</text>
+          </view>
+
           <!-- 识别摘要 -->
           <view class="preview-summary">
             <view class="preview-row">
@@ -1325,6 +1424,23 @@ onMounted(() => {
 .preview-scroll {
   flex-shrink: 0;
   box-sizing: border-box;
+}
+
+/* OCR 识别结果提示条：放在滚动区顶部，提醒用户核对识别误差 */
+.preview-ocr-hint {
+  margin: 10px 16px 2px;
+  padding: 8px 10px;
+  background-color: var(--theme-color-soft);
+  border: 1px solid var(--theme-color-muted);
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+
+.preview-ocr-hint-text {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--theme-color-strong);
+  word-break: break-all;
 }
 
 .preview-summary {
