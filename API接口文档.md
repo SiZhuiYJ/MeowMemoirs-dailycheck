@@ -765,6 +765,10 @@ Markdown 源文件格式（`api/Resources/changelog/CHANGELOG.md`，Keep a Chang
 | GET | `/mm/Schedule/{id}` | 课表详情（课表信息 + 课程列表 + 每门课的上课时间段） |
 | POST | `/mm/Schedule` | 新建 / 更新课表（`id=0` 新建；同时保存作息时间表） |
 | POST | `/mm/Schedule/Import/Preview` | **导入预检**（只解析 Excel，不写库，返回预览：课程/提示/冲突，供用户确认） |
+| GET | `/mm/Schedule/Timetables` | **作息表列表**（作息表模板 + 从已有课表提取的历史作息） |
+| POST | `/mm/Schedule/Timetables` | **新建作息表模板** |
+| PUT | `/mm/Schedule/Timetables/{id}` | **修改作息表模板** |
+| DELETE | `/mm/Schedule/Timetables/{id}` | **删除作息表模板**（伪删除） |
 | POST | `/mm/Schedule/Import/Ocr/Preview` | **OCR 预检兜底**（图片/PDF 截图识别课表，不写库，返回同结构预览） |
 | POST | `/mm/Schedule/Import/Confirm` | **按预检结果保存**（JSON：课程 + 名称，OCR 流程用） |
 | POST | `/mm/Schedule/Import` | **从 Excel 导入课表**（multipart 上传，解析后新建一张课表，返回课表详情） |
@@ -820,6 +824,24 @@ Markdown 源文件格式（`api/Resources/changelog/CHANGELOG.md`，Keep a Chang
    服务端校验后入库，返回 `ScheduleDetail`。
 
 > OCR 是兜底：识别质量取决于截图清晰度，结果必须让用户在预检弹窗里核对后再保存。
+
+**作息时间表（导入时怎么选）**
+
+1. 预检会**先尝试从文件里解析作息时间**（如 Excel 里的「第1节 08:00-08:45」或独立作息 sheet），
+   返回 `timetableFromFile: true/false` 和 `timetable`。
+2. 文件里没有时，前端用 `GET /mm/Schedule/Timetables` 取用户的**作息表模板 + 从已有课表提取的历史作息**（去重）：
+   ```json
+   [{ "id": 3, "name": "标准 12 节", "times": ["08:00-08:45", "…"], "fromSchedule": false, "updatedAt": "2026-11-21T12:00:00Z" },
+    { "id": 0, "name": "2026 春季学期", "times": ["08:05-08:50", "…"], "fromSchedule": true,  "updatedAt": "2026-11-20T09:00:00Z" }]
+   ```
+   其中 `id > 0` 的是模板（可改/删），`id = 0 且 fromSchedule = true` 的是从已有课表提取出来的只读作息。
+3. 历史作息也没有时，前端提示用户选择「使用默认作息」或「新建作息（手动编辑时间）」。
+4. 用户确认后的作息通过 `Import/Confirm` 的 `timetable` 字段回传，服务端会**保留完整节数**
+   （不会按课程用到的最大节次截断；节次超过作息长度时会自动补齐默认时间）。
+5. 作息表模板可单独管理（Web 课表页「作息表」、小程序课表 tab「作息表」）：
+   - `POST /mm/Schedule/Timetables`，body `{ "name": "标准 12 节", "times": ["08:00-08:45", "…"] }`；
+   - `PUT /mm/Schedule/Timetables/{id}` 修改；`DELETE /mm/Schedule/Timetables/{id}` 删除；
+   - 新建课表时也可以直接选一套模板作为作息（`POST /mm/Schedule` 的 `timetable` 传模板 times）。
 
 解析能力（`api/Infrastructure/TimetableExcelParser.cs`，与前端 demo 规则一致）：
 - 自动识别通用横排课表（节次列 `1-2节`）和教务系统竖排课表（大节列 + 中文小节列 `一…十二`）；

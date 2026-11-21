@@ -2226,6 +2226,21 @@
             Excel 流程也可以用它，避免重复上传解析。
             </summary>
         </member>
+        <member name="M:api.Controllers.ScheduleController.GetTimetables">
+            <summary>
+            作息表列表：作息表模板在前，再补上从已有课表里去重提取的历史作息。
+            导入 / 新建课表时可以让用户选一套复用。
+            </summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.CreateTimetable(api.Models.SaveTimetableDto)">
+            <summary>新建作息表模板。</summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.UpdateTimetable(System.UInt64,api.Models.SaveTimetableDto)">
+            <summary>修改作息表模板。</summary>
+        </member>
+        <member name="M:api.Controllers.ScheduleController.DeleteTimetable(System.UInt64)">
+            <summary>删除作息表模板（伪删除）。</summary>
+        </member>
         <member name="M:api.Controllers.ScheduleController.ImportSchedule(Microsoft.AspNetCore.Http.IFormFile,System.String,System.String,System.Nullable{System.Int32})">
              <summary>
              从 Excel 导入课表：解析文件 → 新建一张课表 + 课程 + 时间段，返回课表详情。
@@ -2283,7 +2298,7 @@
         <member name="T:api.Controllers.ImportPlan">
             <summary>导入计划（预检和正式导入共用）。</summary>
         </member>
-        <member name="M:api.Controllers.ImportPlan.#ctor(System.String,System.String,System.DateOnly,System.Int32,System.Int32,System.Collections.Generic.List{System.String},System.Collections.Generic.List{api.Controllers.PlanCourse},System.Collections.Generic.List{System.String},System.Collections.Generic.List{System.String})">
+        <member name="M:api.Controllers.ImportPlan.#ctor(System.String,System.String,System.DateOnly,System.Int32,System.Int32,System.Collections.Generic.List{System.String},System.Boolean,System.Collections.Generic.List{api.Controllers.PlanCourse},System.Collections.Generic.List{System.String},System.Collections.Generic.List{System.String})">
             <summary>导入计划（预检和正式导入共用）。</summary>
         </member>
         <member name="T:api.Controllers.PlanCourse">
@@ -3299,6 +3314,33 @@
             <summary>
             扩展信息(JSON)，如数据快照等
             </summary>
+        </member>
+        <member name="T:api.Data.TimetableTemplate">
+            <summary>
+            作息表模板（可复用的一套上课时间，例如「标准 12 节」「夏季作息」）。
+            导入课表 / 新建课表时可以直接选一套，不用每次重新填时间。
+            </summary>
+        </member>
+        <member name="P:api.Data.TimetableTemplate.Id">
+            <summary>主键 ID</summary>
+        </member>
+        <member name="P:api.Data.TimetableTemplate.UserId">
+            <summary>所属用户 ID</summary>
+        </member>
+        <member name="P:api.Data.TimetableTemplate.Name">
+            <summary>作息表名称（如：标准作息）</summary>
+        </member>
+        <member name="P:api.Data.TimetableTemplate.TimesJson">
+            <summary>作息时间（JSON 数组字符串，第 1 节开始，如 ["08:00-08:45"]）</summary>
+        </member>
+        <member name="P:api.Data.TimetableTemplate.IsDeleted">
+            <summary>是否伪删除：0正常，1已删除</summary>
+        </member>
+        <member name="P:api.Data.TimetableTemplate.CreatedAt">
+            <summary>创建时间</summary>
+        </member>
+        <member name="P:api.Data.TimetableTemplate.UpdatedAt">
+            <summary>更新时间</summary>
         </member>
         <member name="T:api.Data.User">
             <summary>
@@ -4667,7 +4709,7 @@
         <member name="T:api.Infrastructure.ParsedTimetable">
             <summary>Excel 解析结果。</summary>
         </member>
-        <member name="M:api.Infrastructure.ParsedTimetable.#ctor(System.String,System.String,System.Nullable{System.DateOnly},System.Int32,System.Collections.Generic.List{api.Infrastructure.ParsedSlot})">
+        <member name="M:api.Infrastructure.ParsedTimetable.#ctor(System.String,System.String,System.Nullable{System.DateOnly},System.Int32,System.Collections.Generic.List{api.Infrastructure.ParsedSlot},System.Collections.Generic.List{System.String})">
             <summary>Excel 解析结果。</summary>
         </member>
         <member name="T:api.Infrastructure.TimetableExcelParser">
@@ -4682,6 +4724,12 @@
              解析思路：合并单元格展开成网格 → 自动找表头（星期X）→ 自动选节次列（1-2节 或 一…十二）
              → 逐格解析 → 相邻同门课合并。算法与前端 TS 版一致。
              </summary>
+        </member>
+        <member name="M:api.Infrastructure.TimetableExcelParser.TryExtractTimetable(NPOI.SS.UserModel.IWorkbook)">
+            <summary>
+            尝试从工作簿里读取「作息时间表」（如「第1节 08:00-08:45」或「1-2节 08:00-09:40」）。
+            找不到就返回 null，由上层决定用默认作息还是让用户选/建。
+            </summary>
         </member>
         <member name="M:api.Infrastructure.TimetableExcelParser.ParseGrid(System.String[0:,0:],System.Collections.Generic.List{System.ValueTuple{System.Int32,System.Int32,System.Int32,System.Int32}})">
             <summary>
@@ -6677,6 +6725,9 @@
         <member name="P:api.Models.ScheduleImportPreviewDto.Timetable">
             <summary>作息时间表</summary>
         </member>
+        <member name="P:api.Models.ScheduleImportPreviewDto.TimetableFromFile">
+            <summary>作息时间是否来自文件（false = 服务端默认作息，页面可让用户换用历史作息/默认/新建）</summary>
+        </member>
         <member name="P:api.Models.ScheduleImportPreviewDto.CourseCount">
             <summary>课程数</summary>
         </member>
@@ -6712,6 +6763,33 @@
         </member>
         <member name="P:api.Models.ScheduleImportConfirmDto.Courses">
             <summary>课程列表（结构与预检返回的 courses 一致）</summary>
+        </member>
+        <member name="T:api.Models.ScheduleTimetableDto">
+            <summary>一套作息时间表（作息表模板，或从已有课表里提取的历史作息）。</summary>
+        </member>
+        <member name="P:api.Models.ScheduleTimetableDto.Id">
+            <summary>作息表模板 ID（0 = 从已有课表提取的，只读）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleTimetableDto.Name">
+            <summary>名称（模板名 / 来源课表名）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleTimetableDto.Times">
+            <summary>作息时间（第 1 节开始，格式 HH:mm-HH:mm）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleTimetableDto.FromSchedule">
+            <summary>是否来自已有课表（true 时不可改名/删除）</summary>
+        </member>
+        <member name="P:api.Models.ScheduleTimetableDto.UpdatedAt">
+            <summary>最近更新时间</summary>
+        </member>
+        <member name="T:api.Models.SaveTimetableDto">
+            <summary>新建 / 修改作息表模板。</summary>
+        </member>
+        <member name="P:api.Models.SaveTimetableDto.Name">
+            <summary>作息表名称</summary>
+        </member>
+        <member name="P:api.Models.SaveTimetableDto.Times">
+            <summary>作息时间（第 1 节开始，格式 HH:mm-HH:mm）</summary>
         </member>
         <member name="T:Program">
             <summary>
